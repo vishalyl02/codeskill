@@ -4,8 +4,12 @@ import Link from "next/link";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { HeroCodePreview } from "@/components/landing/HeroCodePreview";
 import { motion } from "framer-motion";
+import { useAuth } from "@/context/AuthContext";
 
 export function Hero() {
+  const { user, loading } = useAuth();
+  const dashboardPath = user?.role === 'teacher' ? '/teacher/dashboard' : user?.isAdmin || ['admin', 'super_admin'].includes(user?.role || '') ? '/admin/dashboard' : '/dashboard';
+
   return (
     <section className="relative isolate w-full overflow-hidden border-b border-emerald-100/80 bg-[#fbfffc] px-4 pb-16 pt-28 text-foreground dark:border-emerald-950 dark:bg-slate-950 sm:px-6 sm:pb-20 sm:pt-32 md:pt-36">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_12%_20%,rgba(125,225,232,0.35),transparent_38%),radial-gradient(ellipse_at_86%_18%,rgba(172,238,191,0.45),transparent_40%),radial-gradient(ellipse_at_65%_85%,rgba(255,226,160,0.25),transparent_38%),linear-gradient(135deg,#f6fdff_0%,#fbfffc_54%,#f6fff7_100%)] dark:bg-[radial-gradient(ellipse_at_12%_20%,rgba(8,145,178,0.16),transparent_40%),radial-gradient(ellipse_at_86%_18%,rgba(16,185,129,0.15),transparent_40%),linear-gradient(135deg,#08131e_0%,#0b1512_100%)]" />
@@ -25,9 +29,9 @@ export function Hero() {
             Practice data structures and algorithms, take proctored assessments, and prepare for technical interviews.
           </motion.p>
           <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }} className="flex w-full flex-col items-stretch gap-3.5 pt-1 sm:w-auto sm:flex-row sm:items-center">
-            <Link href="/login" className="group inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-6 text-sm font-bold text-white shadow-sm transition hover:scale-[1.02] hover:bg-emerald-800 hover:shadow-md active:scale-[0.98] dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400">
-              <span>Log In</span><ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-            </Link>
+            {!loading && <Link href={user ? dashboardPath : "/login"} className="group inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-6 text-sm font-bold text-white shadow-sm transition hover:scale-[1.02] hover:bg-emerald-800 hover:shadow-md active:scale-[0.98] dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400">
+              <span>{user ? 'Go to Dashboard' : 'Log In'}</span><ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            </Link>}
             <Link href="/assessments" className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white/85 px-6 text-sm font-semibold text-slate-800 shadow-sm backdrop-blur transition hover:border-emerald-300 hover:bg-emerald-50/80 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-800">
               View Assessments
             </Link>
