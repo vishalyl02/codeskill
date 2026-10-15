@@ -1,0 +1,17 @@
+# Read-only lookups; this root never manages application, RDS, Redis, ALB or DNS.
+existing_vpc_id             = "vpc-REPLACE"
+existing_private_subnet_id  = "subnet-REPLACE"
+backend_security_group_ids = ["sg-REPLACE"]
+
+# Native ARM builds of Judge0, Piston, sandbox and language runtimes.
+judge_instance_type           = "t4g.small"
+deployment_mode              = "separate"
+require_free_plan_eligibility = true
+runtime_architecture          = "arm64"
+root_volume_size              = 40
+
+# Build the pinned source bundle with deployment/judges/shared/package.sh.
+# Each instance builds and verifies its assigned judge before publishing readiness.
+runtime_bundle_bucket = "YOUR_EXISTING_ARTIFACT_BUCKET"
+runtime_bundle_key    = "releases/judges/NATIVE_SOURCE_BUNDLE.tgz"
+runtime_bundle_sha256 = "REPLACE_WITH_64_HEX_SHA256"

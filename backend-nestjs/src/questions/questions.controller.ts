@@ -123,8 +123,8 @@ export class QuestionsController {
   @ApiOperation({
     summary: 'Get aggregated topic distribution and difficulty breakdowns',
   })
-  async getTopics() {
-    const topics = await this.questionsService.getTopicsDistribution();
+  async getTopics(@Query('topic') topic?: string) {
+    const topics = await this.questionsService.getTopicsDistribution(topic);
     return { success: true, topics, data: topics };
   }
 

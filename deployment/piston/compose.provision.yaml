@@ -1,0 +1,5 @@
+# Temporary trusted provisioning ONLY: never accept student executions while applied.
+# Close security-group ingress until the sealed compose file is restored.
+networks:
+  sandbox:
+    internal: false

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { adminContestsAPI, adminProblemsAPI } from "@/config/api";
 import Link from "next/link";
-import { ArrowLeft, Save, Search, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Save, Search, CheckCircle2, ShieldCheck } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { isAxiosError } from "axios";
 
@@ -12,6 +12,14 @@ interface ProblemOption { _id: string; title: string; slug: string; difficulty: 
 interface ContestData {
   title: string; slug: string; description: string; startTime: string; endTime: string;
   isPrivate: boolean; password?: string; isPublished: boolean; problems: string[];
+  antiCheatConfig?: {
+    enableTabSwitchDetection?: boolean;
+    enableFullscreenCheck?: boolean;
+    maxTabSwitchViolations?: number;
+    warningLimit?: number;
+    actionOnMaxViolations?: "auto_submit" | "lock_attempt" | "flag_review";
+  };
+  resultsPublished?: boolean;
 }
 
 // datetime-local uses the administrator's local time, while the API stores UTC.
@@ -48,6 +56,11 @@ export default function ContestForm({ contestId }: { contestId?: string }) {
     isPrivate: false,
     password: "",
     isPublished: false,
+    enableTabSwitchDetection: true,
+    enableFullscreenCheck: true,
+    maxTabSwitchViolations: 3,
+    actionOnMaxViolations: "auto_submit" as "auto_submit" | "lock_attempt" | "flag_review",
+    resultsPublished: false,
   });
   
   // Problems State
@@ -65,10 +78,21 @@ export default function ContestForm({ contestId }: { contestId?: string }) {
       setAllProblems(problemsResponse.data.problems || []);
       if (contestResponse) {
         const contest: ContestData = contestResponse.data.contest || contestResponse.data;
+        const antiCheat = contest.antiCheatConfig || {};
         setFormData({
-          title: contest.title, slug: contest.slug, description: contest.description,
-          startTime: toLocalDateTime(contest.startTime), endTime: toLocalDateTime(contest.endTime),
-          isPrivate: !!contest.isPrivate, password: contest.password || "", isPublished: !!contest.isPublished,
+          title: contest.title,
+          slug: contest.slug,
+          description: contest.description,
+          startTime: toLocalDateTime(contest.startTime),
+          endTime: toLocalDateTime(contest.endTime),
+          isPrivate: !!contest.isPrivate,
+          password: contest.password || "",
+          isPublished: !!contest.isPublished,
+          enableTabSwitchDetection: antiCheat.enableTabSwitchDetection !== false,
+          enableFullscreenCheck: antiCheat.enableFullscreenCheck !== false,
+          maxTabSwitchViolations: antiCheat.maxTabSwitchViolations ?? antiCheat.warningLimit ?? 3,
+          actionOnMaxViolations: antiCheat.actionOnMaxViolations || "auto_submit",
+          resultsPublished: contest.resultsPublished === true,
         });
         setSelectedProblems(contest.problems || []);
       }
@@ -125,8 +149,23 @@ export default function ContestForm({ contestId }: { contestId?: string }) {
     setError(null);
     try {
       const payload = {
-        ...formData, startTime: start.toISOString(), endTime: end.toISOString(),
+        title: formData.title,
+        slug: formData.slug,
+        description: formData.description,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        isPrivate: formData.isPrivate,
+        password: formData.password,
+        isPublished: formData.isPublished,
         problems: selectedProblems,
+        antiCheatConfig: {
+          enableTabSwitchDetection: formData.enableTabSwitchDetection,
+          enableFullscreenCheck: formData.enableFullscreenCheck,
+          maxTabSwitchViolations: Math.max(1, Number(formData.maxTabSwitchViolations) || 3),
+          warningLimit: Math.max(1, Number(formData.maxTabSwitchViolations) || 3),
+          actionOnMaxViolations: formData.actionOnMaxViolations,
+        },
+        resultsPublished: formData.resultsPublished,
       };
       if (contestId) await adminContestsAPI.update(contestId, payload);
       else await adminContestsAPI.create(payload);
@@ -359,6 +398,104 @@ export default function ContestForm({ contestId }: { contestId?: string }) {
                     <label htmlFor="isPublished" className="text-sm font-medium text-foreground cursor-pointer">Publish Contest</label>
                     <p className="text-xs text-muted-foreground mt-1">Make this contest visible on the platform (respects Start Time for actual access).</p>
                   </div>
+                </div>
+
+                <hr className="border-border my-4" />
+
+                <div className="flex items-start gap-3">
+                  <div className="flex items-center h-5">
+                    <input 
+                      type="checkbox"
+                      id="resultsPublished"
+                      name="resultsPublished"
+                      checked={formData.resultsPublished}
+                      onChange={handleChange}
+                      className="w-4 h-4 text-primary rounded border-border focus:ring-primary"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label htmlFor="resultsPublished" className="text-sm font-medium text-foreground cursor-pointer">Publish Results to Students</label>
+                    <p className="text-xs text-muted-foreground mt-1">Allow students to see their scores, ranks, and solved problems.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Exam Security & Anti-Cheat Settings */}
+            <div className="bg-card border border-border rounded-xl shadow-sm p-6 space-y-6">
+              <div className="flex items-center gap-2 border-b border-border pb-2">
+                <ShieldCheck className="w-5 h-5 text-sky-500" />
+                <h2 className="text-lg font-semibold text-foreground">Exam Security & Anti-Cheat</h2>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex items-center h-5">
+                    <input 
+                      type="checkbox"
+                      id="enableTabSwitchDetection"
+                      name="enableTabSwitchDetection"
+                      checked={formData.enableTabSwitchDetection}
+                      onChange={handleChange}
+                      className="w-4 h-4 text-primary rounded border-border focus:ring-primary"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label htmlFor="enableTabSwitchDetection" className="text-sm font-medium text-foreground cursor-pointer">Monitor Tab-Switching</label>
+                    <p className="text-xs text-muted-foreground mt-0.5">Detect when students change browser tabs or leave contest page.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="flex items-center h-5">
+                    <input 
+                      type="checkbox"
+                      id="enableFullscreenCheck"
+                      name="enableFullscreenCheck"
+                      checked={formData.enableFullscreenCheck}
+                      onChange={handleChange}
+                      className="w-4 h-4 text-primary rounded border-border focus:ring-primary"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label htmlFor="enableFullscreenCheck" className="text-sm font-medium text-foreground cursor-pointer">Enforce Fullscreen Mode</label>
+                    <p className="text-xs text-muted-foreground mt-0.5">Track fullscreen exit events as security violations.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 pt-2">
+                  <label htmlFor="maxTabSwitchViolations" className="text-sm font-medium text-foreground">
+                    Max Violation Count (Default: 3)
+                  </label>
+                  <input 
+                    type="number"
+                    min="1"
+                    max="20"
+                    id="maxTabSwitchViolations"
+                    name="maxTabSwitchViolations"
+                    value={formData.maxTabSwitchViolations}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                  />
+                  <p className="text-xs text-muted-foreground">Allowed warnings before contest action triggers.</p>
+                </div>
+
+                <div className="space-y-1.5 pt-2">
+                  <label htmlFor="actionOnMaxViolations" className="text-sm font-medium text-foreground">
+                    Action on Limit Reached
+                  </label>
+                  <select
+                    id="actionOnMaxViolations"
+                    name="actionOnMaxViolations"
+                    value={formData.actionOnMaxViolations}
+                    onChange={(e) => setFormData(prev => ({ ...prev, actionOnMaxViolations: e.target.value as any }))}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                  >
+                    <option value="auto_submit">Auto-Submit Attempt</option>
+                    <option value="lock_attempt">Lock Attempt (Requires Admin Re-entry)</option>
+                    <option value="flag_review">Flag Attempt for Review</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">Policy applied when student reaches configured violation limit.</p>
                 </div>
               </div>
             </div>

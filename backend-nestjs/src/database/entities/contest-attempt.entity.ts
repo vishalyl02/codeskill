@@ -3,7 +3,7 @@ import { User } from './user.entity';
 import { Contest } from './contest.entity';
 
 @Entity('contest_attempts')
-@Index(['contest_id', 'user_id'], { unique: true })
+@Index(['contest_id', 'user_id', 'attemptNumber'], { unique: true })
 export class ContestAttempt {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -24,6 +24,15 @@ export class ContestAttempt {
 
   @Column()
   user_id: string;
+
+  @Column({ default: 1 })
+  attemptNumber: number;
+
+  @Column({ type: 'double precision', default: 0 })
+  score: number;
+
+  @Column({ default: 0 })
+  problemsSolved: number;
 
   @Column()
   sessionId: string;

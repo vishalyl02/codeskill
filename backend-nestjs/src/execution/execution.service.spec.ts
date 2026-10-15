@@ -3,8 +3,15 @@ import { ExecutionService, Status } from './execution.service';
 describe('ExecutionService', () => {
   let service: ExecutionService;
 
+  const originalProvider = process.env.CODE_EXECUTION_PROVIDER;
   beforeAll(() => {
+    process.env.CODE_EXECUTION_PROVIDER = 'legacy';
     service = new ExecutionService();
+  });
+
+  afterAll(() => {
+    if (originalProvider === undefined) delete process.env.CODE_EXECUTION_PROVIDER;
+    else process.env.CODE_EXECUTION_PROVIDER = originalProvider;
   });
 
   // ─── Helpers ──────────────────────────────────────────────────────────────

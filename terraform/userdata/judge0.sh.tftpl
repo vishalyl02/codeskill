@@ -1,0 +1,592 @@
+#!/bin/bash
+set -euo pipefail
+exec > >(tee -a /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+echo "=========================================================="
+echo " Starting Judge0 & OSS Monitoring Stack (x86_64)          "
+echo " Monitoring: Prometheus, Grafana, Loki, Exporters, Kuma  "
+echo " Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+echo "=========================================================="
+
+# 1. Update OS and Install Base Tools (NO CloudWatch Agent)
+echo "[1/6] Installing base packages and Docker..."
+if command -v dnf &>/dev/null; then
+    dnf update -y
+    dnf install -y git curl wget jq docker iptables-services
+    systemctl enable docker
+    systemctl start docker
+    systemctl enable amazon-ssm-agent || true
+    systemctl start amazon-ssm-agent || true
+else
+    apt-get update -y
+    apt-get install -y git curl wget jq docker.io docker-compose-plugin iptables-persistent
+    systemctl enable docker
+    systemctl start docker
+    systemctl enable amazon-ssm-agent || true
+    systemctl start amazon-ssm-agent || true
+fi
+
+# Install docker-compose plugin if not present
+if ! docker compose version &>/dev/null; then
+    mkdir -p /usr/local/lib/docker/cli-plugins
+    curl -SL https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+fi
+
+# 2. Block Untrusted Sandboxes from AWS Instance Metadata Service (IMDS)
+echo "[2/6] Enforcing Network Isolation and IMDS Shielding..."
+iptables -I DOCKER-USER -d 169.254.169.254 -j DROP || true
+if command -v service &>/dev/null && [ -f /etc/init.d/iptables ]; then
+    service iptables save || true
+elif command -v netfilter-persistent &>/dev/null; then
+    netfilter-persistent save || true
+fi
+
+# 3. Setup Monitoring Configurations (Prometheus, Loki, Promtail, Grafana)
+echo "[3/6] Setting up Prometheus, Loki, Promtail, and Grafana configurations..."
+MONITORING_DIR="/opt/monitoring"
+mkdir -p "$MONITORING_DIR/prometheus" "$MONITORING_DIR/loki" "$MONITORING_DIR/promtail" "$MONITORING_DIR/grafana/provisioning/datasources" "$MONITORING_DIR/grafana/provisioning/dashboards" "$MONITORING_DIR/grafana/dashboards" "$MONITORING_DIR/uptime-kuma"
+mkdir -p /var/log/judge0
+
+# A. Prometheus Configuration
+cat << 'EOF' > "$MONITORING_DIR/prometheus/prometheus.yml"
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+scrape_configs:
+  - job_name: 'judge0-node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          instance: 'judge0-host'
+
+  - job_name: 'rds-postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          instance: 'rds-postgres'
+
+  - job_name: 'codeskill-app-nodes'
+    static_configs:
+      - targets: ['10.0.1.10:9100', '10.0.1.11:9100', '10.0.2.10:9100']
+        labels:
+          job: 'codeskill-app'
+EOF
+
+cat << 'EOF' > "$MONITORING_DIR/prometheus/alert_rules.yml"
+groups:
+  - name: codeskill_alerts
+    rules:
+      - alert: HostHighCpuUtilization
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU utilization on {{ $labels.instance }}"
+          description: "CPU usage has exceeded 80% for 5 minutes."
+
+      - alert: HostLowFreeMemory
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low available memory on {{ $labels.instance }}"
+          description: "Available memory is below 15%."
+
+      - alert: HostLowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Root filesystem free space is below 15%."
+
+      - alert: InstanceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Target {{ $labels.instance }} down"
+          description: "Target has been unreachable for more than 2 minutes."
+
+      - alert: PostgresHighConnections
+        expr: pg_stat_database_numbackends > 40
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database connection count on RDS"
+          description: "RDS PostgreSQL connections have exceeded 40."
+EOF
+
+# B. Loki Configuration (Centralized Log Aggregation with retention)
+cat << EOF > "$MONITORING_DIR/loki/loki.yml"
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: ${loki_retention_period}
+  enforce_metric_name: false
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+EOF
+
+# C. Promtail Configuration for Judge0 Host
+cat << 'EOF' > "$MONITORING_DIR/promtail/promtail.yml"
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/log/promtail-positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: judge0-logs
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: judge0
+          host: judge0-host
+          __path__: /var/log/judge0/*.log
+
+  - job_name: system-userdata
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: judge0
+          service: userdata
+          host: judge0-host
+          __path__: /var/log/user-data.log
+EOF
+
+# D. Grafana Datasources Provisioning
+cat << 'EOF' > "$MONITORING_DIR/grafana/provisioning/datasources/datasources.yml"
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: true
+EOF
+
+# E. Grafana Dashboards Provisioning
+cat << 'EOF' > "$MONITORING_DIR/grafana/provisioning/dashboards/dashboards.yml"
+apiVersion: 1
+
+providers:
+  - name: 'CodeSkill'
+    orgId: 1
+    folder: 'CodeSkill'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/dashboards
+EOF
+
+# Pre-created Unified System Dashboard JSON
+cat << 'EOF' > "$MONITORING_DIR/grafana/dashboards/codeskill-overview.json"
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "EC2 Host CPU Utilization (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "title": "EC2 Host Memory Usage (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "title": "PostgreSQL Active Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "pg_stat_database_numbackends",
+          "legendFormat": "{{datname}}"
+        }
+      ]
+    },
+    {
+      "title": "Recent Centralized Application & Judge0 Logs (Loki)",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "{job=~\"codeskill-app|judge0\"}",
+          "datasource": "Loki"
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["codeskill", "production"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m"] },
+  "timezone": "browser",
+  "title": "CodeSkill Production Monitoring Overview",
+  "uid": "codeskill-overview"
+}
+EOF
+
+# 4. Set up Judge0 Directory & Configuration
+echo "[4/6] Setting up Judge0 stack files..."
+JUDGE0_DIR="/opt/judge0"
+mkdir -p "$JUDGE0_DIR"
+cd "$JUDGE0_DIR"
+
+cat << EOF > "$JUDGE0_DIR/judge0.conf"
+PORT=2358
+RAILS_ENV=production
+ENABLE_WAIT_RESULT=true
+ENABLE_COMPILER_OPTIONS=true
+
+CPU_TIME_LIMIT=${cpu_time_limit}
+MAX_CPU_TIME_LIMIT=${max_cpu_time_limit}
+CPU_EXTRA_TIME=0.5
+WALL_TIME_LIMIT=15.0
+MAX_WALL_TIME_LIMIT=20.0
+MEMORY_LIMIT=${memory_limit_kb}
+MAX_MEMORY_LIMIT=${max_memory_limit_kb}
+STACK_LIMIT=64000
+MAX_STACK_LIMIT=128000
+MAX_PROCESSES_AND_OR_THREADS=${max_processes}
+MAX_MAX_PROCESSES_AND_OR_THREADS=120
+ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT=false
+ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT=false
+MAX_FILE_SIZE=4096
+MAX_MAX_FILE_SIZE=8192
+NUMBER_OF_RUNS=1
+MAX_NUMBER_OF_RUNS=5
+
+ENABLE_NETWORK=false
+WORKERS_COUNT=${workers_count}
+
+POSTGRES_USER=judge0
+POSTGRES_PASSWORD=${judge0_db_password}
+POSTGRES_DB=judge0
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=${judge0_redis_password}
+EOF
+
+# Fetch DB credentials from Secrets Manager for postgres-exporter
+DB_SECRET_ARN="${db_secret_arn}"
+AWS_REGION="${aws_region}"
+RDS_HOST=""
+RDS_USER=""
+RDS_PASS=""
+RDS_DB=""
+RDS_PORT="5432"
+
+if [ -n "$DB_SECRET_ARN" ]; then
+    SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "$DB_SECRET_ARN" --region "$AWS_REGION" --query SecretString --output text || echo "{}")
+    if [ -n "$SECRET_JSON" ] && [ "$SECRET_JSON" != "{}" ]; then
+        RDS_HOST=$(echo "$SECRET_JSON" | jq -r '.host // empty')
+        RDS_USER=$(echo "$SECRET_JSON" | jq -r '.username // empty')
+        RDS_PASS=$(echo "$SECRET_JSON" | jq -r '.password // empty')
+        RDS_DB=$(echo "$SECRET_JSON" | jq -r '.dbname // empty')
+        RDS_PORT=$(echo "$SECRET_JSON" | jq -r '.port // "5432"')
+    fi
+fi
+
+RDS_HOST="$${RDS_HOST:-${db_endpoint}}"
+RDS_USER="$${RDS_USER:-${db_username}}"
+RDS_PASS="$${RDS_PASS:-${db_password}}"
+RDS_DB="$${RDS_DB:-${db_name}}"
+
+# 5. Integrated Docker Compose: Judge0 Engine + Lightweight OSS Monitoring Suite
+echo "[5/6] Writing integrated Docker Compose (Judge0 + Prometheus + Grafana + Loki + Kuma)..."
+cat << EOF > "$JUDGE0_DIR/docker-compose.yml"
+version: '3.8'
+
+services:
+  # --- Judge0 Services ---
+  server:
+    image: judge0/judge0:1.13.0
+    container_name: judge0-server
+    restart: always
+    env_file: judge0.conf
+    ports:
+      - "2358:2358"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - /var/log/judge0:/judge0/log
+    privileged: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  workers:
+    image: judge0/judge0:1.13.0
+    container_name: judge0-workers
+    restart: always
+    command: ["./scripts/workers"]
+    env_file: judge0.conf
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - /var/log/judge0:/judge0/log
+    privileged: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  db:
+    image: postgres:13-alpine
+    container_name: judge0-db
+    restart: always
+    env_file: judge0.conf
+    volumes:
+      - judge0-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge0 -d judge0"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "2"
+
+  redis:
+    image: redis:7-alpine
+    container_name: judge0-redis
+    restart: always
+    command: ["redis-server", "--requirepass", "${judge0_redis_password}"]
+    volumes:
+      - judge0-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${judge0_redis_password}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "2"
+
+  # --- Open Source Monitoring Suite (Zero CloudWatch, Zero Added EC2 Instances) ---
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: monitoring-prometheus
+    restart: always
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    volumes:
+      - /opt/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /opt/monitoring/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus-data:/prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: monitoring-loki
+    restart: always
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - /opt/monitoring/loki/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: monitoring-promtail
+    restart: always
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - /opt/monitoring/promtail/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  grafana:
+    image: grafana/grafana-oss:10.3.3
+    container_name: monitoring-grafana
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${grafana_admin_password}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - /opt/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /opt/monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: monitoring-node-exporter
+    restart: always
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: monitoring-postgres-exporter
+    restart: always
+    environment:
+      - DATA_SOURCE_NAME=postgresql://$RDS_USER:$RDS_PASS@$RDS_HOST:$RDS_PORT/$RDS_DB?sslmode=require
+    ports:
+      - "9187:9187"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1.23.13
+    container_name: monitoring-uptime-kuma
+    restart: always
+    ports:
+      - "3002:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  judge0-postgres-data:
+  judge0-redis-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+  uptime-kuma-data:
+EOF
+
+# 6. Start Judge0 and Monitoring Services
+echo "[6/6] Starting Judge0 and Open Source Monitoring Services..."
+cd "$JUDGE0_DIR"
+docker compose up -d
+
+touch /var/run/judge0-initialized
+echo "Judge0 and OSS Monitoring Stack successfully initialized at $(date -u +"%Y-%m-%dT%H:%M:%SZ")"

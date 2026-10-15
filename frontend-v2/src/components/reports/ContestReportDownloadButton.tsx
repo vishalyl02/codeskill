@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/spinner";
 
 interface ContestReportDownloadButtonProps {
   data: ContestReportData;
+  logoPath?: string;
   filename?: string;
   className?: string;
   variant?: "primary" | "secondary" | "outline";
@@ -15,6 +16,7 @@ interface ContestReportDownloadButtonProps {
 
 export function ContestReportDownloadButton({
   data,
+  logoPath,
   filename,
   className = "",
   variant = "primary",
@@ -43,8 +45,20 @@ export function ContestReportDownloadButton({
       // Dynamically import @react-pdf/renderer to ensure client-only execution
       const { pdf } = await import("@react-pdf/renderer");
       const { ContestReportDocument } = await import("./ContestReportDocument");
+      let logoSrc: string | undefined;
+      if (logoPath) {
+        const response = await fetch(logoPath);
+        if (!response.ok) throw new Error("Could not load the university logo.");
+        const logoBlob = await response.blob();
+        logoSrc = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Could not read the university logo."));
+          reader.onerror = () => reject(reader.error || new Error("Could not read the university logo."));
+          reader.readAsDataURL(logoBlob);
+        });
+      }
 
-      const blob = await pdf(<ContestReportDocument data={data} />).toBlob();
+      const blob = await pdf(<ContestReportDocument data={data} logoSrc={logoSrc} />).toBlob();
       const url = URL.createObjectURL(blob);
 
       const link = document.createElement("a");

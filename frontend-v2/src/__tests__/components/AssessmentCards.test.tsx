@@ -41,14 +41,12 @@ it.each(["upcoming", "ended", "draft"])("does not offer attempts for %s assessme
   render(<Page />); await screen.findByRole("heading", { name: "Coding Problem Test" });
   expect(screen.queryByRole("link", { name: "Attempt Now" })).toBeNull();
 });
-it("preserves scorecards and only navigates after a successful permitted retake", async () => {
+it("preserves scorecards and routes permitted retakes through the secure assessment gate", async () => {
   load.mockResolvedValue({ data: { assessments: [{ ...fixtures[0], attemptStatus: "auto_submitted", canRetake: true, attemptScore: 0 }] } });
-  jest.mocked(studentAssessmentsAPI.retakeAttempt).mockRejectedValueOnce(new Error("Failed"));
   render(<Page />); fireEvent.click(await screen.findByRole("button", { name: "Re-attempt" }));
-  await screen.findByRole("alert"); expect(push).not.toHaveBeenCalled();
+  await waitFor(() => expect(push).toHaveBeenCalledWith("/assessments/assessment-0"));
+  expect(studentAssessmentsAPI.retakeAttempt).not.toHaveBeenCalled();
   expect(screen.getByRole("link", { name: "Scorecard" })).toHaveAttribute("href", "/assessments/assessment-0/result");
-  jest.mocked(studentAssessmentsAPI.retakeAttempt).mockResolvedValueOnce({ data: {} });
-  fireEvent.click(screen.getByRole("button", { name: "Re-attempt" })); await waitFor(() => expect(push).toHaveBeenCalledWith("/assessments/assessment-0/take"));
 });
 it("shows API errors and retries instead of a false empty state", async () => {
   load.mockRejectedValueOnce(new Error("Offline")); render(<Page />); await screen.findByRole("alert");

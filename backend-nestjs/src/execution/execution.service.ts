@@ -1,10 +1,21 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Optional,
+  BadRequestException,
+} from '@nestjs/common';
 import { execFile, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID as uuidv4 } from 'crypto';
 import { commandBasename, getLanguageAdapter } from './language-adapters';
+
+import { PistonService } from './piston/piston.service';
+import { PistonUnavailableError } from './piston/piston.types';
+import { compareOutput } from './output-comparison';
+import { Judge0Service } from './judge0/judge0.service';
+import { canonicalLanguage } from './execution.types';
 
 // ── Result Status Constants ──────────────────────────────────────────────────
 export const Status = {
@@ -31,6 +42,7 @@ export interface TestCaseResult {
   expected: string;
   error?: string;
   executionTime?: number;
+  memoryUsed?: number;
 }
 
 interface RunOptions {
@@ -238,6 +250,103 @@ const MAX_OUTPUT_BYTES = 256 * 1024; // 256 KB max output
 export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
 
+  private failovers = 0;
+  constructor(
+    @Optional() private readonly piston?: PistonService,
+    @Optional() private readonly judge0?: Judge0Service,
+  ) {}
+
+  get provider(): string {
+    const provider = process.env.CODE_EXECUTION_PROVIDER || 'judge0';
+    if (!['legacy', 'piston', 'judge0'].includes(provider))
+      throw new Error('Invalid CODE_EXECUTION_PROVIDER');
+    return provider;
+  }
+
+  executionMetrics() {
+    return {
+      primary: this.provider,
+      fallback: this.provider === 'judge0' ? 'piston' : undefined,
+      failovers: this.failovers,
+      judge0: this.judge0?.metrics(),
+      piston: this.piston?.metrics(),
+    };
+  }
+
+  async availableLanguages() {
+    if (this.provider === 'judge0') {
+      const [primary, fallback] = await Promise.allSettled([
+        this.judge0?.availableLanguages() ??
+          Promise.reject(new PistonUnavailableError()),
+        this.piston?.availableLanguages() ??
+          Promise.reject(new PistonUnavailableError()),
+      ]);
+      if (primary.status === 'rejected' && fallback.status === 'rejected')
+        throw new PistonUnavailableError();
+      return ['c', 'cpp', 'java', 'python', 'javascript', 'typescript'].map(
+        (language) => {
+          const preferred =
+            primary.status === 'fulfilled'
+              ? primary.value.find(
+                  (entry) => entry.language === language && entry.enabled,
+                )
+              : undefined;
+          const secondary =
+            fallback.status === 'fulfilled'
+              ? fallback.value.find(
+                  (entry) => entry.language === language && entry.enabled,
+                )
+              : undefined;
+          return {
+            language,
+            enabled: !!(preferred || secondary),
+            version: preferred?.version || secondary?.version,
+            provider: preferred ? 'judge0' : secondary ? 'piston' : undefined,
+          };
+        },
+      );
+    }
+    if (this.provider === 'piston') {
+      if (!this.piston) throw new PistonUnavailableError();
+      return this.piston.availableLanguages();
+    }
+    return ['c', 'cpp', 'java', 'python', 'javascript', 'typescript'].map(
+      (language) => ({ language, enabled: true }),
+    );
+  }
+
+  validateRequest(code: unknown, testCases: unknown): void {
+    if (
+      typeof code !== 'string' ||
+      !code.trim() ||
+      Buffer.byteLength(code) > 1_000_000
+    )
+      throw new BadRequestException(
+        'Source code must be nonempty and at most 1MB',
+      );
+    if (
+      !Array.isArray(testCases) ||
+      testCases.length === 0 ||
+      testCases.length > 100
+    )
+      throw new BadRequestException('Provide between 1 and 100 test cases');
+    if (
+      testCases.some(
+        (tc) =>
+          !tc ||
+          typeof tc !== 'object' ||
+          Buffer.byteLength(
+            typeof tc.input === 'string'
+              ? tc.input
+              : JSON.stringify(tc.input ?? ''),
+          ) > 262144 ||
+          Buffer.byteLength(JSON.stringify(tc.expected ?? tc.output ?? '')) >
+            262144,
+      )
+    )
+      throw new BadRequestException('Invalid or oversized test input/output');
+  }
+
   /**
    * Main entry point — Execute user code against test cases.
    * Supports both stdin/stdout mode (competitive programming) and
@@ -258,6 +367,7 @@ export class ExecutionService {
     testCases: any[],
     config: any = {},
   ): Promise<TestCaseResult[]> {
+    this.validateRequest(code, testCases);
     const langConfig = LANGUAGE_CONFIGS[language.toLowerCase()];
     if (!langConfig) {
       return testCases.map((tc) => ({
@@ -352,8 +462,31 @@ export class ExecutionService {
     const normalizedTestCases: TestCaseInput[] = testCases.map((tc, i) => ({
       id: tc.id ?? i + 1,
       input: this.normalizeInput(tc.input, functionMode),
-      expected: this.normalizeExpected(tc.expected ?? tc.output),
+      expected:
+        (config.exactOutput || this.provider !== 'legacy') &&
+        typeof (tc.expected ?? tc.output) === 'string'
+          ? (tc.expected ?? tc.output)
+          : this.normalizeExpected(tc.expected ?? tc.output),
     }));
+
+    if (this.provider !== 'legacy') {
+      if (config.hasCustomChecker) throw new PistonUnavailableError();
+      const prepared = getLanguageAdapter(language)!.prepare(
+        code,
+        functionMode ? 'function' : 'standard',
+        config.functionSignature,
+      );
+      // Piston isolates every test in a new job, including its compilation stage.
+      // Bound the fan-out per submission so one submission cannot monopolise the
+      // global semaphore; every test case still flows through the semaphore + breaker.
+      return this.runTestCasesConcurrently(
+        normalizedTestCases,
+        this.provider === 'judge0'
+          ? this.judge0?.config.testCaseConcurrency || 2
+          : this.piston?.config.testCaseConcurrency || 2,
+        (tc) => this.executeRemoteTestCase(language, prepared, tc, config),
+      );
+    }
 
     // For compiled languages, compile once and run against all test cases
     if (langConfig.compiled) {
@@ -376,6 +509,158 @@ export class ExecutionService {
     );
   }
 
+  private async executeRemoteTestCase(
+    language: string,
+    prepared: { source: string; filename: string },
+    tc: TestCaseInput,
+    config: any,
+  ): Promise<TestCaseResult> {
+    if (this.provider === 'piston') {
+      if (!this.piston) throw new PistonUnavailableError();
+      return this.executePistonTestCase(language, prepared, tc, config);
+    }
+    try {
+      if (!this.judge0) throw new PistonUnavailableError();
+      // Judge0's Java runtime always compiles Main.java and launches Main.
+      // Keep the student's class name/constructors intact and delegate its entry point.
+      let primarySource = prepared.source;
+      if (
+        canonicalLanguage(language) === 'java' &&
+        prepared.filename !== 'Main.java'
+      ) {
+        const entry = prepared.filename.replace(/\.java$/, '');
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry))
+          throw new BadRequestException('Invalid Java entry point');
+        primarySource =
+          prepared.source.replace(
+            new RegExp(`\\bpublic\\s+((?:final\\s+)?class\\s+${entry}\\b)`),
+            '$1',
+          ) +
+          `\nclass Main { public static void main(String[] args) throws Exception { ${entry}.main(args); } }\n`;
+      }
+      const response = await this.judge0.execute(
+        language,
+        primarySource,
+        tc.input,
+        { timeLimit: config.timeLimit, memoryLimit: config.memoryLimit },
+      );
+      const id = response.status.id;
+      const limit = this.judge0.config.outputLimit;
+      const output = Buffer.from(response.stdout || '')
+        .subarray(0, limit)
+        .toString('utf8');
+      let status: string =
+        id === 3
+          ? Status.ACCEPTED
+          : id === 4
+            ? Status.WRONG_ANSWER
+            : id === 5
+              ? Status.TIME_LIMIT_EXCEEDED
+              : id === 6
+                ? Status.COMPILATION_ERROR
+                : Status.RUNTIME_ERROR;
+      if (Buffer.byteLength(response.stdout || '') > limit && id === 3)
+        status = Status.RUNTIME_ERROR;
+      const passed =
+        status === Status.ACCEPTED &&
+        (config.customInput === true ||
+          compareOutput(output, tc.expected, config));
+      if (status === Status.ACCEPTED && !passed) status = Status.WRONG_ANSWER;
+      return {
+        id: tc.id,
+        passed,
+        status,
+        output,
+        expected: tc.expected,
+        error:
+          this.redactDiagnostic(
+            response.compile_output || response.stderr || '',
+            limit,
+          ) || undefined,
+        executionTime:
+          response.time == null ? undefined : Number(response.time) * 1000,
+        memoryUsed:
+          response.memory == null ? undefined : response.memory / 1024,
+      };
+    } catch (error) {
+      if (!(error instanceof PistonUnavailableError) || !this.piston)
+        throw error;
+      this.failovers++;
+      this.logger.warn('Judge0 unavailable; executing the test case on Piston');
+      return this.executePistonTestCase(language, prepared, tc, config);
+    }
+  }
+
+  private redactDiagnostic(value: string, limit: number): string {
+    return Buffer.from(value)
+      .subarray(0, limit)
+      .toString('utf8')
+      .replace(
+        /\/(?:piston|box|tmp|usr|opt|home|var)\/[^\s:'"<>]+/g,
+        '[sandbox]',
+      );
+  }
+
+  private async executePistonTestCase(
+    language: string,
+    prepared: { source: string; filename: string },
+    tc: TestCaseInput,
+    config: any,
+  ): Promise<TestCaseResult> {
+    const piston = this.piston!;
+    const response = await piston.execute(
+      language,
+      prepared.filename,
+      prepared.source,
+      tc.input,
+      { timeLimit: config.timeLimit, memoryLimit: config.memoryLimit },
+    );
+    const compileFailed =
+      response.compile &&
+      (response.compile.code !== 0 ||
+        response.compile.signal ||
+        response.compile.status);
+    const stage = compileFailed ? response.compile! : response.run!;
+    if (stage.status === 'XX') throw new PistonUnavailableError();
+    // SIGKILL is ambiguous (timeout, output, memory, host kill). Use Isolate TO only.
+    let status: string = compileFailed
+      ? Status.COMPILATION_ERROR
+      : stage.status === 'TO'
+        ? Status.TIME_LIMIT_EXCEEDED
+        : stage.code !== 0 || stage.signal || stage.status
+          ? Status.RUNTIME_ERROR
+          : Status.ACCEPTED;
+    const limit = piston.config.outputLimit;
+    const oversized =
+      Buffer.byteLength(stage.stdout) > limit ||
+      Buffer.byteLength(stage.stderr) > limit;
+    if (!compileFailed && oversized) status = Status.RUNTIME_ERROR;
+    const output = Buffer.from(stage.stdout)
+      .subarray(0, limit)
+      .toString('utf8');
+    const passed =
+      status === Status.ACCEPTED &&
+      (config.customInput === true ||
+        compareOutput(output, tc.expected, config));
+    if (status === Status.ACCEPTED && !passed) status = Status.WRONG_ANSWER;
+    const diagnostic =
+      oversized || ['OL', 'EL'].includes(stage.status || '')
+        ? 'Output limit exceeded'
+        : stage.status === 'TO'
+          ? 'Execution time limit exceeded'
+          : this.redactDiagnostic(stage.stderr, limit);
+    return {
+      id: tc.id,
+      passed,
+      status,
+      output,
+      expected: tc.expected,
+      error: diagnostic || undefined,
+      executionTime: stage.cpu_time ?? undefined,
+      memoryUsed: stage.memory == null ? undefined : stage.memory / 1048576,
+    };
+  }
+
   // ── Concurrency Helper ───────────────────────────────────────────────────
   private async runTestCasesConcurrently(
     testCases: TestCaseInput[],
@@ -384,14 +669,21 @@ export class ExecutionService {
   ): Promise<TestCaseResult[]> {
     const results: TestCaseResult[] = new Array(testCases.length);
     let index = 0;
+    let failure: unknown;
     const workerCount = Math.min(concurrencyLimit, testCases.length);
     const workers = Array.from({ length: workerCount }, async () => {
-      while (index < testCases.length) {
+      while (index < testCases.length && !failure) {
         const currentIndex = index++;
-        results[currentIndex] = await runFn(testCases[currentIndex]);
+        try {
+          results[currentIndex] = await runFn(testCases[currentIndex]);
+        } catch (error) {
+          failure = error;
+          return;
+        }
       }
     });
     await Promise.all(workers);
+    if (failure) throw failure;
     return results;
   }
 
@@ -572,8 +864,17 @@ export class ExecutionService {
       Math.min(1_024, Number(opts.memoryLimit) || 256),
     );
     const cpu = Math.max(0.25, Math.min(2, Number(opts.cpuLimit) || 1));
+    const dockerCmd =
+      process.env.DOCKER_PATH ||
+      (fs.existsSync('/usr/local/bin/docker')
+        ? '/usr/local/bin/docker'
+        : fs.existsSync('/opt/homebrew/bin/docker')
+          ? '/opt/homebrew/bin/docker'
+          : fs.existsSync('/usr/bin/docker')
+            ? '/usr/bin/docker'
+            : 'docker');
     return {
-      cmd: 'docker',
+      cmd: dockerCmd,
       args: [
         'run',
         '--rm',
@@ -866,9 +1167,24 @@ export class ExecutionService {
    * Prevents user code from accessing server secrets.
    */
   private getSafeEnv(): Record<string, string> {
+    const standardPaths = [
+      '/usr/local/bin',
+      '/opt/homebrew/bin',
+      '/usr/bin',
+      '/bin',
+      '/usr/sbin',
+      '/sbin',
+      `${process.env.HOME || ''}/.docker/bin`,
+      '/Applications/Docker.app/Contents/Resources/bin',
+    ].filter(Boolean);
+    const existingPaths = (process.env.PATH || '').split(':').filter(Boolean);
+    const combinedPath = Array.from(
+      new Set([...existingPaths, ...standardPaths]),
+    ).join(':');
+
     // Only pass PATH and essential runtime variables
     return {
-      PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+      PATH: combinedPath,
       HOME: os.tmpdir(),
       LANG: 'en_US.UTF-8',
       LC_ALL: 'en_US.UTF-8',

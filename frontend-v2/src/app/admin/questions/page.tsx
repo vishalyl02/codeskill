@@ -49,6 +49,8 @@ export default function QuestionsAdminPage() {
   const [selectedType, setSelectedType] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
   const [topicsList, setTopicsList] = useState<any[]>([]);
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
+  const [deletingQuestions, setDeletingQuestions] = useState(false);
 
   // Modals & Inspect
   const [inspectQuestion, setInspectQuestion] = useState<any | null>(null);
@@ -204,11 +206,13 @@ export default function QuestionsAdminPage() {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setSelectedQuestionIds([]);
     setPage(1);
     fetchQuestions();
   };
 
   const handleClearFilters = () => {
+    setSelectedQuestionIds([]);
     setSearch("");
     setSelectedTopic("");
     setSelectedDifficulty("");
@@ -249,14 +253,58 @@ export default function QuestionsAdminPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to archive/delete this assessment question?")) return;
+    if (!confirm("Archive this assessment question? Archived questions are removed from the active question bank.")) return;
     try {
       await adminQuestionsAPI.delete(id);
       fetchQuestions();
+      setSelectedQuestionIds((current) => current.filter((selectedId) => selectedId !== id));
       const currentId = inspectQuestion?._id || inspectQuestion?.id;
       if (currentId === id) setInspectQuestion(null);
     } catch (err) {
       console.error("Failed to delete question", err);
+      alert("Failed to archive question. Please try again.");
+    }
+  };
+
+  const handleToggleQuestion = (id: string) => {
+    setSelectedQuestionIds((current) =>
+      current.includes(id) ? current.filter((selectedId) => selectedId !== id) : [...current, id],
+    );
+  };
+
+  const handleTogglePage = () => {
+    const visibleIds = questions.map((question) => String(question._id || question.id || "")).filter(Boolean);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedQuestionIds.includes(id));
+    setSelectedQuestionIds((current) =>
+      allSelected
+        ? current.filter((id) => !visibleIds.includes(id))
+        : Array.from(new Set([...current, ...visibleIds])),
+    );
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedQuestionIds];
+    if (ids.length === 0 || deletingQuestions) return;
+    if (!confirm(`Archive ${ids.length} selected question${ids.length === 1 ? "" : "s"}? They will be removed from the active question bank.`)) return;
+
+    setDeletingQuestions(true);
+    const failedIds: string[] = [];
+    try {
+      for (const id of ids) {
+        try {
+          await adminQuestionsAPI.delete(id);
+        } catch (error) {
+          console.error(`Failed to archive question ${id}`, error);
+          failedIds.push(id);
+        }
+      }
+      setSelectedQuestionIds(failedIds);
+      await fetchQuestions();
+      if (failedIds.length > 0) {
+        alert(`${ids.length - failedIds.length} question${ids.length - failedIds.length === 1 ? "" : "s"} archived. ${failedIds.length} could not be archived and remain selected.`);
+      }
+    } finally {
+      setDeletingQuestions(false);
     }
   };
 
@@ -358,7 +406,7 @@ export default function QuestionsAdminPage() {
       {/* Tabs */}
       <div className="border-b border-border flex items-center gap-6">
         <button
-          onClick={() => setActiveTab("questions")}
+          onClick={() => { setSelectedQuestionIds([]); setActiveTab("questions"); }}
           className={`tab-button pb-3 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 ${
             activeTab === "questions"
               ? "border-primary text-primary"
@@ -373,7 +421,7 @@ export default function QuestionsAdminPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab("banks")}
+          onClick={() => { setSelectedQuestionIds([]); setActiveTab("banks"); }}
           className={`tab-button pb-3 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 ${
             activeTab === "banks"
               ? "border-primary text-primary"
@@ -388,7 +436,7 @@ export default function QuestionsAdminPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab("coding")}
+          onClick={() => { setSelectedQuestionIds([]); setActiveTab("coding"); }}
           className={`tab-button pb-3 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 ${
             activeTab === "coding"
               ? "border-primary text-primary"
@@ -411,13 +459,13 @@ export default function QuestionsAdminPage() {
           search={search}
           onSearchChange={setSearch}
           selectedTopic={selectedTopic}
-          onTopicChange={(val) => { setSelectedTopic(val); setPage(1); }}
+          onTopicChange={(val) => { setSelectedQuestionIds([]); setSelectedTopic(val); setPage(1); }}
           selectedDifficulty={selectedDifficulty}
-          onDifficultyChange={(val) => { setSelectedDifficulty(val); setPage(1); }}
+          onDifficultyChange={(val) => { setSelectedQuestionIds([]); setSelectedDifficulty(val); setPage(1); }}
           selectedType={selectedType}
-          onTypeChange={(val) => { setSelectedType(val); setPage(1); }}
+          onTypeChange={(val) => { setSelectedQuestionIds([]); setSelectedType(val); setPage(1); }}
           selectedStatus={selectedStatus}
-          onStatusChange={(val) => { setSelectedStatus(val); setPage(1); }}
+          onStatusChange={(val) => { setSelectedQuestionIds([]); setSelectedStatus(val); setPage(1); }}
           topicsList={topicsList}
           onSearchSubmit={handleSearchSubmit}
           onClearFilters={handleClearFilters}
@@ -428,6 +476,12 @@ export default function QuestionsAdminPage() {
           onEdit={(id) => router.push(`/admin/questions/${id}/edit`)}
           onApprove={handleApprove}
           onReject={setRejectModalId}
+          onDelete={handleDelete}
+          selectedQuestionIds={selectedQuestionIds}
+          onToggleQuestion={handleToggleQuestion}
+          onTogglePage={handleTogglePage}
+          onBulkDelete={handleBulkDelete}
+          deletingQuestions={deletingQuestions}
         />
       )}
 

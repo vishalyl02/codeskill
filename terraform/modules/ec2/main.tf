@@ -9,7 +9,7 @@ resource "aws_security_group" "app" {
     protocol        = "tcp"
     security_groups = [var.alb_security_group_id]
   }
-  
+
   ingress {
     from_port       = 3000
     to_port         = 3000

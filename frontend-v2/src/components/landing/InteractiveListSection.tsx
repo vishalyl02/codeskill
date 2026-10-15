@@ -48,21 +48,21 @@ export function InteractiveListSection() {
   const [activeItem, setActiveItem] = useState<InteractiveListItem | null>(null);
 
   return (
-    <section className="relative w-full py-28 bg-background border-t border-b border-border/40 overflow-hidden text-white">
+    <section className="relative w-full overflow-hidden border-y border-emerald-100/70 bg-gradient-to-br from-emerald-50/55 via-white to-sky-50/55 py-20 text-slate-900 dark:border-emerald-950/70 dark:from-slate-950 dark:via-slate-950 dark:to-emerald-950/20 sm:py-24">
       
       {/* 1. Full Screen Background Colorful Radial Gradient Ambient Mesh */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
         {/* Purple / Magenta Glow on Left */}
-        <div className="absolute -top-10 -left-20 w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(168,85,247,0.22)_0%,rgba(147,51,234,0.12)_40%,transparent_70%)] blur-3xl" />
+        <div className="absolute -top-10 -left-20 w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(59,130,246,0.14)_0%,rgba(59,130,246,0.07)_40%,transparent_70%)] blur-3xl" />
         
         {/* Emerald / Green Glow on Right */}
-        <div className="absolute top-10 -right-20 w-[650px] h-[650px] bg-[radial-gradient(circle,rgba(16,185,129,0.22)_0%,rgba(5,150,105,0.1)_40%,transparent_70%)] blur-3xl" />
+        <div className="absolute top-10 -right-20 w-[650px] h-[650px] bg-[radial-gradient(circle,rgba(16,185,129,0.2)_0%,rgba(5,150,105,0.08)_40%,transparent_70%)] blur-3xl" />
         
         {/* Deep Teal / Cyan Ambient Glow Bottom Left */}
         <div className="absolute -bottom-20 left-1/4 w-[500px] h-[500px] bg-[radial-gradient(circle,rgba(6,182,212,0.15)_0%,transparent_70%)] blur-3xl" />
         
         {/* Pink / Rose Subtle Accent Bottom Right */}
-        <div className="absolute bottom-0 right-10 w-[450px] h-[450px] bg-[radial-gradient(circle,rgba(236,72,153,0.12)_0%,transparent_70%)] blur-3xl" />
+        <div className="absolute bottom-0 right-10 w-[450px] h-[450px] bg-[radial-gradient(circle,rgba(245,158,11,0.12)_0%,transparent_70%)] blur-3xl" />
       </div>
 
       {/* 2. Dynamic Image Animation on the MAIN SCREEN BEHIND the container */}
@@ -82,7 +82,7 @@ export function InteractiveListSection() {
                 alt={activeItem.client}
                 className="w-full h-full object-cover filter blur-xl mix-blend-screen"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/60 to-[#050505]" />
+              <div className="absolute inset-0 bg-gradient-to-t from-white/70 via-white/30 to-white/70 dark:from-slate-950/80 dark:via-slate-950/45 dark:to-slate-950/80" />
             </motion.div>
           )}
         </AnimatePresence>
@@ -92,32 +92,32 @@ export function InteractiveListSection() {
       <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Section Heading */}
-        <div className="text-center mb-16 space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-red-500/20 bg-red-500/10 text-red-400 text-xs font-mono tracking-wider uppercase">
+        <div className="mx-auto mb-10 max-w-3xl space-y-3 text-center sm:mb-12">
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/75 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-emerald-800 shadow-sm backdrop-blur-lg dark:border-emerald-900 dark:bg-slate-900/75 dark:text-emerald-300">
             <span># INTERACTIVE ASSESSMENT MATRIX</span>
           </div>
 
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-mono font-bold tracking-tight text-white">
+          <h2 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white sm:text-4xl lg:text-5xl">
             Engineered For High-Stakes Evaluation
           </h2>
 
-          <p className="text-sm sm:text-base font-mono text-neutral-400 max-w-2xl mx-auto">
+          <p className="mx-auto max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base">
             Hover over any technical module to inspect the underlying architecture, execution sandbox, and proctoring systems.
           </p>
         </div>
 
         {/* Center List / Terminal Container (Dark background for crisp readability) */}
-        <div className="rounded-2xl border border-white/10 bg-[#0d0d0d]/90 backdrop-blur-xl shadow-2xl overflow-hidden transition-all">
+        <div className="overflow-hidden rounded-2xl border border-white/85 bg-white/70 shadow-[0_24px_70px_-44px_rgba(15,23,42,0.35)] backdrop-blur-2xl transition-all dark:border-slate-700/80 dark:bg-slate-900/65">
           
           {/* Terminal Topbar */}
-          <div className="flex items-center justify-between px-6 py-3.5 border-b border-white/10 bg-white/[0.03]">
+          <div className="flex items-center justify-between border-b border-slate-200/80 bg-white/70 px-5 py-3.5 dark:border-slate-700/80 dark:bg-slate-900/60 sm:px-6">
             <div className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
               <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
               <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-              <span className="text-[11px] font-mono text-white/50 ml-2">codeskill-engine://modules/preview</span>
+              <span className="ml-2 text-[11px] font-mono text-slate-500 dark:text-slate-400">codeskill-engine://modules/preview</span>
             </div>
-            <div className="flex items-center gap-2 text-xs font-mono text-white/60">
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
               <Terminal className="w-3.5 h-3.5 text-neutral-400" />
               <span>GSAP Motion Accelerated</span>
             </div>

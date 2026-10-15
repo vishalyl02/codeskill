@@ -1,21 +1,24 @@
 import React from "react";
-import { Document, Page, Text, View } from "@react-pdf/renderer";
+import { Document, Image, Page, Text, View } from "@react-pdf/renderer";
 import { ContestReportData, ProblemStatus } from "@/types/contest-report";
 import { pdfStyles, PDF_COLORS } from "./pdf-styles";
 
 export interface ContestReportDocumentProps {
   data: ContestReportData;
+  logoSrc?: string;
 }
 
 // 1. Header Component
-export function ReportHeader({ data }: { data: ContestReportData }) {
+export function ReportHeader({ data, logoSrc }: { data: ContestReportData; logoSrc?: string }) {
   return (
     <View wrap={false}>
       <View style={pdfStyles.headerWrapper}>
         <View style={pdfStyles.headerLeft}>
-          <View style={pdfStyles.logoBox}>
-            <Text style={pdfStyles.logoText}>&lt;/&gt;</Text>
-          </View>
+          {logoSrc ? <Image src={logoSrc} style={pdfStyles.logoImage} /> : (
+            <View style={pdfStyles.logoBox}>
+              <Text style={pdfStyles.logoText}>&lt;/&gt;</Text>
+            </View>
+          )}
           <View style={pdfStyles.brandBlock}>
             <Text style={pdfStyles.brandTitle}>CodeSkill</Text>
             <Text style={pdfStyles.brandUniversity}>Chandigarh University</Text>
@@ -372,7 +375,9 @@ export function EvaluatorRemarksSection({ evaluator }: { evaluator?: ContestRepo
         <View style={{ width: "50%" }}>
           <Text style={pdfStyles.infoLabel}>Evaluator / Reviewer</Text>
           <Text style={pdfStyles.infoValue}>{evaluator.facultyName}</Text>
-          <Text style={[pdfStyles.infoValue, { fontSize: 7, color: PDF_COLORS.muted }]}>{evaluator.department}</Text>
+          <Text style={[pdfStyles.infoValue, { fontSize: 7, color: PDF_COLORS.muted }]}>
+            {[evaluator.designation, evaluator.department].filter(Boolean).join(" – ")}
+          </Text>
         </View>
         <View style={{ width: "50%", alignItems: "flex-end" }}>
           <Text style={pdfStyles.infoLabel}>Verification Status</Text>
@@ -442,7 +447,7 @@ export function ReportFooter() {
 }
 
 // Full A4 Multi-Page Contest Report Document
-export function ContestReportDocument({ data }: ContestReportDocumentProps) {
+export function ContestReportDocument({ data, logoSrc }: ContestReportDocumentProps) {
   return (
     <Document
       title={`CodeSkill Contest Performance Report - ${data.student.name} (${data.student.uid})`}
@@ -452,7 +457,7 @@ export function ContestReportDocument({ data }: ContestReportDocumentProps) {
     >
       <Page size="A4" orientation="portrait" style={pdfStyles.page}>
         {/* 1. Header with University Branding */}
-        <ReportHeader data={data} />
+        <ReportHeader data={data} logoSrc={logoSrc} />
 
         {/* 2. Student Credentials Card */}
         <View style={pdfStyles.sectionHeader}>

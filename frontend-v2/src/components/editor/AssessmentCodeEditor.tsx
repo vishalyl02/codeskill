@@ -1,5 +1,7 @@
 "use client";
 
+import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
+
 import { useState, useRef } from "react";
 import {
   Play,
@@ -21,8 +23,6 @@ const LANGUAGES = [
   { value: "python", label: "Python 3" },
   { value: "javascript", label: "JavaScript" },
   { value: "typescript", label: "TypeScript" },
-  { value: "go", label: "Go" },
-  { value: "csharp", label: "C#" },
 ];
 
 const STARTER_CODE: Record<string, string> = {
@@ -71,6 +71,7 @@ export default function AssessmentCodeEditor({
   defaultLanguage = "python",
   readOnly = false,
 }: Props) {
+  const executionRuntimes = useExecutionRuntimes();
   const [language, setLanguage] = useState(defaultLanguage);
   const [code, setCode] = useState(STARTER_CODE[defaultLanguage] || "");
   const [stdin, setStdin] = useState(sampleTestCases[0]?.input || "");
@@ -88,6 +89,7 @@ export default function AssessmentCodeEditor({
   };
 
   const handleRun = async () => {
+    if (isRunning || isSubmitting || readOnly) return;
     setIsRunning(true);
     setActiveTab("output");
     setRunResult(null);
@@ -110,6 +112,7 @@ export default function AssessmentCodeEditor({
   };
 
   const handleSubmit = async () => {
+    if (isRunning || isSubmitting || readOnly) return;
     if (!sampleTestCases.length && !onSubmit) return;
     setIsSubmitting(true);
     setActiveTab("testcases");
@@ -159,7 +162,7 @@ export default function AssessmentCodeEditor({
             </button>
             {showLangDropdown && (
               <div className="absolute right-0 top-full mt-1 w-36 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50 py-1">
-                {LANGUAGES.map((lang) => (
+                {LANGUAGES.filter(option => !executionRuntimes.length || executionRuntimes.some(runtime => runtime.language === option.value && runtime.enabled)).map((lang) => (
                   <button
                     key={lang.value}
                     onClick={() => handleLanguageChange(lang.value)}

@@ -1,0 +1,47 @@
+# ONLY for a dedicated disposable Linux execution host, never an application host.
+# Upstream Isolate needs privileged access and delegated cgroup v2; this is not
+# a Docker-only security boundary. Preflight and isolated host/VPC are mandatory.
+services:
+  piston:
+    image: ${PISTON_IMAGE:?Set an audited immutable image digest before deployment}
+    privileged: true
+    cgroup: host
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cpus: ${PISTON_HOST_CPUS:-4}
+    mem_limit: ${PISTON_HOST_MEMORY:-6g}
+    memswap_limit: ${PISTON_HOST_MEMORY:-6g}
+    pids_limit: 1024
+    ports:
+      - '127.0.0.1:2001:2000'
+    networks: [sandbox]
+    volumes:
+      - packages:/piston/packages
+    tmpfs:
+      - /tmp:exec,size=1073741824
+    environment:
+      PISTON_DISABLE_NETWORKING: 'true'
+      PISTON_MAX_CONCURRENT_JOBS: ${PISTON_MAX_CONCURRENT_EXECUTIONS:-10}
+      PISTON_RUN_TIMEOUT: '3000'
+      PISTON_COMPILE_TIMEOUT: '10000'
+      PISTON_RUN_CPU_TIME: '3000'
+      PISTON_COMPILE_CPU_TIME: '10000'
+      PISTON_RUN_MEMORY_LIMIT: '268435456'
+      PISTON_COMPILE_MEMORY_LIMIT: '536870912'
+      PISTON_OUTPUT_MAX_SIZE: '65536'
+      PISTON_MAX_PROCESS_COUNT: '64'
+      PISTON_MAX_OPEN_FILES: '128'
+      PISTON_MAX_FILE_SIZE: '10000000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', 'fetch("http://127.0.0.1:2000/api/v2/runtimes").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '3' }
+networks:
+  sandbox:
+    internal: true
+volumes:
+  packages:

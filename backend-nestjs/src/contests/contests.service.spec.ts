@@ -1,5 +1,6 @@
 jest.mock('@nestjs/typeorm', () => ({
   InjectRepository: () => () => undefined,
+  InjectDataSource: () => () => undefined,
 }));
 import {
   BadRequestException,
@@ -23,7 +24,7 @@ const contest = {
   endTime: new Date(Date.now() + 3600000),
   antiCheatConfig: { warningLimit: 3 },
 };
-function setup() {
+function setup(submissions?: unknown) {
   const builder = {
     insert: jest.fn(),
     values: jest.fn(),
@@ -69,6 +70,7 @@ function setup() {
       contests as never,
       attempts as never,
       problems as never,
+      submissions as never,
     ),
     contests,
     attempts,
@@ -76,6 +78,41 @@ function setup() {
     builder,
   };
 }
+it('merges sharded contest results, keeps zero-score participants, and ranks ties by solve time', async () => {
+  const second = '00000000-0000-4000-8000-000000000003';
+  const third = '00000000-0000-4000-8000-000000000004';
+  const windows = {
+    start: '2026-10-13T10:00:00.000000',
+    end: '2026-10-13T11:00:00.000000',
+  };
+  const submissions = {
+    isSharded: true,
+    contestSolvedProblems: jest.fn().mockResolvedValue([
+      { userId, problemId: id, solvedAt: '2026-10-13T10:20:00' },
+      { userId: second, problemId: id, solvedAt: '2026-10-13T10:10:00' },
+    ]),
+  };
+  const { service, attempts } = setup(submissions);
+  attempts.query.mockResolvedValueOnce([
+    { id: userId, name: 'First', username: 'first', ...windows },
+    { id: second, name: 'Second', username: 'second', ...windows },
+    { id: third, name: 'Third', username: 'third', start: null, end: null },
+  ]);
+  const result = await service.leaderboard('real-contest');
+  expect(result.leaderboard.map((row) => [row.name, row.solved])).toEqual([
+    ['Second', 1],
+    ['First', 1],
+    ['Third', 0],
+  ]);
+  expect(submissions.contestSolvedProblems).toHaveBeenCalledWith(
+    [id],
+    [
+      { userId, ...windows },
+      { userId: second, ...windows },
+    ],
+  );
+  expect(attempts.query.mock.calls[0][0]).not.toContain('JOIN submissions');
+});
 it('lists published public database contests and exposes no passwords or participant IDs', async () => {
   const { service, contests } = setup();
   const result = await service.getContests();
@@ -250,4 +287,40 @@ it('only permits registered authenticated students to read private contest ranki
   expect((await service.leaderboard('private', userId)).leaderboard).toEqual(
     [],
   );
+});
+
+it('scores contest submission from the owning shard and does not query the primary snapshot', async () => {
+  const submissions = {
+    isSharded: true,
+    contestSolvedProblems: jest
+      .fn()
+      .mockResolvedValue([{ userId, problemId: id, solvedAt: new Date() }]),
+  };
+  const { service, attempts, builder } = setup(submissions);
+  const result = await service.submitAttempt(id, userId, 'real-session');
+  expect(result).toEqual(
+    expect.objectContaining({ score: 100, problemsSolved: 1 }),
+  );
+  expect(submissions.contestSolvedProblems).toHaveBeenCalledWith(
+    [id],
+    [expect.objectContaining({ userId, start: contest.startTime })],
+  );
+  expect(attempts.query).not.toHaveBeenCalled();
+  expect(builder.set).toHaveBeenCalledWith(
+    expect.objectContaining({ score: 100, problemsSolved: 1 }),
+  );
+});
+
+it('leaves the contest attempt open when shard scoring fails', async () => {
+  const submissions = {
+    isSharded: true,
+    contestSolvedProblems: jest
+      .fn()
+      .mockRejectedValue(new Error('shard unavailable')),
+  };
+  const { service, builder } = setup(submissions);
+  await expect(
+    service.submitAttempt(id, userId, 'real-session'),
+  ).rejects.toThrow('shard unavailable');
+  expect(builder.update).not.toHaveBeenCalled();
 });

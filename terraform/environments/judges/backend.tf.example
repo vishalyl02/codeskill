@@ -1,0 +1,9 @@
+terraform {
+  backend "s3" {
+    bucket       = "YOUR_EXISTING_PRIVATE_STATE_BUCKET"
+    key          = "terraform/judges/shared-host.tfstate"
+    region       = "ap-south-1"
+    encrypt      = true
+    use_lockfile = true
+  }
+}

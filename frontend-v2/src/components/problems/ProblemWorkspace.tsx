@@ -1,5 +1,7 @@
 "use client";
 
+import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
+
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { 
@@ -89,6 +91,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
   const [activeSidebarTab, setActiveSidebarTab] = useState("description");
   
   // Editor State
+  const executionRuntimes = useExecutionRuntimes();
   const [language, setLanguage] = useState<string>("javascript");
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
   const [code, setCode] = useState<string>("");
@@ -630,7 +633,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                     className="absolute top-full right-0 mt-1.5 w-[140px] rounded-[10px] border border-[#3F3F46] bg-[#18181B] py-1.5 shadow-xl origin-top-right z-50"
                     role="listbox"
                   >
-                  {LANGUAGES.map(lang => (
+                  {LANGUAGES.filter(lang => !executionRuntimes.length || executionRuntimes.some(runtime => runtime.language === lang.id && runtime.enabled)).map(lang => (
                     <button
                       key={lang.id}
                       role="option"

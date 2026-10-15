@@ -14,6 +14,8 @@ import { User } from './user.entity';
 @Index(['status', 'startTime', 'endTime'])
 @Index(['targetBatches'])
 @Index(['targetDepartments'])
+@Index(['targetStudentIds'])
+@Index(['targetGroups'])
 export class Assessment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -86,6 +88,15 @@ export class Assessment {
 
   @Column('text', { array: true, default: '{}' })
   targetSections: string[];
+
+  @Column('text', { array: true, default: '{}' })
+  targetGroups: string[];
+
+  @Column('text', { array: true, default: '{}' })
+  targetStudentIds: string[];
+
+  @Column('text', { array: true, default: '{}' })
+  targetSemesters: string[];
 
   @Column({ type: 'timestamp', nullable: true })
   startTime?: Date;

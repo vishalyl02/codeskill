@@ -1,4 +1,6 @@
-jest.mock('@nestjs/typeorm', () => ({ InjectRepository: () => () => {} }));
+import { PistonUnavailableError } from './piston/piston.types';
+import { Submission } from '../database/entities/submission.entity';
+jest.mock('@nestjs/typeorm', () => ({ InjectRepository: () => () => {}, InjectDataSource: () => () => {} }));
 
 import { Logger, NotFoundException } from '@nestjs/common';
 import { JudgeProcessor, SubmissionStatus } from './judge.processor';
@@ -47,8 +49,17 @@ const successfulResults = [
 describe('Practice judging', () => {
   let processor: JudgeProcessor;
   let submission: Record<string, unknown>;
+  let storedSubmission: Record<string, unknown>;
   const execution = { executeCode: jest.fn() };
+  const manager = {
+    findOne: jest.fn(),
+    save: jest.fn(),
+  };
   const submissionRepo = {
+    transaction: jest.fn(
+      async (_userId: string, callback: (value: typeof manager) => unknown) =>
+        callback(manager),
+    ),
     findOne: jest.fn(),
     save: jest
       .fn()
@@ -56,6 +67,12 @@ describe('Practice judging', () => {
   };
   const problems = { getExecutionProblem: jest.fn() };
   const userRepo = {
+    manager: {
+      transaction: jest.fn(
+        async (callback: (value: typeof manager) => unknown) =>
+          callback(manager),
+      ),
+    },
     findOne: jest.fn().mockResolvedValue(null),
     save: jest.fn(),
   };
@@ -90,6 +107,17 @@ describe('Practice judging', () => {
       language: 'python',
       status: 'queued',
     };
+    storedSubmission = { ...submission };
+    submissionRepo.save.mockImplementation(async (value: unknown) => {
+      storedSubmission = { ...(value as Record<string, unknown>) };
+      return value;
+    });
+    manager.findOne.mockImplementation(async (entity: unknown) =>
+      entity === Submission ? { ...storedSubmission } : null,
+    );
+    manager.save.mockImplementation(async (_entity: unknown, value: unknown) =>
+      submissionRepo.save(value),
+    );
     submissionRepo.findOne.mockImplementation(() =>
       Promise.resolve(submission),
     );
@@ -106,6 +134,61 @@ describe('Practice judging', () => {
   });
 
   afterEach(() => jest.restoreAllMocks());
+
+  it('skips completed replay jobs without changing counters or executing again', async () => {
+    submission.completedAt = new Date();
+    submission.status = 'accepted';
+    await expect(processor.process(job as never)).resolves.toEqual({
+      status: 'accepted',
+    });
+    expect(execution.executeCode).not.toHaveBeenCalled();
+    expect(submissionRepo.transaction).not.toHaveBeenCalled();
+  });
+
+  it('retries a transient Piston outage without persisting a final verdict', async () => {
+    execution.executeCode.mockRejectedValueOnce(new PistonUnavailableError());
+    await expect(
+      processor.process({
+        ...job,
+        attemptsMade: 0,
+        opts: { attempts: 2 },
+      } as never),
+    ).rejects.toBeInstanceOf(PistonUnavailableError);
+    expect(submission.completedAt).toBeUndefined();
+    expect(submission.status).toBe('queued');
+    expect(
+      gateway.emitToUser.mock.calls.some(
+        ([, event]) => event === 'execution_error',
+      ),
+    ).toBe(false);
+  });
+
+  it('marks exhausted infrastructure retries as system errors', async () => {
+    execution.executeCode.mockRejectedValueOnce(new PistonUnavailableError());
+    await expect(
+      processor.process({
+        ...job,
+        attemptsMade: 1,
+        opts: { attempts: 2 },
+      } as never),
+    ).rejects.toBeInstanceOf(PistonUnavailableError);
+    expect(submission.status).toBe('system_error');
+    expect(submission.completedAt).toBeInstanceOf(Date);
+    expect(submission.compileOutput).not.toContain('Internal');
+  });
+
+  it('never converts an execution system error into wrong answer', async () => {
+    execution.executeCode.mockResolvedValueOnce(
+      successfulResults.map((r) => ({
+        ...r,
+        passed: false,
+        status: Status.SYSTEM_ERROR,
+      })),
+    );
+    await expect(processor.process(job as never)).resolves.toMatchObject({
+      status: 'system_error',
+    });
+  });
 
   it('uses persisted metadata identity, source, code, owner and authoritative tests/limits', async () => {
     await expect(processor.process(job as never)).resolves.toEqual({

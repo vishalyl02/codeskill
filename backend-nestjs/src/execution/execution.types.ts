@@ -28,13 +28,16 @@ export interface FunctionSignature {
 export interface ExecutionConfig {
   /** Milliseconds. Values are bounded by the judge before use. */
   timeLimit?: number;
-  /** MiB. Enforced by Docker when `JUDGE_SANDBOX=docker`. */
+  /** MiB. Bounded and enforced by the selected judge sandbox. */
   memoryLimit?: number;
   cpuLimit?: number;
   executionMode?: ExecutionMode;
   functionSignature?: FunctionSignature;
   /** Set only for problems whose output whitespace is significant. */
   exactOutput?: boolean;
+  trimTrailingWhitespace?: boolean;
+  floatTolerance?: number;
+  floatRelativeTolerance?: number;
   /** Per-problem image override for a pre-approved judge image. */
   sandboxImage?: string;
   executionProfiles?: Record<string, { timeLimitMultiplier?: number }>;

@@ -48,7 +48,9 @@ export class Contest {
       enableTabSwitchDetect: true,
       enableMultipleDeviceProtect: true,
       enableWatermark: true,
-      warningLimit: 5,
+      warningLimit: 3,
+      maxTabSwitchViolations: 3,
+      actionOnMaxViolations: 'auto_submit',
       autoSubmitOnViolation: true,
     },
   })
@@ -56,6 +58,9 @@ export class Contest {
 
   @Column({ default: false })
   isPublished: boolean;
+
+  @Column({ default: false })
+  resultsPublished: boolean;
 
   @Column('text', { array: true, default: '{}' })
   participants: string[];

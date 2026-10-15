@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
@@ -21,6 +19,42 @@ services:
     volumes:
       - redis-data:/data
 
+  submission-shard-a:
+    image: postgres:15-alpine
+    profiles: [shards]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${SHARD_POSTGRES_PASSWORD:-password123}
+      POSTGRES_DB: codeskill_submissions
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - submission-shard-a-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d codeskill_submissions"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  submission-shard-b:
+    image: postgres:15-alpine
+    profiles: [shards]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${SHARD_POSTGRES_PASSWORD:-password123}
+      POSTGRES_DB: codeskill_submissions
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - submission-shard-b-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d codeskill_submissions"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres-data:
   redis-data:
+  submission-shard-a-data:
+  submission-shard-b-data:

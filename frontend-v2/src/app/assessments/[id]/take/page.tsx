@@ -15,6 +15,7 @@ import {
   Maximize2,
   Minimize2,
   Layers,
+  PanelLeft,
   Award,
   Check,
   Camera,
@@ -31,6 +32,11 @@ import DSAAssessmentEditor from "@/components/assessment/DSAAssessmentEditor";
 import SafeExamBrowser from "@/components/assessment/SafeExamBrowser";
 import { Spinner } from "@/components/ui/spinner";
 import { useAssessmentMedia } from "@/hooks/useAssessmentMedia";
+import { releaseAssessmentStream } from "@/lib/assessment-media-session";
+import { AssessmentReadingZoom } from "@/components/assessment/AssessmentReadingZoom";
+import { ResizableAssessmentPanels } from "@/components/assessment/ResizableAssessmentPanels";
+import { FloatingAssessmentMonitor } from "@/components/assessment/FloatingAssessmentMonitor";
+import { CodeSnippet } from "@/components/assessment/CodeSnippet";
 
 interface TestCase {
   id?: string;
@@ -55,7 +61,8 @@ interface Question {
   codeSnippet?: string;
   starterCode?: string;
   language?: string;
-  constraints?: string;
+  constraints?: string | string[];
+  supportedLanguages?: string[];
   timeLimit?: number;
   memoryLimit?: number;
   testCases?: TestCase[];
@@ -66,6 +73,8 @@ interface ViolationEvent {
   timestamp: string;
   details: string;
 }
+
+const MAX_FACE_WARNINGS = 5;
 
 export default function TakeAssessmentPage({
   params,
@@ -98,8 +107,27 @@ export default function TakeAssessmentPage({
   const [isLoading, setIsLoading] = useState(true);
   const [loadedAssessmentId, setLoadedAssessmentId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionRequestedRef = useRef(false);
   const [assessmentTitle, setAssessmentTitle] = useState("Proctored Assessment");
   const [assessmentCode, setAssessmentCode] = useState("");
+  const [startError, setStartError] = useState<string | null>(null);
+  const mediaCleanupRef = useRef<{ assessmentId: string; timer: number } | null>(null);
+
+  // Stop any handed-off preflight stream when this route is really left. Defer
+  // one event turn so React Strict Mode's development-only remount can cancel it.
+  useEffect(() => {
+    if (mediaCleanupRef.current?.assessmentId === id) {
+      window.clearTimeout(mediaCleanupRef.current.timer);
+      mediaCleanupRef.current = null;
+    }
+    return () => {
+      const timer = window.setTimeout(() => {
+        releaseAssessmentStream(id);
+        if (mediaCleanupRef.current?.timer === timer) mediaCleanupRef.current = null;
+      }, 0);
+      mediaCleanupRef.current = { assessmentId: id, timer };
+    };
+  }, [id]);
 
   // Proctoring & Integrity Telemetry
   const [tabSwitches, setTabSwitches] = useState(0);
@@ -113,6 +141,8 @@ export default function TakeAssessmentPage({
   // Camera & Voice Proctoring State
   const [isPipMinimized, setIsPipMinimized] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
 
   const responsesRef = useRef(responses);
@@ -139,7 +169,9 @@ export default function TakeAssessmentPage({
       // Temporary visual toast
       setWarningToast({
         id: Date.now(),
-        message: details,
+        message: type === "multiple_faces_detected"
+          ? `Warning ${updated.filter(event => event.type === "multiple_faces_detected").length}/${MAX_FACE_WARNINGS}: ${details} The test will end at warning ${MAX_FACE_WARNINGS}.`
+          : details,
         type: type === "tab_switch" ? "alert" : "warning",
       });
 
@@ -166,90 +198,101 @@ export default function TakeAssessmentPage({
     [id, questions, startedAt]
   );
 
-  // 1. Initialize Test Session & Load Assessment
-  useEffect(() => {
-    let isMounted = true;
+  // Start the attempt only after the candidate enters fullscreen from the secure gate.
+  const startAttemptRequestedRef = useRef(false);
+  const beginAssessmentAfterFullscreen = useCallback(async () => {
+    if (startAttemptRequestedRef.current) return;
+    startAttemptRequestedRef.current = true;
+    setIsLoading(true);
+    try {
+      const isExplicitRetake = new URLSearchParams(window.location.search).get("retake") === "1";
+      // A Redo action must discard any stale in-progress attempt and start a
+      // fresh timer. Ordinary assessment entry still resumes an in-progress test.
+      const res = isExplicitRetake
+        ? await studentAssessmentsAPI.retakeAttempt(id)
+        : await studentAssessmentsAPI.startAttempt(id);
+      const data = res.data;
+      setQuestions(data.questions || []);
+      setDurationMinutes(data.durationMinutes || 45);
+      if (data.code) setAssessmentCode(data.code);
+      if (data.title) setAssessmentTitle(data.title);
 
-    const initTest = async () => {
-      setIsLoading(true);
-      setLoadedAssessmentId(null);
-      try {
-        const res = await studentAssessmentsAPI.startAttempt(id);
-        const data = res.data;
-        if (!isMounted) return;
+      const start = new Date(data.startedAt || new Date());
+      setStartedAt(start);
 
-        setQuestions(data.questions || []);
-        setDurationMinutes(data.durationMinutes || 45);
-        if (data.code) setAssessmentCode(data.code);
-        if (data.title) setAssessmentTitle(data.title);
+      const totalSecs = (data.durationMinutes || 45) * 60;
+      const elapsedSecs = Math.floor((Date.now() - start.getTime()) / 1000);
+      setTimeLeftSeconds(Math.max(0, totalSecs - elapsedSecs));
 
-        const start = new Date(data.startedAt || new Date());
-        setStartedAt(start);
-
-        const totalSecs = (data.durationMinutes || 45) * 60;
-        const elapsedSecs = Math.floor((Date.now() - start.getTime()) / 1000);
-        const remaining = Math.max(0, totalSecs - elapsedSecs);
-        setTimeLeftSeconds(remaining);
-
-        if (data.proctoring?.maxTabSwitches) {
-          setMaxTabSwitches(data.proctoring.maxTabSwitches);
-        }
-
-        // Restore saved responses if session resumed
-        const initialResponses: Record<
-          string,
-          {
-            selectedAnswer: number;
-            code?: string;
-            language?: string;
-            testCasesPassed?: number;
-            totalTestCases?: number;
-            status: string;
-          }
-        > = {};
-        (data.savedResponses || []).forEach((r: any) => {
-          if (r.questionId) {
-            initialResponses[r.questionId.toString()] = {
-              selectedAnswer: r.selectedAnswer ?? -1,
-              code: r.code || "",
-              language: r.language || "python",
-              testCasesPassed: r.testCasesPassed || 0,
-              totalTestCases: r.totalTestCases || 0,
-              status:
-                r.status ||
-                (r.selectedAnswer >= 0 || (r.code && r.code.trim().length > 0)
-                  ? "answered"
-                  : "unvisited"),
-            };
-          }
-        });
-        setResponses(initialResponses);
-        setLoadedAssessmentId(id);
-      } catch (err: any) {
-        console.error("Failed to start assessment:", err);
-        router.replace(`/assessments/${id}`);
-      } finally {
-        if (isMounted) setIsLoading(false);
+      if (data.proctoring?.maxTabSwitches) {
+        setMaxTabSwitches(data.proctoring.maxTabSwitches);
       }
-    };
 
-    initTest();
-
-    return () => {
-      isMounted = false;
-    };
+      const initialResponses: Record<
+        string,
+        {
+          selectedAnswer: number;
+          code?: string;
+          language?: string;
+          testCasesPassed?: number;
+          totalTestCases?: number;
+          status: string;
+        }
+      > = {};
+      (data.savedResponses || []).forEach((r: any) => {
+        if (r.questionId) {
+          initialResponses[r.questionId.toString()] = {
+            selectedAnswer: r.selectedAnswer ?? -1,
+            code: r.code || "",
+            language: r.language || "python",
+            testCasesPassed: r.testCasesPassed || 0,
+            totalTestCases: r.totalTestCases || 0,
+            status:
+              r.status ||
+              (r.selectedAnswer >= 0 || (r.code && r.code.trim().length > 0)
+                ? "answered"
+                : "unvisited"),
+          };
+        }
+      });
+      setResponses(initialResponses);
+      setLoadedAssessmentId(id);
+    } catch (err: any) {
+      console.error("Failed to start assessment:", err);
+      releaseAssessmentStream(id);
+      const message = err?.response?.data?.message;
+      setStartError(Array.isArray(message) ? message.join(" ") : message || "We could not start this assessment. Please check your attempt eligibility and try again.");
+      startAttemptRequestedRef.current = false;
+      if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    } finally {
+      setIsLoading(false);
+    }
   }, [id, router]);
 
   // Media starts only for a loaded, active session; stopping is permanent for this assessment.
-  const { videoRef, cameraActive, micActive, audioLevel, cameraError, stopCamera } = useAssessmentMedia(
+  const {
+    videoRef,
+    attachVideo,
+    cameraActive,
+    micActive,
+    audioLevel,
+    cameraError,
+    faceCount,
+    faceDetectionStatus,
+    stopCamera,
+  } = useAssessmentMedia(
     id, loadedAssessmentId === id && questions.length > 0 && !isLoading && !isSubmitting && timeLeftSeconds > 0, recordViolation,
   );
 
   // 3. Submit Attempt Handler
   const submitExam = useCallback(
     async (isAuto = false) => {
-      if (isSubmitting) return;
+      if (isSubmitting || submissionRequestedRef.current) return;
+      submissionRequestedRef.current = true;
       stopCamera();
+      // Also release any preflight stream that was handed off but not adopted
+      // by the exam media hook (for example, after a quick route transition).
+      releaseAssessmentStream(id);
       setIsSubmitting(true);
 
       const formattedResponses = questions.map((q) => {
@@ -280,6 +323,13 @@ export default function TakeAssessmentPage({
     },
     [id, isSubmitting, questions, startedAt, router, stopCamera]
   );
+
+  const faceWarningCount = violations.filter(event => event.type === "multiple_faces_detected").length;
+  useEffect(() => {
+    if (faceWarningCount >= MAX_FACE_WARNINGS && loadedAssessmentId === id && !isLoading) {
+      void submitExam(true);
+    }
+  }, [faceWarningCount, loadedAssessmentId, id, isLoading, submitExam]);
 
   // 4. Countdown Clock
   useEffect(() => {
@@ -369,7 +419,7 @@ export default function TakeAssessmentPage({
       ...prev,
       [currentQ._id]: {
         selectedAnswer: optionIndex,
-        status: "answered",
+        status: prev[currentQ._id]?.status === "marked_for_review" ? "marked_for_review" : "answered",
       },
     }));
   };
@@ -380,26 +430,41 @@ export default function TakeAssessmentPage({
       ...prev,
       [currentQ._id]: {
         selectedAnswer: -1,
-        status: "skipped",
+        status: prev[currentQ._id]?.status === "marked_for_review" ? "marked_for_review" : "skipped",
       },
     }));
   };
 
   const handleMarkForReview = () => {
     if (!currentQ) return;
-    setResponses((prev) => ({
-      ...prev,
-      [currentQ._id]: {
-        selectedAnswer: selectedAnswer >= 0 ? selectedAnswer : -1,
-        status: "marked_for_review",
-      },
-    }));
-    if (currentIndex < questions.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
-    }
+    const previous = responsesRef.current[currentQ._id];
+    const removing = previous?.status === "marked_for_review";
+    const hasAnswer = (previous?.selectedAnswer ?? -1) >= 0 || Boolean(previous?.code?.trim());
+    const next = { ...responsesRef.current, [currentQ._id]: {
+      ...previous, selectedAnswer: previous?.selectedAnswer ?? -1,
+      status: removing ? (hasAnswer ? "answered" : "skipped") : "marked_for_review",
+    } };
+    responsesRef.current = next;
+    setResponses(next);
+    // Removing review keeps the candidate on this question.
+    if (!removing && currentIndex < questions.length - 1) setCurrentIndex(index => index + 1);
   };
 
-  const handleSaveCodingQuestion = (
+  // Keep editor drafts in the attempt state so sidebar navigation and timed
+  // autosaves include the latest code, even before Submit Solution is clicked.
+  const handleCodingDraft = (code: string, language: string) => {
+    if (!currentQ) return;
+    const previous = responsesRef.current[currentQ._id];
+    const next = { ...responsesRef.current, [currentQ._id]: {
+      ...previous, selectedAnswer: -1, code, language,
+      testCasesPassed: 0, totalTestCases: 0,
+      status: previous?.status === "marked_for_review" ? "marked_for_review" : "draft",
+    } };
+    responsesRef.current = next;
+    setResponses(next);
+  };
+
+  const handleSaveCodingQuestion = async (
     code: string,
     language: string,
     testCasesPassed: number,
@@ -435,11 +500,11 @@ export default function TakeAssessmentPage({
       };
     });
 
-    studentAssessmentsAPI.saveProgress(id, {
+    await studentAssessmentsAPI.saveProgress(id, {
       responses: formatted,
       timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
       violations: violationsRef.current,
-    }).catch(() => {});
+    });
   };
 
   const handleSaveAndNext = () => {
@@ -455,7 +520,8 @@ export default function TakeAssessmentPage({
     const handleKeyNav = (e: KeyboardEvent) => {
       // Don't trigger if modal is open or typing
       if (showSubmitModal || showViolationModal) return;
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, button, [contenteditable='true'], .monaco-editor")) return;
+      if (["coding", "algorithmic", "dsa"].includes(currentQ?.questionType?.toLowerCase())) return;
 
       const key = e.key.toUpperCase();
       if (key === "A" && currentQ?.options?.length > 0) handleSelectOption(0);
@@ -491,15 +557,45 @@ export default function TakeAssessmentPage({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  if (startError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background px-5 py-12">
+        <section className="w-full max-w-xl rounded-2xl border border-border bg-card p-7 text-center shadow-sm">
+          <ShieldAlert className="mx-auto mb-4 h-10 w-10 text-amber-500" />
+          <h1 className="text-xl font-bold text-foreground">Assessment could not be started</h1>
+          <p role="alert" className="mt-3 text-sm text-muted-foreground">{startError}</p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => setStartError(null)}
+              className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/assessments/${id}/result`)}
+              className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground"
+            >
+              View previous result
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   if (isLoading || !currentQ) {
     return (
-      <div className="flex-1 min-h-screen bg-background flex items-center justify-center font-sans">
-        <div className="text-center space-y-3">
-          <Spinner className="w-9 h-9 animate-spin text-primary mx-auto" />
-          <h2 className="text-sm font-semibold text-foreground">Preparing Secure Assessment Environment</h2>
-          <p className="text-xs text-muted-foreground">Initializing question set, proctoring sensors, and anti-cheat monitors...</p>
+      <SafeExamBrowser isEnabled={!isSubmitting} onFullscreenEntered={beginAssessmentAfterFullscreen}>
+        <div className="flex-1 min-h-screen bg-background flex items-center justify-center font-sans">
+          <div className="text-center space-y-3">
+            <Spinner className="w-9 h-9 animate-spin text-primary mx-auto" />
+            <h2 className="text-sm font-semibold text-foreground">Preparing Secure Assessment Environment</h2>
+            <p className="text-xs text-muted-foreground">The test will start after you enter fullscreen.</p>
+          </div>
         </div>
-      </div>
+      </SafeExamBrowser>
     );
   }
 
@@ -507,16 +603,21 @@ export default function TakeAssessmentPage({
   const isTimeCritical = timeLeftSeconds < 300; // < 5 mins
 
   return (
-    <SafeExamBrowser 
-      isEnabled={!isLoading && !isSubmitting}
-      maxWarnings={maxTabSwitches} 
+    <SafeExamBrowser
+      isEnabled={!isSubmitting}
+      onFullscreenEntered={beginAssessmentAfterFullscreen}
+      maxWarnings={maxTabSwitches}
       onTerminate={() => submitExam(true)}
       onViolation={recordViolation}
     >
-      <div className="flex-1 bg-background text-foreground font-sans min-h-screen flex flex-col select-none relative">
+      <div className="h-dvh overflow-hidden bg-background text-foreground font-sans flex flex-col select-none relative [touch-action:pan-x_pan-y_pinch-zoom]">
       {/* Top Test Header Bar */}
-      <header className="h-16 border-b border-border bg-card px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+      <header className="h-16 shrink-0 border-b border-border bg-card/95 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-sm">
         <div className="flex items-center gap-3">
+          <button type="button" aria-label="Toggle question sidebar" aria-controls="assessment-question-sidebar" onClick={() => {
+            if (window.matchMedia("(min-width: 1024px)").matches) setSidebarCollapsed(value => !value);
+            else setMobileSidebarOpen(value => !value);
+          }} className="rounded-lg border border-border p-2 hover:bg-muted"><PanelLeft className="size-4" /></button>
           {/* CU Official Logo */}
           <div className="w-9 h-9 rounded-xl overflow-hidden bg-muted/40 shrink-0 border border-border p-1 flex items-center justify-center">
             <img
@@ -583,6 +684,7 @@ export default function TakeAssessmentPage({
 
           {/* Permanent Top Submit Test Button */}
           <button
+            aria-label="Submit Test"
             onClick={() => setShowSubmitModal(true)}
             className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-md bg-primary hover:bg-primary/90 active:bg-primary/80 text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-xs"
           >
@@ -613,76 +715,50 @@ export default function TakeAssessmentPage({
         </div>
       )}
 
-      {/* Main Workspace Layout */}
-      {(() => {
-        const isCodingQuestion =
-          currentQ.questionType === "coding" ||
-          currentQ.questionType === "algorithmic" ||
-          (!currentQ.options?.length && (!!currentQ.starterCode || !!currentQ.codeSnippet));
-
-        return (
-          <div
-            className={`flex-1 flex flex-col lg:flex-row mx-auto w-full p-3 sm:p-6 gap-4 sm:gap-6 ${
-              isCodingQuestion ? "max-w-[1700px]" : "max-w-7xl"
-            }`}
-          >
-            {/* Left Column: Question Area / DSA Code Editor */}
-            {isCodingQuestion ? (
-              <main className="flex-1 flex flex-col justify-between space-y-4 min-w-0">
-                <DSAAssessmentEditor
-                  question={currentQ}
-                  savedResponse={responses[currentQ._id]}
-                  onSave={handleSaveCodingQuestion}
-                  onNext={handleSaveAndNext}
-                  isLastQuestion={isLastQuestion}
-                />
-
-                {/* Bottom Action Ribbon */}
-                <div className="flex flex-wrap items-center justify-between gap-3 bg-card border border-border p-3 sm:p-4 rounded-2xl shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleMarkForReview}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-400 transition-colors"
-                      title="Mark for later review"
-                    >
-                      <Bookmark className="w-3.5 h-3.5" /> Review Later
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
-                      disabled={currentIndex === 0}
-                      className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <ChevronLeft className="w-4 h-4" /> Previous
-                    </button>
-
-                    {isLastQuestion ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowSubmitModal(true)}
-                        className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20"
-                      >
-                        <Send className="w-3.5 h-3.5" /> Submit Assessment
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleSaveAndNext}
-                        className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20"
-                      >
-                        Save & Next <ChevronRight className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </main>
-            ) : (
-              <main className="flex-1 flex flex-col justify-between space-y-4">
-                <div className="bg-card border border-border rounded-2xl sm:rounded-3xl p-5 sm:p-8 space-y-6 shadow-sm">
+      {/* Exam workspace: question navigation stays separate from scrollable panes. */}
+      <div className="relative flex flex-1 min-h-0 overflow-hidden">
+        {mobileSidebarOpen && <button aria-label="Close question sidebar overlay" onClick={() => setMobileSidebarOpen(false)} className="absolute inset-0 z-30 bg-black/50 lg:hidden" />}
+        <aside id="assessment-question-sidebar" aria-label="Assessment question sidebar" className={`shrink-0 w-72 min-h-0 flex-col border-r border-border bg-card ${sidebarCollapsed ? "lg:hidden" : "lg:flex"} ${mobileSidebarOpen ? "absolute inset-y-0 left-0 z-40 flex shadow-2xl" : "hidden"}`}>
+          <div className="shrink-0 border-b border-border p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0"><h2 className="text-sm font-semibold text-foreground break-words">{assessmentTitle}</h2><p className="mt-1 text-xs text-muted-foreground">{answeredCount} of {questions.length} answered · {reviewCount} for review</p></div>
+              <button aria-label="Close question sidebar" onClick={() => { setSidebarCollapsed(true); setMobileSidebarOpen(false); }} className="p-1 rounded hover:bg-muted"><X className="size-4" /></button>
+            </div>
+            <div role="progressbar" aria-label="Assessment progress" aria-valuenow={answeredCount} aria-valuemin={0} aria-valuemax={questions.length} className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{width: `${questions.length ? answeredCount / questions.length * 100 : 0}%`}} /></div>
+            <div className="flex gap-3 text-[10px] text-muted-foreground"><span>● Answered</span><span className="text-amber-500">● Review</span><span>○ Not answered</span></div>
+          </div>
+          <nav aria-label="Assessment questions" className="assessment-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1">
+            {questions.map((q, index) => {
+              const response = responses[q._id];
+              const answered = response?.status === "answered" && (response.selectedAnswer >= 0 || Boolean(response.code?.trim()));
+              const review = response?.status === "marked_for_review";
+              const current = index === currentIndex;
+              const coding = ["coding", "algorithmic", "dsa"].includes(q.questionType?.toLowerCase()) || (!q.options?.length && Boolean(q.starterCode || q.codeSnippet));
+              return <button key={q._id} type="button" aria-current={current ? "step" : undefined}
+                aria-label={`Question ${index + 1}${current ? ", current" : ""}${answered ? ", answered" : ""}${review ? ", marked for review" : ""}`}
+                onClick={() => {setCurrentIndex(index); setMobileSidebarOpen(false);}}
+                className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-colors ${current ? "border-primary bg-primary/10 ring-1 ring-inset ring-primary/30" : "border-transparent hover:bg-muted/60"}`}>
+                <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${answered ? "border-emerald-500 bg-emerald-500 text-slate-950" : review ? "border-amber-500/50 bg-amber-500/15 text-amber-500" : "border-border bg-muted text-muted-foreground"}`}>{answered ? <Check className="size-4" /> : index + 1}</span>
+                <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-foreground" title={q.question}>{index + 1}. {q.question}</span><span className="mt-1 block text-[10px] text-muted-foreground">{coding ? "Coding" : "MCQ"} · {review ? "Review" : answered ? "Answered" : response?.code?.trim() ? "Draft" : "Not answered"}</span></span>
+                {review && <Bookmark className="size-3 shrink-0 text-amber-500" />}
+              </button>;
+            })}
+          </nav>
+        </aside>
+        {(() => {
+          const isCodingQuestion = ["coding", "algorithmic", "dsa"].includes(currentQ.questionType?.toLowerCase()) || (!currentQ.options?.length && Boolean(currentQ.starterCode || currentQ.codeSnippet));
+          return <AssessmentReadingZoom>{readingScale => <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden p-3 gap-3">
+            {isCodingQuestion ? <>
+              <DSAAssessmentEditor readingScale={readingScale} key={currentQ._id} question={currentQ} savedResponse={responses[currentQ._id]} onDraftChange={handleCodingDraft} onSave={handleSaveCodingQuestion} />
+              <div className="shrink-0 flex items-center justify-between rounded-xl border border-border bg-card px-4 py-2">
+                <button onClick={handleMarkForReview} className="inline-flex items-center gap-2 text-xs font-semibold text-amber-500"><Bookmark className="size-4" />{currentResponse?.status === "marked_for_review" ? "Unreview" : "Review later"}</button>
+                <div className="flex gap-3"><button onClick={() => setCurrentIndex(i => Math.max(0, i - 1))} disabled={currentIndex === 0} className="text-xs font-medium disabled:opacity-30">Previous</button><button onClick={handleSaveAndNext} className="rounded-lg border border-border bg-muted px-4 py-2 text-xs font-semibold">{isLastQuestion ? "Review & finish" : "Next question"}</button></div>
+              </div>
+            </> : <>
+              <ResizableAssessmentPanels key={currentQ._id} className="rounded-2xl border border-border bg-card">
+                <section aria-label="Question statement" tabIndex={0} className="assessment-scroll flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain p-5 space-y-6">
+                  <div style={{ zoom: readingScale }} className="space-y-6">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Statement</div>
                   {/* Question Metadata Ribbon */}
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-4">
                     <div className="flex items-center gap-2">
@@ -714,17 +790,15 @@ export default function TakeAssessmentPage({
 
                     {/* Code Snippet Box (If present in question) */}
                     {currentQ.codeSnippet && (
-                      <div className="rounded-xl overflow-hidden border border-border bg-[#0d0d10] p-4 text-xs font-mono text-emerald-300">
-                        <div className="text-[10px] text-muted-foreground uppercase font-sans mb-2 font-bold tracking-wider">
-                          {currentQ.language || "Code"}
-                        </div>
-                        <pre className="overflow-x-auto whitespace-pre leading-5">
-                          {currentQ.codeSnippet}
-                        </pre>
-                      </div>
+                      <CodeSnippet code={currentQ.codeSnippet} language={currentQ.language || "text"} />
                     )}
                   </div>
 
+                  </div>
+                </section>
+                <section aria-label="Answer options" tabIndex={0} className="assessment-scroll flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain p-5 space-y-5">
+                  <div style={{ zoom: readingScale }} className="space-y-5">
+                  <h2 className="text-sm font-semibold">Choose your answer</h2>
                   {/* Options Selection (4 Cards) */}
                   <div className="space-y-3 pt-2">
                     {(currentQ.options ?? []).map((optionText, optIndex) => {
@@ -736,9 +810,10 @@ export default function TakeAssessmentPage({
                           key={optIndex}
                           type="button"
                           onClick={() => handleSelectOption(optIndex)}
+                          aria-pressed={isSelected}
                           className={`w-full text-left p-4 sm:p-4 rounded-2xl border transition-all flex items-start gap-3.5 group relative ${
                             isSelected
-                              ? "border-primary bg-primary/10 shadow-[0_0_0_1px_rgba(37,99,235,0.25)]"
+                              ? "border-emerald-400 bg-emerald-500/15 ring-2 ring-emerald-400/35 shadow-[0_0_0_2px_rgba(52,211,153,0.22)]"
                               : "border-border bg-card hover:bg-muted/40 hover:border-muted-foreground/30"
                           }`}
                         >
@@ -746,20 +821,20 @@ export default function TakeAssessmentPage({
                           <div
                             className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 transition-colors ${
                               isSelected
-                                ? "bg-primary text-primary-foreground shadow-sm"
+                                ? "bg-emerald-500 text-slate-950 shadow-sm ring-2 ring-emerald-300/50"
                                 : "bg-muted text-muted-foreground border border-border group-hover:border-primary/50 group-hover:text-foreground"
                             }`}
                           >
                             {letter}
                           </div>
 
-                          <div className="flex-1 text-xs sm:text-sm font-medium text-foreground pt-0.5 leading-relaxed">
+                          <div className="flex-1 text-[15px] sm:text-base font-medium text-foreground pt-0.5 leading-7">
                             {optionText}
                           </div>
 
                           {/* Checkmark when chosen */}
                           {isSelected && (
-                            <CheckCircle2 className="w-5 h-5 text-primary shrink-0 self-center" />
+                            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 self-center" />
                           )}
                         </button>
                       );
@@ -770,10 +845,11 @@ export default function TakeAssessmentPage({
                   <div className="text-[11px] text-muted-foreground text-right hidden sm:block">
                     Tip: Press <kbd className="px-1.5 py-0.5 bg-muted rounded border border-border text-foreground font-mono">A</kbd> <kbd className="px-1.5 py-0.5 bg-muted rounded border border-border text-foreground font-mono">B</kbd> <kbd className="px-1.5 py-0.5 bg-muted rounded border border-border text-foreground font-mono">C</kbd> <kbd className="px-1.5 py-0.5 bg-muted rounded border border-border text-foreground font-mono">D</kbd> to select
                   </div>
-                </div>
-
+                  </div>
+                </section>
+              </ResizableAssessmentPanels>
                 {/* Bottom Action Ribbon */}
-                <div className="flex flex-wrap items-center justify-between gap-3 bg-card border border-border p-3 sm:p-4 rounded-2xl shadow-sm">
+                <div className="shrink-0 z-20 flex flex-wrap items-center justify-between gap-3 bg-card/95 backdrop-blur-xl border border-border p-3 sm:p-4 rounded-2xl shadow-lg">
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -789,9 +865,9 @@ export default function TakeAssessmentPage({
                       type="button"
                       onClick={handleMarkForReview}
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-400 transition-colors"
-                      title="Mark for later review"
+                      title={currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review"}
                     >
-                      <Bookmark className="w-3.5 h-3.5" /> Review
+                      <Bookmark className="w-3.5 h-3.5" /> {currentResponse?.status === "marked_for_review" ? "Unreview" : "Review"}
                     </button>
                   </div>
 
@@ -811,7 +887,7 @@ export default function TakeAssessmentPage({
                         onClick={() => setShowSubmitModal(true)}
                         className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20"
                       >
-                        <Send className="w-3.5 h-3.5" /> Submit Assessment
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Review answers
                       </button>
                     ) : (
                       <button
@@ -824,14 +900,14 @@ export default function TakeAssessmentPage({
                     )}
                   </div>
                 </div>
-              </main>
-            )}
+            </>}
+          </main>}</AssessmentReadingZoom>;
+        })()}
+      </div>
 
-        {/* Right Column: Proctoring Feed & Question Palette Sidebar */}
-        <aside className="w-full lg:w-80 flex flex-col gap-4">
-          
+      <FloatingAssessmentMonitor minimized={isPipMinimized}>
           {/* Live Proctoring Camera & Mic PIP Card */}
-          <div className="bg-card border border-border rounded-2xl p-4 shadow-sm space-y-3 relative overflow-hidden">
+          <div className="bg-card border border-border rounded-xl p-3 shadow-sm space-y-2 relative overflow-hidden">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -847,11 +923,19 @@ export default function TakeAssessmentPage({
               </button>
             </div>
 
+            <div role="status" className={`rounded-lg border px-2 py-1.5 text-xs ${faceWarningCount > 0 ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-300" : "border-border bg-muted/30 text-muted-foreground"}`}>
+              <div className="flex items-center justify-between gap-2 font-semibold">
+                <span>Multiple-face warnings</span>
+                <span className="font-mono">{faceWarningCount} / {MAX_FACE_WARNINGS}</span>
+              </div>
+              <p className="mt-1 text-[10px] leading-relaxed">Warning 5 ends and submits your test.</p>
+            </div>
+
             {!isPipMinimized && (
               <div className="space-y-2.5">
                 <div className="relative aspect-video bg-black/60 rounded-xl overflow-hidden border border-border/80 flex items-center justify-center">
                   <video
-                    ref={videoRef}
+                    ref={attachVideo}
                     autoPlay
                     playsInline
                     muted
@@ -899,102 +983,44 @@ export default function TakeAssessmentPage({
                     {audioLevel > 40 ? "Loud" : "Quiet"}
                   </span>
                 </div>
+
+                <div
+                  className={`flex items-center justify-between gap-2 p-2 border rounded-xl text-[11px] ${
+                    faceCount > 1
+                      ? "bg-rose-500/10 border-rose-500/40 text-rose-400"
+                      : "bg-muted/30 border-border text-muted-foreground"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        faceDetectionStatus === "active"
+                          ? faceCount > 1
+                            ? "bg-rose-400 animate-pulse"
+                            : "bg-emerald-400"
+                          : faceDetectionStatus === "initializing"
+                            ? "bg-amber-400 animate-pulse"
+                            : "bg-zinc-400"
+                      }`}
+                    />
+                    <span>Face Check</span>
+                  </div>
+                  <span className="font-mono text-[10px] font-semibold">
+                    {faceDetectionStatus === "active"
+                      ? faceCount > 1
+                        ? `${faceCount} faces — warning`
+                        : faceCount === 1
+                          ? "1 face detected"
+                          : "Scanning"
+                      : faceDetectionStatus === "initializing"
+                        ? "Starting"
+                        : "Unavailable"}
+                  </span>
+                </div>
               </div>
             )}
           </div>
-
-          {/* Question Palette Sidebar */}
-          <div className="bg-card border border-border rounded-2xl p-5 flex flex-col justify-between shadow-sm space-y-4">
-            <div className="space-y-4">
-              <h2 className="text-xs sm:text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
-                <Layers className="w-4 h-4 text-primary" /> Question Palette
-              </h2>
-
-              {/* Status Legend */}
-              <div className="grid grid-cols-2 gap-2 text-[11px] p-3 rounded-xl bg-muted/30 border border-border">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-muted-foreground">Answered ({answeredCount})</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  <span className="text-muted-foreground">Review ({reviewCount})</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-zinc-600" />
-                  <span className="text-muted-foreground">Unvisited ({unattemptedCount})</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full border-2 border-primary" />
-                  <span className="text-muted-foreground">Current</span>
-                </div>
-              </div>
-
-              {/* Numbered Palette Buttons */}
-              <div className="grid grid-cols-5 sm:grid-cols-6 lg:grid-cols-5 gap-2 max-h-56 sm:max-h-64 overflow-y-auto pr-1">
-                {questions.map((q, idx) => {
-                  const resp = responses[q._id];
-                  const isCurrent = idx === currentIndex;
-                  const isAnswered =
-                    resp?.status === "answered" &&
-                    (resp?.selectedAnswer >= 0 || (resp?.code && resp?.code.trim().length > 0));
-                  const isReview = resp?.status === "marked_for_review";
-
-                  let btnStyle = "bg-muted/40 text-muted-foreground border-border hover:bg-muted";
-                  if (isAnswered) {
-                    btnStyle = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30";
-                  } else if (isReview) {
-                    btnStyle = "bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/30";
-                  }
-
-                  return (
-                    <button
-                      key={q._id}
-                      type="button"
-                      onClick={() => setCurrentIndex(idx)}
-                      className={`h-9 rounded-xl font-mono text-xs font-bold border transition-all flex items-center justify-center relative ${btnStyle} ${
-                        isCurrent ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
-                      }`}
-                    >
-                      {idx + 1}
-                      {isReview && (
-                        <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Quick Summary & Final Submit Trigger */}
-            <div className="pt-3 border-t border-border space-y-3">
-              <div className="text-[11px] text-muted-foreground space-y-1">
-                <div className="flex justify-between">
-                  <span>Attempted:</span>
-                  <strong className="text-emerald-400">{answeredCount}</strong>
-                </div>
-                <div className="flex justify-between">
-                  <span>Marked for Review:</span>
-                  <strong className="text-amber-400">{reviewCount}</strong>
-                </div>
-                <div className="flex justify-between">
-                  <span>Unattempted:</span>
-                  <strong className="text-muted-foreground">{unattemptedCount}</strong>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowSubmitModal(true)}
-                className="w-full py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold rounded-xl transition-all shadow-md shadow-primary/20"
-              >
-                Finish & Submit Test
-              </button>
-            </div>
-          </div>
-        </aside>
-      </div>
-    );
-  })()}
+      </FloatingAssessmentMonitor>
 
       {/* Confirmation Modal */}
       {showSubmitModal && (

@@ -1,0 +1,61 @@
+# =================================================================================================
+# CodeSkill AWS Infrastructure - Example Variables
+# Copy to 'terraform.tfvars' and customize for your deployment
+# =================================================================================================
+
+# AWS Region & Environment
+aws_region  = "ap-south-1" # Mumbai
+environment = "production"
+
+# Operating Profile:
+# - "budget": 1 app node (t4g.small), 1 judge0 (m7i-flex.large), 1 micro RDS, 1 ALB, NO NAT Gateway ($0/mo NAT savings)
+# - "exam": Auto-scaling app nodes (up to 4), enabled NAT Gateway, high-throughput headroom
+profile = "budget"
+
+# Public Domain & TLS
+domain_name     = "codeskill.novaserve.cloud"
+certificate_arn = "arn:aws:acm:ap-south-1:239939507154:certificate/29148a30-541b-4859-82ee-a8f8eda07ed8"
+
+# Application Auto Scaling (ARM64 t4g.small)
+app_instance_type          = "t4g.small"
+app_min_size               = 1
+app_desired_capacity       = 1
+app_max_size               = 2
+app_cpu_target_utilization = 65.0
+app_root_volume_size       = 30
+
+# Judge0 Execution Engine (x86_64 m7i-flex.large)
+judge0_instance_type       = "m7i-flex.large"
+judge0_min_size            = 1
+judge0_desired_capacity    = 1
+judge0_max_size            = 1
+judge0_root_volume_size    = 40
+judge0_cpu_time_limit      = "2.0"
+judge0_memory_limit_kb     = "524288" # 512 MB
+
+# Optional Future Judge0 Worker Auto Scaling (Kept FALSE until shared Redis queue is load-tested)
+judge0_worker_autoscaling_enabled = false
+judge0_worker_min_size            = 1
+judge0_worker_max_size            = 3
+
+# PostgreSQL Database (db.t4g.micro with 1 GiB RAM)
+db_instance_class       = "db.t4g.micro"
+db_allocated_storage    = 20
+db_max_allocated_storage = 50
+db_name                 = "codeskill"
+db_username             = "codeskill_admin"
+db_multi_az             = false # Set true only for enterprise Multi-AZ requirements
+db_deletion_protection  = true
+
+# Open-Source Monitoring & Cost Controls (Prometheus, Grafana OSS, Loki, Uptime Kuma)
+alert_email            = "admin@novaserve.cloud"
+monthly_budget_amount  = "100"
+loki_retention_period  = "168h" # 7 days log retention in Loki
+grafana_admin_password = "CodeSkillGrafanaSecure2024!"
+
+# Custom Resource Tags
+tags = {
+  Owner       = "DevOps"
+  Repository  = "codeskill"
+  CostCenter  = "EducationPlatform"
+}

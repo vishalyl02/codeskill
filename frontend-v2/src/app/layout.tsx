@@ -2,31 +2,15 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 
-const nimbusSans = localFont({
+const roboto = localFont({
   src: [
-    {
-      path: "../../public/fonts/NimbusSanL-Reg.otf",
-      weight: "400",
-      style: "normal",
-    },
-    {
-      path: "../../public/fonts/NimbusSanL-Bol.otf",
-      weight: "700",
-      style: "normal",
-    },
-    {
-      path: "../../public/fonts/NimbusSanL-RegIta.otf",
-      weight: "400",
-      style: "italic",
-    },
-    {
-      path: "../../public/fonts/NimbusSanL-BolIta.otf",
-      weight: "700",
-      style: "italic",
-    },
+    { path: "../../public/fonts/NimbusSanL-Reg.otf", weight: "400", style: "normal" },
+    { path: "../../public/fonts/NimbusSanL-Bol.otf", weight: "700", style: "normal" },
+    { path: "../../public/fonts/NimbusSanL-RegIta.otf", weight: "400", style: "italic" },
+    { path: "../../public/fonts/NimbusSanL-BolIta.otf", weight: "700", style: "italic" },
   ],
-  variable: "--font-sans",
   display: "swap",
+  variable: "--font-roboto",
 });
 
 export const metadata: Metadata = {
@@ -86,7 +70,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${nimbusSans.variable} h-full antialiased`}
+      className={`${roboto.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>

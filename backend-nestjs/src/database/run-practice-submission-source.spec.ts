@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import { applyPracticeSubmissionSourceMigration } from './migrations/practice-submission-source';
+import { parseSubmissionShardingConfig } from './sharding/sharding.config';
 import {
   practiceSubmissionMigrationOptions,
   runPracticeSubmissionSourceMigration,
@@ -77,6 +78,31 @@ describe('practice submission source migration runner', () => {
     expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
     expect(queryRunner.release).toHaveBeenCalledTimes(1);
     expect(dataSource.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the primary submission snapshot when sharding is active', async () => {
+    jest.replaceProperty(process, 'env', {
+      SUBMISSION_SHARDS: JSON.stringify([
+        { id: 'a', url: 'postgres://localhost:5433/shards' },
+        { id: 'b', url: 'postgres://localhost:5434/shards' },
+      ]),
+    });
+    const config = parseSubmissionShardingConfig()!;
+    const { queryRunner } = setup();
+    queryRunner.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('to_regclass')) return [{ present: true }];
+      if (sql.includes('SELECT fingerprint'))
+        return [{ fingerprint: config.fingerprint, state: 'active' }];
+      if (sql.includes('SELECT relkind')) return [{ relkind: 'p' }];
+      return [];
+    });
+    await runPracticeSubmissionSourceMigration();
+    expect(applyMigration).not.toHaveBeenCalled();
+    expect(queryRunner.query).not.toHaveBeenCalledWith(
+      'SELECT relkind FROM pg_class WHERE relname = $1',
+      ['submissions'],
+    );
+    expect(queryRunner.commitTransaction).toHaveBeenCalled();
   });
 
   it('releases connections if starting the transaction fails', async () => {

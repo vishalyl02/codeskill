@@ -4,7 +4,6 @@ import { Repository } from 'typeorm';
 import { Problem } from '../database/entities/problem.entity';
 import { ProblemMetadata } from '../database/entities/problem-metadata.entity';
 import { Question } from '../database/entities/question.entity';
-import { canonicalLanguage } from '../execution/execution.types';
 import { CacheService } from '../redis/cache.service';
 
 export interface PublicProblemsQuery {
@@ -119,7 +118,7 @@ const bankSlugSql =
 const bankPublicSql = `lower(q."questionType") IN ('dsa', 'coding', 'algorithmic')
   AND lower(q.status) IN ('approved', 'active', 'published')
   AND lower(btrim(q.metadata->>'visibility')) IN ('published', 'public')
-  AND lower(coalesce(q.metadata->>'contestOnly', 'false')) <> 'true'`;
+  AND coalesce(q.metadata->>'contestOnly', 'false') <> 'true'`;
 function bankPublished(question: Question) {
   const metadata = object(question.metadata);
   return (
@@ -128,8 +127,7 @@ function bankPublished(question: Question) {
       text(question.status).toLowerCase(),
     ) &&
     published(metadata.visibility) &&
-    metadata.contestOnly !== true &&
-    text(metadata.contestOnly).toLowerCase() !== 'true'
+    metadata.contestOnly !== true
   );
 }
 function bankSlug(question: Question) {
@@ -150,7 +148,7 @@ const catalogSql = `WITH catalog AS (
   UNION ALL
   SELECT q.id, coalesce(nullif(btrim(q.title), ''), q.question) AS title,
     ${bankSlugSql} AS slug, q.difficulty,
-    CASE WHEN jsonb_typeof(q.metadata->'categories') = 'array' THEN CASE WHEN jsonb_array_length(q.metadata->'categories') > 0 THEN q.metadata->'categories' ELSE to_jsonb(ARRAY[q.topic]) END ELSE to_jsonb(ARRAY[q.topic]) END AS categories,
+    CASE WHEN jsonb_typeof(q.metadata->'categories') = 'array' THEN q.metadata->'categories' ELSE to_jsonb(ARRAY[q.topic]) END AS categories,
     coalesce(to_jsonb(q.tags), '[]'::jsonb) AS tags, '{}'::jsonb AS stats, q."createdAt", q."updatedAt"
   FROM questions q
   WHERE ${bankPublicSql}
@@ -314,20 +312,7 @@ export class ProblemsService {
       memoryLimit: question.memoryLimit ?? 256,
       supportedLanguages: strings(question.supportedLanguages),
       starterCode: codeMap(
-        Object.fromEntries(
-          starters
-            .map((item) => object(item))
-            .filter(
-              (item) =>
-                typeof item.language === 'string' &&
-                typeof item.code === 'string',
-            )
-            .map((item) => [
-              canonicalLanguage(String(item.language)) ||
-                text(item.language).toLowerCase(),
-              String(item.code),
-            ]),
-        ),
+        Object.fromEntries(starters.map((item) => [item.language, item.code])),
       ),
       functionSignature: question.functionSignature,
     };
@@ -363,6 +348,7 @@ export class ProblemsService {
             executionMode: config?.executionMode || 'standard',
             functionSignature: config?.functionSignature as unknown,
             exactOutput: config?.exactOutput ?? false,
+            hasCustomChecker: config?.hasCustomChecker ?? false,
           },
           testCases: {
             cases: cases(metadata.testCases?.cases).filter(
@@ -510,11 +496,7 @@ export class ProblemsService {
     }
     if (!source || source === 'question') {
       const question = await this.questionRepository.findOne({ where: { id } });
-      if (
-        question &&
-        (source === 'question' ||
-          codingTypes.includes(text(question.questionType).toLowerCase()))
-      ) {
+      if (question) {
         if (
           !bankPublished(question) ||
           (await this.hasMetadataCounterpart(question))
@@ -551,9 +533,7 @@ export class ProblemsService {
       config: {
         timeLimit: problem.timeLimit,
         memoryLimit: problem.memoryLimit,
-        supportedLanguages: problem.supportedLanguages,
-        starterCode: problem.starterCode,
-        difficulty: problem.difficulty,
+        supportedLanguages: strings(problem.supportedLanguages),
       },
     };
   }

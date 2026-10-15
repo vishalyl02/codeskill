@@ -14,8 +14,8 @@ beforeEach(() => { jest.clearAllMocks(); get.mockImplementation(async url => ({ 
 it("renders persisted contests with separate statuses and canonical detail URLs", async () => {
   render(<Page />); await screen.findByRole("heading", { name: "Live Contest" });
   expect(screen.getAllByRole("article")).toHaveLength(3);
-  expect(screen.getAllByRole("link", { name: "View Contest" }).map(link => link.getAttribute("href"))).toEqual(["/contests/contest-0", "/contests/contest-1", "/contests/contest-2"]);
-  fireEvent.click(screen.getByRole("button", { name: "Live", exact: true })); expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getAllByRole("link", { name: "View contest" }).map(link => link.getAttribute("href"))).toEqual(["/contests/contest-0", "/contests/contest-1", "/contests/contest-2"]);
+  fireEvent.click(screen.getByRole("button", { name: /^Live/ })); expect(screen.getAllByRole("article")).toHaveLength(1);
   fireEvent.change(screen.getByRole("textbox", { name: "Search contests" }), { target: { value: "No match" } }); expect(screen.getByText("No contests found matching your criteria.")).toBeInTheDocument();
 });
 it("refreshes on focus and cancels requests on navigation", async () => {
@@ -28,11 +28,11 @@ it("shows a recoverable API error without fake empty results", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Try again" })); await screen.findByRole("heading", { name: "Live Contest" });
 });
 it("loads real contest rankings separately and switches the selected contest", async () => {
-  render(<Leaderboard />); await screen.findByText("Real Candidate"); expect(screen.queryByRole("article")).toBeNull();
+  render(<Leaderboard />); await screen.findAllByText("Real Candidate"); expect(screen.queryByRole("article")).toBeNull();
   expect(get).toHaveBeenCalledWith("/contests/contest-0/leaderboard", expect.objectContaining({ signal: expect.any(AbortSignal) }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Contest" }), { target: { value: "contest-1" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Choose a contest" }), { target: { value: "contest-1" } });
   await waitFor(() => expect(get).toHaveBeenCalledWith("/contests/contest-1/leaderboard", expect.any(Object)));
-  expect(await screen.findByText("2 / 2")).toBeInTheDocument();
+  expect(await screen.findAllByText((_, element) => element?.textContent === "2 / 2")).not.toHaveLength(0);
 });
 
 it('refreshes after an admin mutation event without a hard reload', async () => {

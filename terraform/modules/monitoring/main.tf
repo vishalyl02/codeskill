@@ -1,41 +1,24 @@
-resource "aws_cloudwatch_dashboard" "main" {
-  dashboard_name = "${var.name_prefix}-dashboard"
+# =================================================================================================
+# Open-Source Monitoring Module (Prometheus + Grafana OSS + Loki + Promtail + Kuma)
+# Zero Amazon CloudWatch Agent, Zero CloudWatch Alarms, Zero CloudWatch Dashboards
+# =================================================================================================
 
-  dashboard_body = jsonencode({
-    widgets = [
-      {
-        type   = "metric"
-        x      = 0
-        y      = 0
-        width  = 12
-        height = 6
-        properties = {
-          metrics = [
-            ["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", var.asg_name]
-          ]
-          period = 300
-          stat   = "Average"
-          region = "us-east-1"
-          title  = "ASG Average CPU"
-        }
-      },
-      {
-        type   = "metric"
-        x      = 12
-        y      = 0
-        width  = 12
-        height = 6
-        properties = {
-          metrics = [
-            ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", var.db_identifier],
-            [".", "DatabaseConnections", ".", "."]
-          ]
-          period = 300
-          stat   = "Average"
-          region = "us-east-1"
-          title  = "RDS Metrics"
-        }
-      }
-    ]
-  })
+# Central Notification Topic (for AWS Budgets and platform alert routing)
+resource "aws_sns_topic" "alerts" {
+  name = "${var.name_prefix}-alerts-topic"
+
+  tags = merge(
+    var.tags,
+    {
+      Name       = "${var.name_prefix}-alerts"
+      Monitoring = "OSS-Prometheus-Grafana"
+    }
+  )
+}
+
+resource "aws_sns_topic_subscription" "email" {
+  count     = var.alert_email != "" ? 1 : 0
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
 }

@@ -1,4 +1,7 @@
-jest.mock('@nestjs/typeorm', () => ({ InjectRepository: () => () => {} }));
+jest.mock('@nestjs/typeorm', () => ({
+  InjectRepository: () => () => {},
+  InjectDataSource: () => () => {},
+}));
 
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { SubmissionsService } from './submissions.service';
@@ -35,6 +38,11 @@ describe('Practice submission identity', () => {
     find: jest.fn(() => Promise.resolve([stored])),
   };
   const userRepo = {
+    manager: {
+      transaction: jest.fn(async (callback: (manager: unknown) => unknown) =>
+        callback({ findOne: async () => null, save: jest.fn() }),
+      ),
+    },
     findOne: jest.fn().mockResolvedValue(null),
     save: jest.fn(),
   };
@@ -55,6 +63,11 @@ describe('Practice submission identity', () => {
       gateway as never,
       redis as never,
       problems as never,
+      undefined,
+      {
+        reserve: jest.fn().mockResolvedValue(submissionId),
+        release: jest.fn().mockResolvedValue(undefined),
+      } as never,
     );
   });
 

@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   BadRequestException,
   UnauthorizedException,
   NotFoundException,
@@ -35,6 +36,7 @@ import {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private googleClient: OAuth2Client;
 
   constructor(
@@ -133,17 +135,37 @@ export class AuthService {
 
     if (!user) {
       await this.loginThrottleService.recordFailure(raw, ip);
+      this.logger.warn({
+        event: 'AUTH_LOGIN_FAILED',
+        email: raw,
+        reason: 'User not found',
+        ip,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (user.isActive === false) {
       await this.loginThrottleService.recordFailure(raw, ip);
+      this.logger.warn({
+        event: 'AUTH_LOGIN_FAILED',
+        email: raw,
+        userId: user.id,
+        reason: 'Account deactivated',
+        ip,
+      });
       throw new UnauthorizedException(
         'Your account has been deactivated. Please contact your administrator.',
       );
     }
 
     if (user.authProvider !== 'local' && !user.password) {
+      this.logger.warn({
+        event: 'AUTH_LOGIN_FAILED',
+        email: raw,
+        userId: user.id,
+        reason: `Social provider required: ${user.authProvider}`,
+        ip,
+      });
       throw new UnauthorizedException(
         `Please login using ${user.authProvider}`,
       );
@@ -152,12 +174,27 @@ export class AuthService {
     const isMatch = await user.matchPassword(dto.password);
     if (!isMatch) {
       await this.loginThrottleService.recordFailure(raw, ip);
+      this.logger.warn({
+        event: 'AUTH_LOGIN_FAILED',
+        email: raw,
+        userId: user.id,
+        reason: 'Invalid password',
+        ip,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     await this.loginThrottleService.recordSuccess(raw);
     user.lastActive = new Date();
     await this.userRepository.save(user);
+
+    this.logger.log({
+      event: 'AUTH_LOGIN_SUCCESS',
+      userId: user.id,
+      email: user.email,
+      role: user.role || (user.isAdmin ? 'admin' : 'student'),
+      ip,
+    });
 
     return await this.authResponse(user);
   }
@@ -204,18 +241,39 @@ export class AuthService {
       !dto.password
     ) {
       await this.loginThrottleService.recordFailure(raw, ip);
+      this.logger.warn({
+        event: 'AUTH_ADMIN_LOGIN_FAILED',
+        email: raw,
+        reason: 'Invalid credentials or inactive admin',
+        ip,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const isMatch = await user.matchPassword(dto.password);
     if (!isMatch) {
       await this.loginThrottleService.recordFailure(raw, ip);
+      this.logger.warn({
+        event: 'AUTH_ADMIN_LOGIN_FAILED',
+        email: raw,
+        userId: user.id,
+        reason: 'Invalid password',
+        ip,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     await this.loginThrottleService.recordSuccess(raw);
     user.lastActive = new Date();
     await this.userRepository.save(user);
+
+    this.logger.log({
+      event: 'AUTH_ADMIN_LOGIN_SUCCESS',
+      userId: user.id,
+      email: user.email,
+      role: 'admin',
+      ip,
+    });
 
     return await this.authResponse(user);
   }
@@ -270,11 +328,24 @@ export class AuthService {
 
     if (!user) {
       await this.loginThrottleService.recordFailure(raw, ip);
+      this.logger.warn({
+        event: 'AUTH_STUDENT_LOGIN_FAILED',
+        uid: raw,
+        reason: 'Student not found',
+        ip,
+      });
       throw new UnauthorizedException('Invalid University UID or password');
     }
 
     if (user.isActive === false) {
       await this.loginThrottleService.recordFailure(raw, ip);
+      this.logger.warn({
+        event: 'AUTH_STUDENT_LOGIN_FAILED',
+        uid: raw,
+        userId: user.id,
+        reason: 'Account deactivated',
+        ip,
+      });
       throw new UnauthorizedException(
         'Your student account has been deactivated. Please contact your institution administrator.',
       );
@@ -283,12 +354,27 @@ export class AuthService {
     const isMatch = await user.matchPassword(dto.password);
     if (!isMatch) {
       await this.loginThrottleService.recordFailure(raw, ip);
+      this.logger.warn({
+        event: 'AUTH_STUDENT_LOGIN_FAILED',
+        uid: raw,
+        userId: user.id,
+        reason: 'Invalid password',
+        ip,
+      });
       throw new UnauthorizedException('Invalid University UID or password');
     }
 
     await this.loginThrottleService.recordSuccess(raw);
     user.lastActive = new Date();
     await this.userRepository.save(user);
+
+    this.logger.log({
+      event: 'AUTH_STUDENT_LOGIN_SUCCESS',
+      userId: user.id,
+      uid: user.uid,
+      email: user.email,
+      ip,
+    });
 
     return await this.authResponse(user);
   }
@@ -468,6 +554,10 @@ export class AuthService {
 
   async refreshToken(dto: RefreshTokenDto) {
     const rotated = await this.tokenService.rotate(dto.refreshToken);
+    this.logger.log({
+      event: 'AUTH_TOKEN_REFRESH',
+      userId: rotated.user.id,
+    });
     return {
       token: rotated.token,
       refreshToken: rotated.refreshToken,
@@ -488,6 +578,11 @@ export class AuthService {
     } else {
       await this.tokenService.invalidateUserSessions(userId);
     }
+    this.logger.log({
+      event: 'AUTH_LOGOUT',
+      userId,
+      revokedSingleToken: !!dto?.refreshToken,
+    });
     return { success: true, message: 'Logged out successfully' };
   }
 
@@ -582,6 +677,12 @@ export class AuthService {
     await this.userRepository.save(user);
     // Invalidate all existing sessions on password reset
     await this.tokenService.invalidateUserSessions(user.id);
+    this.logger.log({
+      event: 'AUTH_PASSWORD_CHANGED',
+      userId: user.id,
+      email: user.email,
+      reason: 'reset_otp',
+    });
     return { success: true, message: 'Password has been successfully reset' };
   }
 
@@ -617,6 +718,12 @@ export class AuthService {
     await this.userRepository.save(user);
     // Invalidate prior sessions
     await this.tokenService.invalidateUserSessions(user.id);
+    this.logger.log({
+      event: 'AUTH_PASSWORD_CHANGED',
+      userId: user.id,
+      email: user.email,
+      reason: 'force_change',
+    });
 
     return {
       success: true,

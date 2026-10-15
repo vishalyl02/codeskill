@@ -208,7 +208,7 @@ export function Navbar() {
                 )}
                 <Link
                   href="/profile"
-                  className="inline-flex items-center gap-1.5 h-8.5 xl:h-9 px-2.5 xl:px-3 rounded-lg text-[13px] xl:text-[14px] font-medium text-neutral-800 bg-neutral-100/80 hover:bg-neutral-200/80 border border-neutral-200 dark:text-background dark:bg-white/[0.05] dark:hover:bg-white/[0.1] dark:border-white/10 transition-colors duration-150 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1.5 h-8.5 xl:h-9 px-2.5 xl:px-3 rounded-lg text-[13px] xl:text-[14px] font-medium text-neutral-800 bg-neutral-100/80 hover:bg-neutral-200/80 border border-neutral-200 dark:text-foreground dark:bg-white/[0.05] dark:hover:bg-white/[0.1] dark:border-white/10 transition-colors duration-150 whitespace-nowrap shrink-0"
                 >
                   <User className="w-3.5 h-3.5 xl:w-4 xl:h-4 text-neutral-500 dark:text-muted-foreground shrink-0" />
                   <span className="whitespace-nowrap">{user.name?.split(" ")[0] || "Profile"}</span>

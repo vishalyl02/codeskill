@@ -1,0 +1,4 @@
+# Verified against the official GitHub commit page and pinned api/src/job.js.
+# Source identity is verified; container digest and runnable release are pending.
+PISTON_SOURCE_COMMIT=de2b365ac759670a3a0d13ea208a0869a92c7e64
+PISTON_SOURCE_REPOSITORY=https://github.com/engineer-man/piston.git

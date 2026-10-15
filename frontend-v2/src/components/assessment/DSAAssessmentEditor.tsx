@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
+
+import { useState } from "react";
+import dynamic from "next/dynamic";
+import { ResizableAssessmentPanels } from "./ResizableAssessmentPanels";
+import { useTheme } from "@/context/ThemeContext";
+const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 import {
   Play,
   CheckCircle2,
@@ -74,7 +80,6 @@ int main() {
 `,
   java: `import java.util.*;
 import java.io.*;
-import { Spinner } from "@/components/ui/spinner";
 
 public class Main {
     public static void main(String[] args) {
@@ -150,6 +155,7 @@ interface TestCase {
 }
 
 interface DSAAssessmentEditorProps {
+  readingScale?: number;
   question: {
     _id: string;
     questionIndex: number;
@@ -161,6 +167,7 @@ interface DSAAssessmentEditorProps {
     starterCode?: string;
     codeSnippet?: string;
     language?: string;
+    supportedLanguages?: string[];
     constraints?: string | string[];
     timeLimit?: number;
     memoryLimit?: number;
@@ -173,24 +180,29 @@ interface DSAAssessmentEditorProps {
     totalTestCases?: number;
     status?: string;
   };
-  onSave: (code: string, language: string, testCasesPassed: number, totalTestCases: number) => void;
+  onDraftChange?: (code: string, language: string) => void;
+  onSave: (code: string, language: string, testCasesPassed: number, totalTestCases: number) => void | Promise<void>;
   onNext?: () => void;
   isLastQuestion?: boolean;
 }
 
 export default function DSAAssessmentEditor({
   question,
+  readingScale = 1,
   savedResponse,
   onSave,
+  onDraftChange,
   onNext,
   isLastQuestion = false,
 }: DSAAssessmentEditorProps) {
+  const { resolvedTheme } = useTheme();
   const initialLang = savedResponse?.language || question.language || "python";
+  const executionRuntimes = useExecutionRuntimes();
   const [language, setLanguage] = useState(initialLang);
 
   // Initialize code from saved response, or question starterCode, or language template
   const getInitialCode = (lang: string) => {
-    if (savedResponse?.code && savedResponse.code.trim().length > 0) {
+    if (savedResponse?.code !== undefined && (savedResponse.code.trim().length > 0 || savedResponse.status === "draft")) {
       if (!savedResponse.language || savedResponse.language === lang) {
         return savedResponse.code;
       }
@@ -211,7 +223,7 @@ export default function DSAAssessmentEditor({
   });
   const [showLangDropdown, setShowLangDropdown] = useState(false);
   const [selectedTestCaseIndex, setSelectedTestCaseIndex] = useState(0);
-  const [customInput, setCustomInput] = useState("");
+  const [customInput, setCustomInput] = useState(() => question.testCases?.find(tc => !tc.isHidden)?.input || "");
   const [bottomTab, setBottomTab] = useState<"testcases" | "custom_input" | "output">("testcases");
 
   // Runner execution state
@@ -221,23 +233,19 @@ export default function DSAAssessmentEditor({
   const [copied, setCopied] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
 
   // Normalize test cases from question
   const sampleCases: TestCase[] = (question.testCases || []).filter((tc) => !tc.isHidden);
 
-  // Update code when question changes
-  useEffect(() => {
-    const lang = savedResponse?.language || question.language || "python";
-    const initialForQuestion = getInitialCode(lang);
-    setLanguage(lang);
-    setCode(initialForQuestion);
-    setCodeByLang({ [lang]: initialForQuestion });
+  // The parent keys this workspace by question ID. Drafts are restored from
+  // attempt state on each mount; saving does not reset the active editor model.
+  const updateCode = (value: string) => {
+    setCode(value);
+    setCodeByLang(previous => ({ ...previous, [language]: value }));
     setRunResult(null);
-    setSaveSuccessNotice(null);
-    setSelectedTestCaseIndex(0);
-    setCustomInput(sampleCases[0]?.input || "");
-  }, [question._id]);
+    onDraftChange?.(value, language);
+  };
 
   // Language switch handler - caches previous language code and retrieves/generates new language boilerplate
   const handleLanguageChange = (newLang: string) => {
@@ -263,6 +271,7 @@ export default function DSAAssessmentEditor({
     setCodeByLang(updatedCache);
     setCode(targetCode);
     setLanguage(newLang);
+    onDraftChange?.(targetCode, newLang);
     setShowLangDropdown(false);
     setRunResult(null);
 
@@ -278,6 +287,7 @@ export default function DSAAssessmentEditor({
       template = question.starterCode;
     }
     setCode(template);
+    onDraftChange?.(template, language);
     setCodeByLang((prev) => ({ ...prev, [language]: template }));
     setRunResult(null);
     const langLabel = LANGUAGES.find((l) => l.value === language)?.label || language;
@@ -292,35 +302,17 @@ export default function DSAAssessmentEditor({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Handle Tab key inside code editor
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const val = textarea.value;
-      const nextVal = val.substring(0, start) + "    " + val.substring(end);
-      setCode(nextVal);
-      setTimeout(() => {
-        textarea.selectionStart = textarea.selectionEnd = start + 4;
-      }, 0);
-    }
-  };
-
-  // Line numbers calculation
   const lineCount = Math.max(1, code.split("\n").length);
-  const lineNumbers = Array.from({ length: lineCount }, (_, i) => i + 1);
 
   // Run Test (Single or Sample cases)
   const handleRunTest = async () => {
+    if (isRunning || isSubmitting) return;
     setIsRunning(true);
     setBottomTab("output");
     setRunResult(null);
 
     try {
-      if (bottomTab === "custom_input" && customInput.trim()) {
+      if (bottomTab === "custom_input") {
         // Run with custom stdin
         const res = await azureRunAPI.run({
           code,
@@ -377,47 +369,38 @@ export default function DSAAssessmentEditor({
     }
   };
 
-  // Submit and Save Solution
+  // Verification and progress saving have separate failure states. Code remains
+  // in attempt state even if the runner or progress endpoint is unavailable.
   const handleSubmitSolution = async () => {
+    if (isRunning || isSubmitting) return;
     setIsSubmitting(true);
     setBottomTab("output");
+    let passed = 0;
+    let total = sampleCases.length || 1;
+    let verified = false;
     try {
-      const payloadCases =
-        sampleCases.length > 0
-          ? sampleCases.map((tc, idx) => ({
-              id: tc.id || String(idx + 1),
-              input: tc.input || "",
-              expected: tc.expected || tc.output || "",
-            }))
-          : [{ id: "1", input: customInput || "", expected: "" }];
-
-      const res = await azureRunAPI.run({
-        code,
-        language,
-        testCases: payloadCases,
-        timeoutMs: 15000,
-      });
-
+      const payloadCases = sampleCases.length > 0
+        ? sampleCases.map((tc, index) => ({ id: tc.id || String(index + 1), input: tc.input || "", expected: tc.expected ?? tc.output ?? "" }))
+        : [{ id: "1", input: customInput || "", expected: "" }];
+      const res = await azureRunAPI.run({ code, language, testCases: payloadCases, timeoutMs: 15000 });
       const data = res.data;
       setRunResult(data);
-
-      const passed = data.passedCount ?? data.results?.filter((r: any) => r.passed).length ?? 0;
-      const total = data.totalCount ?? data.results?.length ?? payloadCases.length;
-
-      onSave(code, language, passed, total);
-
-      setSaveSuccessNotice(
-        `Code verified! Passed ${passed} of ${total} test cases (${Math.round((passed / Math.max(1, total)) * 100)}%). Answer marked and saved.`
-      );
-      setTimeout(() => setSaveSuccessNotice(null), 5000);
+      passed = data.passedCount ?? data.results?.filter((result: any) => result.passed).length ?? 0;
+      total = data.totalCount ?? data.results?.length ?? payloadCases.length;
+      verified = true;
     } catch (err: any) {
-      console.error("Evaluation error:", err);
-      // Fallback save anyway so student's code is not lost
-      onSave(code, language, 0, sampleCases.length || 1);
-      setSaveSuccessNotice("Code saved successfully.");
-      setTimeout(() => setSaveSuccessNotice(null), 4000);
+      setRunResult({ results: [{ passed: false, status: "system_error", error: err.response?.data?.message || err.message || "Execution unavailable" }] });
+    }
+    try {
+      await onSave(code, language, passed, total);
+      setSaveSuccessNotice(verified
+        ? `Solution saved. Passed ${passed} of ${total} sample test cases. Final grading runs on the server.`
+        : "Code saved. Execution could not be verified; try running it again.");
+    } catch {
+      setSaveSuccessNotice("Code kept in this session. Server save failed; please try Submit Solution again.");
     } finally {
       setIsSubmitting(false);
+      setTimeout(() => setSaveSuccessNotice(null), 5000);
     }
   };
 
@@ -426,11 +409,11 @@ export default function DSAAssessmentEditor({
     resultsList.length > 0 && resultsList.every((r: any) => r.passed || r.status === "accepted" || r.status === "success");
 
   return (
-    <div className="flex-1 flex flex-col xl:flex-row gap-4 min-h-[620px] max-w-full">
+    <ResizableAssessmentPanels initialSize={42} className="gap-0">
       {/* ─────────────────────────────────────────────────────────── */}
       {/* LEFT PANE: Problem Statement, Constraints, Sample Cases     */}
       {/* ─────────────────────────────────────────────────────────── */}
-      <div className="w-full xl:w-[45%] flex flex-col bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+      <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
         {/* Problem Header Ribbon */}
         <div className="p-4 sm:p-5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -459,12 +442,13 @@ export default function DSAAssessmentEditor({
         </div>
 
         {/* Problem Description Body */}
-        <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6 text-sm">
+        <div style={{ zoom: readingScale }} className="assessment-scroll flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto overscroll-contain space-y-6 text-sm">
           {/* Title */}
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-foreground tracking-tight leading-snug">
-              {question.question}
+              {question.question.split("\n")[0]}
             </h2>
+            {question.question.includes("\n") && <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-foreground/85">{question.question.split("\n").slice(1).join("\n").trim()}</p>}
             <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
               <span>{question.topic}</span>
               {question.subtopic && <span>• {question.subtopic}</span>}
@@ -546,9 +530,9 @@ export default function DSAAssessmentEditor({
       {/* ─────────────────────────────────────────────────────────── */}
       {/* RIGHT PANE: Code Editor & Interactive Test Runner Console   */}
       {/* ─────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col bg-zinc-950 border border-border rounded-2xl overflow-hidden shadow-sm min-h-[580px]">
+      <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-zinc-950 border border-border rounded-2xl overflow-hidden shadow-sm">
         {/* Editor Toolbar */}
-        <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900 border-b border-zinc-800">
+        <div className="flex items-center justify-between shrink-0 flex-wrap gap-2 px-4 py-2.5 bg-zinc-900 border-b border-zinc-800">
           <div className="flex items-center gap-3">
             {/* Language Selector Dropdown */}
             <div className="relative">
@@ -564,10 +548,11 @@ export default function DSAAssessmentEditor({
 
               {showLangDropdown && (
                 <div className="absolute left-0 top-full mt-1 w-44 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 py-1 overflow-hidden">
-                  {LANGUAGES.map((l) => (
+                  {LANGUAGES.filter(option => (!question.supportedLanguages?.length || question.supportedLanguages.includes(option.value)) && (!executionRuntimes.length || executionRuntimes.some(runtime => runtime.language === option.value && runtime.enabled))).map((l) => (
                     <button
                       key={l.value}
                       type="button"
+                      disabled={isRunning || isSubmitting}
                       onClick={() => handleLanguageChange(l.value)}
                       className={`w-full text-left px-3.5 py-2 text-xs font-medium flex items-center justify-between transition-colors ${
                         language === l.value
@@ -592,6 +577,7 @@ export default function DSAAssessmentEditor({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              disabled={isRunning || isSubmitting}
               onClick={() => handleResetCode(true)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 text-[11px] font-semibold transition-colors"
               title="Reset and load default runnable boilerplate starter template for this language"
@@ -611,34 +597,24 @@ export default function DSAAssessmentEditor({
           </div>
         </div>
 
-        {/* Code Textarea Area with Line Numbers */}
-        <div className="flex-1 flex min-h-[300px] relative bg-[#0b0c10]">
-          {/* Line Numbers Gutter */}
-          <div className="select-none py-4 pl-3 pr-2 text-right bg-[#090a0d] border-r border-zinc-800/80 font-mono text-xs text-zinc-600 w-12 shrink-0">
-            {lineNumbers.map((num) => (
-              <div key={num} className="leading-6">
-                {num}
-              </div>
-            ))}
-          </div>
-
-          {/* Editor Input */}
-          <div className="flex-1 relative">
-            <textarea
-              ref={textareaRef}
-              value={code}
-              onChange={(e) => {
-                const val = e.target.value;
-                setCode(val);
-                setCodeByLang((prev) => ({ ...prev, [language]: val }));
-              }}
-              onKeyDown={handleKeyDown}
-              spellCheck={false}
-              className="w-full h-full p-4 bg-transparent text-zinc-100 font-mono text-xs sm:text-sm leading-6 resize-none focus:outline-none selection:bg-amber-500/20"
-              style={{ tabSize: 4 }}
-              placeholder={`// Write your ${language} solution here...`}
-            />
-          </div>
+        <div className="flex-1 min-h-[120px] min-w-0 overflow-hidden" aria-label="Code editor workspace">
+          <Editor
+            height="100%"
+            path={`${question._id}/solution.${LANGUAGES.find(item => item.value === language)?.ext || language}`}
+            language={language}
+            value={code}
+            onChange={value => { if (value !== undefined && value !== code) updateCode(value); }}
+            theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
+            options={{
+              automaticLayout: true, minimap: { enabled: false }, fontSize: Math.round(13 * readingScale),
+              lineNumbers: "on", scrollBeyondLastLine: false, wordWrap: "on",
+              bracketPairColorization: { enabled: true },
+              guides: { bracketPairs: true, indentation: true },
+              padding: { top: 12, bottom: 12 }, tabSize: 4,
+              readOnly: isRunning || isSubmitting, ariaLabel: "Assessment code editor",
+            }}
+            loading={<div className="p-4 h-full text-sm text-zinc-400">Loading code editor…</div>}
+          />
         </div>
 
         {/* Save Notice Banner */}
@@ -660,7 +636,7 @@ export default function DSAAssessmentEditor({
         {/* ─────────────────────────────────────────────────────────── */}
         {/* BOTTOM PANEL: Test Cases, Custom Input, Output Console      */}
         {/* ─────────────────────────────────────────────────────────── */}
-        <div className="border-t border-zinc-800 bg-zinc-900/90 flex flex-col">
+        <div className="shrink-0 max-h-[45%] min-h-0 border-t border-zinc-800 bg-zinc-900/90 flex flex-col">
           {/* Console Tabs */}
           <div className="flex items-center justify-between px-4 pt-2 border-b border-zinc-800">
             <div className="flex items-center gap-1">
@@ -727,7 +703,7 @@ export default function DSAAssessmentEditor({
           </div>
 
           {/* Tab Content Box */}
-          <div className="p-4 min-h-[140px] max-h-56 overflow-y-auto">
+          <div className="assessment-scroll flex-1 min-h-0 p-3 max-h-44 overflow-y-auto overscroll-contain">
             {/* TAB 1: Sample Test Cases */}
             {bottomTab === "testcases" && (
               <div className="space-y-3">
@@ -796,7 +772,7 @@ export default function DSAAssessmentEditor({
                 {isRunning ? (
                   <div className="flex items-center gap-2 text-zinc-400 py-4 justify-center">
                     <Spinner className="w-5 h-5 animate-spin text-primary" />
-                    <span>Executing code in Microsoft Azure / Local Sandbox environment...</span>
+                    <span>Running your code…</span>
                   </div>
                 ) : resultsList.length > 0 ? (
                   <div className="space-y-3">
@@ -893,7 +869,7 @@ export default function DSAAssessmentEditor({
                   </div>
                 ) : (
                   <div className="text-center py-6 text-zinc-500">
-                    Click <strong className="text-zinc-300">Run Code</strong> to compile against sample test cases, or <strong className="text-zinc-300">Submit Solution</strong> to verify all test cases and save.
+                    Click <strong className="text-zinc-300">Run Code</strong> to compile against sample test cases, or <strong className="text-zinc-300">Submit Solution</strong> to run available test cases and save.
                   </div>
                 )}
               </div>
@@ -901,7 +877,7 @@ export default function DSAAssessmentEditor({
           </div>
 
           {/* Action Button Bar */}
-          <div className="px-4 py-3 bg-zinc-950 border-t border-zinc-800 flex flex-wrap items-center justify-between gap-3">
+          <div className="shrink-0 px-4 py-3 bg-zinc-950 border-t border-zinc-800 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-zinc-500 hidden sm:inline">
                 {savedResponse?.status === "answered" ? (
@@ -959,6 +935,6 @@ export default function DSAAssessmentEditor({
           </div>
         </div>
       </div>
-    </div>
+    </ResizableAssessmentPanels>
   );
 }

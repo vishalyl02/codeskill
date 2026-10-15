@@ -1,0 +1,53 @@
+# Dedicated Linux execution host only; Piston requires cgroup v2.
+services:
+  piston:
+    image: ${PISTON_IMAGE:?Run scripts/judges/configure.mjs first}
+    privileged: true
+    cgroup: private
+    command: ['/bin/bash', '/codeskill-entrypoint.sh']
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cpus: ${PISTON_REPLICA_CPUS:-1}
+    mem_limit: ${PISTON_REPLICA_MEMORY:-1g}
+    memswap_limit: ${PISTON_REPLICA_MEMORY:-1g}
+    pids_limit: 512
+    networks: [sandbox]
+    volumes:
+      - 'piston-packages:/piston/packages:ro'
+      - '${JUDGE_CONFIG_DIR}/entrypoint.sh:/codeskill-entrypoint.sh:ro'
+    tmpfs: ['/tmp:exec,size=536870912']
+    environment:
+      PISTON_DISABLE_NETWORKING: 'true'
+      PISTON_MAX_CONCURRENT_JOBS: ${PISTON_JOBS_PER_REPLICA:-1}
+      PISTON_RUN_TIMEOUT: ${PISTON_RUN_TIMEOUT_MS:-3000}
+      PISTON_COMPILE_TIMEOUT: ${PISTON_COMPILE_TIMEOUT_MS:-10000}
+      PISTON_RUN_CPU_TIME: ${PISTON_RUN_TIMEOUT_MS:-3000}
+      PISTON_COMPILE_CPU_TIME: ${PISTON_COMPILE_TIMEOUT_MS:-10000}
+      PISTON_RUN_MEMORY_LIMIT: '268435456'
+      PISTON_COMPILE_MEMORY_LIMIT: '536870912'
+      PISTON_OUTPUT_MAX_SIZE: '65536'
+      PISTON_MAX_PROCESS_COUNT: '64'
+      PISTON_MAX_OPEN_FILES: '128'
+      PISTON_MAX_FILE_SIZE: '10000000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', 'require("http").get("http://127.0.0.1:2000/api/v2/runtimes",r=>{r.resume();if(r.statusCode!==200)process.exit(1)}).on("error",()=>process.exit(1))']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: &logging
+      driver: json-file
+      options: { max-size: '10m', max-file: '3' }
+  piston-gateway:
+    image: nginx:1.28-alpine
+    ports: ['127.0.0.1:${PISTON_PORT:-2001}:2000']
+    volumes: ['${JUDGE_CONFIG_DIR}/nginx.conf:/etc/nginx/nginx.conf:ro']
+    networks: [sandbox, ingress]
+    restart: unless-stopped
+    depends_on: [piston]
+    mem_limit: 64m
+    logging: *logging
+networks:
+  sandbox: { internal: true }
+  ingress: {}
+volumes:
+  piston-packages:

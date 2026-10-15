@@ -1,3 +1,4 @@
+import { parseSubmissionShardingConfig } from './sharding/sharding.config';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -15,6 +16,7 @@ import { AssessmentAttempt } from './entities/assessment-attempt.entity';
 import { Submission } from './entities/submission.entity';
 import { Contest } from './entities/contest.entity';
 import { ContestAttempt } from './entities/contest-attempt.entity';
+import { ContestReattemptGrant } from './entities/contest-reattempt-grant.entity';
 import { Company } from './entities/company.entity';
 import { CompanyUser } from './entities/company-user.entity';
 import { Job } from './entities/job.entity';
@@ -46,6 +48,7 @@ const entities = [
   Submission,
   Contest,
   ContestAttempt,
+  ContestReattemptGrant,
   Company,
   CompanyUser,
   Job,
@@ -69,6 +72,9 @@ const entities = [
       useFactory: async (configService: ConfigService) => {
         const isProduction = process.env.NODE_ENV === 'production';
         const isSyncAllowed = !isProduction && process.env.DB_SYNCHRONIZE === 'true';
+        if (isSyncAllowed && parseSubmissionShardingConfig()) {
+          throw new Error('DB_SYNCHRONIZE must be disabled when using submission shards');
+        }
 
         const url = configService.get<string>('database.postgres.url');
         if (url) {

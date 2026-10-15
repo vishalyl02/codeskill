@@ -29,6 +29,7 @@ import {
   XCircle,
   Search,
   FilterX,
+  Trash2,
   Code,
   Sparkles,
   BookOpen,
@@ -63,6 +64,12 @@ interface VTable3Props {
   onEdit: (id: string) => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onDelete: (id: string) => void;
+  selectedQuestionIds: string[];
+  onToggleQuestion: (id: string) => void;
+  onTogglePage: () => void;
+  onBulkDelete: () => void;
+  deletingQuestions: boolean;
 }
 
 export function VTable3({
@@ -88,6 +95,12 @@ export function VTable3({
   onEdit,
   onApprove,
   onReject,
+  onDelete,
+  selectedQuestionIds,
+  onToggleQuestion,
+  onTogglePage,
+  onBulkDelete,
+  deletingQuestions,
 }: VTable3Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -109,6 +122,8 @@ export function VTable3({
   }, { scope: containerRef, dependencies: [questions, loading] });
 
   const hasFilters = Boolean(search || selectedTopic || selectedDifficulty || selectedType || selectedStatus);
+  const visibleIds = questions.map((q) => String(q._id || q.id || "")).filter(Boolean);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedQuestionIds.includes(id));
 
   const getDifficultyColor = (diff: string) => {
     switch (diff?.toLowerCase()) {
@@ -141,13 +156,26 @@ export function VTable3({
             <h2 className="text-lg font-bold text-foreground">Questions</h2>
             <p className="text-sm text-muted-foreground">Manage and organize your coding assessment questions.</p>
           </div>
-          <Link
-            href="/admin/questions/create"
-            className="inline-flex items-center gap-2 bg-amber-500 text-zinc-950 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-amber-400 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            Create Question
-          </Link>
+          <div className="flex items-center gap-2">
+            {selectedQuestionIds.length > 0 && (
+              <button
+                type="button"
+                onClick={onBulkDelete}
+                disabled={deletingQuestions}
+                className="inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3.5 py-2 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deletingQuestions ? "Deleting…" : `Delete selected (${selectedQuestionIds.length})`}
+              </button>
+            )}
+            <Link
+              href="/admin/questions/create"
+              className="inline-flex items-center gap-2 bg-amber-500 text-zinc-950 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-amber-400 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              Create Question
+            </Link>
+          </div>
         </div>
 
         <form onSubmit={onSearchSubmit} className="flex flex-wrap items-center gap-3">
@@ -232,6 +260,16 @@ export function VTable3({
         <Table className="min-w-[800px]">
           <TableHeader className="bg-muted/30">
             <TableRow className="hover:bg-transparent">
+              <TableHead className="w-12">
+                <input
+                  type="checkbox"
+                  aria-label="Select all questions on this page"
+                  checked={allVisibleSelected}
+                  onChange={onTogglePage}
+                  disabled={loading || visibleIds.length === 0}
+                  className="h-4 w-4 cursor-pointer rounded border-border accent-rose-500 disabled:cursor-not-allowed"
+                />
+              </TableHead>
               <TableHead className="w-[30%]">Question</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Topic</TableHead>
@@ -246,6 +284,7 @@ export function VTable3({
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-4" /></TableCell>
                   <TableCell><Skeleton className="h-10 w-full max-w-[300px]" /></TableCell>
                   <TableCell><Skeleton className="h-6 w-16" /></TableCell>
                   <TableCell><Skeleton className="h-6 w-20" /></TableCell>
@@ -258,7 +297,7 @@ export function VTable3({
               ))
             ) : questions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-[300px] text-center">
+                <TableCell colSpan={9} className="h-[300px] text-center">
                   <div className="flex flex-col items-center justify-center">
                     <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4">
                       <BookOpen className="w-6 h-6 text-muted-foreground" />
@@ -298,6 +337,15 @@ export function VTable3({
 
                 return (
                   <TableRow key={qId || Math.random()} className="question-row group hover:bg-muted/20">
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${q.question || q.title || "question"}`}
+                        checked={selectedQuestionIds.includes(qId)}
+                        onChange={() => onToggleQuestion(qId)}
+                        className="h-4 w-4 cursor-pointer rounded border-border accent-rose-500"
+                      />
+                    </TableCell>
                     <TableCell className="max-w-[300px]">
                       <div className="flex flex-col gap-1">
                         <div className="font-medium text-foreground truncate" title={q.question || q.title}>
@@ -393,6 +441,10 @@ export function VTable3({
                               <Plus className="w-4 h-4 text-muted-foreground" />
                               Edit Question
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onDelete(qId)} className="cursor-pointer gap-2 text-sm text-rose-600 focus:bg-rose-500/10 focus:text-rose-600">
+                              <Trash2 className="w-4 h-4" />
+                              Delete Question
+                            </DropdownMenuItem>
                           </DropdownMenuGroup>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -411,6 +463,7 @@ export function VTable3({
           <p className="text-xs text-muted-foreground">
             Showing page <span className="font-semibold text-foreground">{page}</span> of{" "}
             <span className="font-semibold text-foreground">{totalPages}</span>
+            {selectedQuestionIds.length > 0 && <span className="ml-3 text-rose-600">{selectedQuestionIds.length} selected</span>}
           </p>
           <div className="flex items-center gap-2">
             <button

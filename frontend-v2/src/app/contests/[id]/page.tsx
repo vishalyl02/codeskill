@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { isAxiosError } from "axios";
-import { Calendar, Clock, Code2, Trophy } from "lucide-react";
+import { ArrowLeft, ArrowRight, Calendar, CheckCircle2, Clock, Code2, LockKeyhole, RotateCcw, ShieldAlert, ShieldCheck, Trophy, Users } from "lucide-react";
 import api from "@/config/api";
 import { useAuth } from "@/context/AuthContext";
 import { Spinner } from "@/components/ui/spinner";
@@ -19,6 +19,7 @@ interface Contest {
   problems: string[];
   isPrivate: boolean;
   participants?: string[];
+  antiCheatConfig?: { maxTabSwitchViolations?: number; actionOnMaxViolations?: string };
 }
 
 type ContestResult = {
@@ -71,7 +72,8 @@ export default function ContestDetailsPage() {
   const contest = result.contest;
   if (!contest) {
     return (
-      <div className="max-w-xl mx-auto px-6 py-16 text-center space-y-4">
+      <div className="max-w-xl mx-auto px-6 py-24 text-center space-y-4">
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-muted text-muted-foreground"><Trophy className="h-7 w-7" /></span>
         <h1 className="text-2xl font-bold text-foreground">Contest unavailable</h1>
         <p className="text-muted-foreground" role="alert">{result.error}</p>
         <button type="button" onClick={() => setRetry((value) => value + 1)} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground">
@@ -83,35 +85,35 @@ export default function ContestDetailsPage() {
 
   const ended = now >= new Date(contest.endTime).getTime();
   const upcoming = now < new Date(contest.startTime).getTime();
-  const status = ended ? "Ended" : upcoming ? "Upcoming" : "Active";
+  const status = ended ? "Completed" : upcoming ? "Upcoming" : "Live";
 
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-10 space-y-6 font-sans">
-      <header className="space-y-3">
-        <div className="flex items-center gap-2 text-primary text-sm font-semibold"><Trophy className="w-5 h-5" /> CodeSkill Contest</div>
-        <h1 className="text-3xl font-bold text-foreground break-words">{contest.title}</h1>
-        <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary">{status}</span>
+    <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-24 sm:pt-28 pb-16 space-y-7">
+      <Link href="/contests" className="inline-flex items-center gap-2 rounded-lg text-sm font-medium text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="h-4 w-4" /> Back to contests</Link>
+      <header className="relative overflow-hidden rounded-3xl border border-border/70 bg-gradient-to-br from-primary/[0.06] via-card to-muted/40 p-6 sm:p-9 shadow-sm">
+        <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-primary/5 blur-3xl" />
+        <div className="relative max-w-3xl"><div className="inline-flex items-center gap-2 rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs font-semibold text-muted-foreground"><Trophy className="h-3.5 w-3.5 text-primary" /> CODESKILL CONTEST <span className="text-border">/</span><span className={`inline-flex items-center gap-1.5 ${status === "Live" ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>{status === "Live" && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}{status}</span></div><h1 className="mt-5 text-3xl sm:text-4xl font-bold tracking-tight text-foreground break-words">{contest.title}</h1><p className="mt-3 max-w-2xl text-sm sm:text-base leading-relaxed text-muted-foreground">{contest.description || "Test your problem-solving skills in this CodeSkill contest."}</p></div>
+        <div className="relative mt-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            { label: "Starts", value: new Date(contest.startTime).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}), icon: Calendar },
+            { label: "Ends", value: new Date(contest.endTime).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}), icon: Clock },
+            { label: "Problems", value: `${contest.problems.length} ${contest.problems.length === 1 ? "problem" : "problems"}`, icon: Code2 },
+          ].map(({ label, value, icon: Icon }) => (
+            <div key={label} className="flex items-center gap-3 rounded-2xl border border-border/70 bg-background/80 p-4 backdrop-blur-sm"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-muted text-foreground"><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-sm font-semibold text-foreground">{value}</p></div></div>
+          ))}
+        </div>
       </header>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { label: "Starts", value: new Date(contest.startTime).toLocaleString(), icon: Calendar },
-          { label: "Ends", value: new Date(contest.endTime).toLocaleString(), icon: Clock },
-          { label: "Problems", value: contest.problems.length.toString(), icon: Code2 },
-        ].map(({ label, value, icon: Icon }) => (
-          <div key={label} className="p-4 rounded-2xl border border-border bg-card space-y-2">
-            <p className="flex items-center gap-2 text-sm text-muted-foreground"><Icon className="w-4 h-4" />{label}</p>
-            <p className="text-sm font-semibold text-foreground">{value}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-5 items-start">
+        <div className="space-y-5">
+          <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-6 shadow-sm"><div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-muted text-foreground"><ShieldCheck className="h-5 w-5" /></span><div><h2 className="text-base font-semibold">About this contest</h2><p className="mt-2 text-sm leading-7 text-muted-foreground whitespace-pre-wrap break-words">{contest.description || "The contest is ready. Review the schedule and register to take part."}</p></div></div></section>
+          <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-6 shadow-sm"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-muted text-foreground"><Code2 className="h-5 w-5" /></span><div><h2 className="font-semibold">What to expect</h2><p className="text-sm text-muted-foreground mt-1">{contest.problems.length} {contest.problems.length === 1 ? "problem" : "problems"} selected for this challenge</p></div></div><div className="mt-4 flex flex-wrap gap-2">{["Individual participation", "Accepted submissions count toward standings"].map(item=><span key={item} className="inline-flex items-center gap-1.5 rounded-lg bg-muted/70 px-3 py-2 text-xs font-medium text-muted-foreground"><CheckCircle2 className="h-3.5 w-3.5" />{item}</span>)}</div></section>
+          <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-6 shadow-sm"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-muted text-foreground"><ShieldAlert className="h-5 w-5" /></span><div><h2 className="font-semibold">Contest rules &amp; exam security</h2><p className="mt-1 text-sm text-muted-foreground">Review these requirements before you begin.</p></div></div><ul className="mt-4 space-y-3 text-sm leading-relaxed text-muted-foreground"><li><strong className="text-foreground">Fullscreen:</strong> Remain in fullscreen mode throughout your attempt. Exiting fullscreen is recorded as a violation.</li><li><strong className="text-foreground">Tab switching:</strong> Up to <strong className="text-foreground">{contest.antiCheatConfig?.maxTabSwitchViolations || 3} violations</strong> are allowed before {contest.antiCheatConfig?.actionOnMaxViolations === "lock_attempt" ? "your session is locked" : contest.antiCheatConfig?.actionOnMaxViolations === "flag_review" ? "your attempt is flagged for review" : "your attempt is submitted automatically"}.</li><li><strong className="text-foreground">One active session:</strong> Additional attempts require administrator authorization.</li></ul></section>
+          {!contest.isPrivate && <Link href={`/contests/leaderboard?contest=${encodeURIComponent(slug)}`} className="inline-flex items-center gap-2 text-sm font-semibold text-foreground hover:text-muted-foreground transition">View contest leaderboard <ArrowRight className="h-4 w-4" /></Link>}
+        </div>
+        <ContestRegistration key={contest.id} contest={contest} ended={ended} upcoming={upcoming} />
       </div>
-      <section className="p-6 rounded-2xl border border-border bg-card space-y-3">
-        <h2 className="text-lg font-bold text-foreground">About this contest</h2>
-        <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{contest.description}</p>
-      </section>
-      {!contest.isPrivate && <Link href={`/contests/leaderboard?contest=${encodeURIComponent(slug)}`} className="inline-block text-sm text-primary font-semibold hover:underline">View Contest Leaderboard</Link>}
-      <ContestRegistration key={contest.id} contest={contest} ended={ended} upcoming={upcoming} />
-    </div>
+    </main>
   );
 }
 
@@ -122,11 +124,13 @@ function ContestRegistration({ contest, ended, upcoming }: { contest: Contest; e
   const [registering, setRegistering] = useState(false);
   const [registeredId, setRegisteredId] = useState<string>();
   const [attemptEnded, setAttemptEnded] = useState(false);
+  const [canReattempt, setCanReattempt] = useState(false);
+  const [reattemptDetails, setReattemptDetails] = useState<{ usedAttempts?: number; allowedAttempts?: number; expiresAt?: string; reason?: string } | null>(null);
   useEffect(() => {
     if (!user) return;
     const controller = new AbortController();
     api.get(`/contests/${encodeURIComponent(contest.id)}/registration`, { signal: controller.signal }).then(({ data }) => {
-      if (!controller.signal.aborted && data.registered) { setRegisteredId(contest.id); setAttemptEnded(!!data.attemptStatus && data.attemptStatus !== "InProgress"); }
+      if (!controller.signal.aborted && data.registered) { setRegisteredId(contest.id); setAttemptEnded(!!data.attemptStatus && data.attemptStatus !== "InProgress"); setCanReattempt(!!data.canReattempt); setReattemptDetails(data.reattemptDetails || null); }
     }).catch(() => {});
     return () => controller.abort();
   }, [contest.id, user]);
@@ -161,23 +165,23 @@ function ContestRegistration({ contest, ended, upcoming }: { contest: Contest; e
   };
 
 
+  const buttonClass = "inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
   return (
-      <section className="p-6 rounded-2xl border border-border bg-card space-y-4">
-        <h2 className="text-lg font-bold text-foreground">Registration</h2>
-        {ended ? <p className="text-sm text-muted-foreground">This contest has ended.</p>
-          : registered ? <div className="space-y-3"><p className="text-sm text-emerald-600 dark:text-emerald-400" role="status">You are registered for this contest.</p>{attemptEnded ? <Link href={`/contests/leaderboard?contest=${encodeURIComponent(contest.slug)}`} className="text-primary font-semibold text-sm">View your contest rankings</Link> : !upcoming && <Link href={`/contests/${encodeURIComponent(contest.id)}/attempt`} className="inline-block px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-sm">Enter Contest</Link>}</div>
-          : authLoading ? <p className="text-sm text-muted-foreground" role="status">Checking your account...</p>
-          : !user ? <p className="text-sm text-muted-foreground"><Link href="/login" className="text-primary font-semibold hover:underline">Sign in</Link> to register for this contest.</p>
-          : <form onSubmit={register} className="space-y-4">
-            {contest.isPrivate && <div className="space-y-2">
-              <label htmlFor="contest-password" className="block text-sm font-medium text-foreground">Contest password</label>
-              <input id="contest-password" type="password" required value={password} onChange={(event) => setPassword(event.target.value)} className="w-full sm:max-w-sm px-3 py-2 rounded-xl border border-border bg-background text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
-            </div>}
-            {registrationError && <p className="text-sm text-red-500" role="alert">{registrationError}</p>}
-            <button type="submit" disabled={registering} className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
-              {registering ? "Registering..." : "Register for Contest"}
-            </button>
-          </form>}
-      </section>
+      <aside className="lg:sticky lg:top-24 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+        <div className="border-b border-border/70 bg-muted/35 p-5 sm:p-6"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Your next step</p><h2 className="mt-2 text-xl font-bold">{ended ? "Contest wrapped up" : registered ? "You're on the list" : upcoming ? "Save your spot" : "Ready to compete?"}</h2><p className="mt-2 text-sm leading-relaxed text-muted-foreground">{ended ? "This contest is over. Check the standings to see how participants did." : upcoming ? "Register now. You can enter the challenge when it starts." : "Register to enter the contest and submit your solutions."}</p></div>
+        <div className="space-y-4 p-5 sm:p-6">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground"><Users className="h-4 w-4" />{contest.isPrivate ? "Private contest" : "Open to all students"}<span className="mx-1 text-border">·</span><LockKeyhole className="h-3.5 w-3.5" />{contest.isPrivate ? "Password required" : "Free to join"}</div>
+          {ended ? <div className="space-y-3"><p className="rounded-xl bg-muted/60 px-3.5 py-3 text-sm text-muted-foreground" role="status">Registration is closed because this contest has ended.</p>{!contest.isPrivate && <Link className={buttonClass} href={`/contests/leaderboard?contest=${encodeURIComponent(contest.slug)}`}>View standings <ArrowRight className="h-4 w-4" /></Link>}</div>
+            : registered ? <div className="space-y-3"><p className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-3 text-sm font-medium text-emerald-700 dark:text-emerald-400" role="status"><CheckCircle2 className="h-4 w-4 shrink-0" />You are registered for this contest.</p>{canReattempt && <div className="space-y-3 rounded-xl border border-border bg-muted/50 p-3.5"><p className="flex items-center gap-2 text-sm font-semibold"><RotateCcw className="h-4 w-4" />Authorized reattempt</p><p className="text-xs leading-relaxed text-muted-foreground">{reattemptDetails?.usedAttempts || 0} of {reattemptDetails?.allowedAttempts || 1} attempts used.{reattemptDetails?.expiresAt && ` Access until ${new Date(reattemptDetails.expiresAt).toLocaleString()}.`}{reattemptDetails?.reason && ` Reason: ${reattemptDetails.reason}`}</p><Link className={buttonClass} href={`/contests/${encodeURIComponent(contest.id)}/attempt`}>Start reattempt <ArrowRight className="h-4 w-4" /></Link></div>}{attemptEnded && !canReattempt ? <Link className={buttonClass} href={`/contests/leaderboard?contest=${encodeURIComponent(contest.slug)}`}>View your rankings <ArrowRight className="h-4 w-4" /></Link> : !upcoming && !canReattempt && <Link className={buttonClass} href={`/contests/${encodeURIComponent(contest.id)}/attempt`}>Enter contest <ArrowRight className="h-4 w-4" /></Link>}</div>
+            : authLoading ? <p className="py-2 text-sm text-muted-foreground" role="status"><Spinner className="mr-2 inline h-4 w-4" />Checking your account...</p>
+            : !user ? <div className="space-y-3"><p className="text-sm leading-relaxed text-muted-foreground">Sign in to register and take part in this contest.</p><Link className={buttonClass} href="/login">Sign in to register <ArrowRight className="h-4 w-4" /></Link></div>
+            : <form onSubmit={register} className="space-y-4">
+              {contest.isPrivate && <div className="space-y-2"><label htmlFor="contest-password" className="block text-sm font-medium text-foreground">Contest password</label><input id="contest-password" type="password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter the contest password" className="w-full px-3.5 py-3 rounded-xl border border-border bg-background text-sm text-foreground outline-none transition placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/15" /></div>}
+              {registrationError && <p className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{registrationError}</p>}
+              <button type="submit" disabled={registering} className={buttonClass}>{registering ? <><Spinner className="h-4 w-4" />Registering...</> : <>Register for contest <ArrowRight className="h-4 w-4" /></>}</button>
+              <p className="text-center text-xs text-muted-foreground">Your contest progress will appear on the standings.</p>
+            </form>}
+        </div>
+      </aside>
   );
 }

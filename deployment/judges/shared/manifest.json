@@ -1,0 +1,10 @@
+{
+  "architecture": "arm64",
+  "cgroup_version": 2,
+  "mode": "native-source-build",
+  "sources": {
+    "judge0": "ffd7a48cc6da86d6ac155ef10dbd67d02736070b",
+    "piston": "de2b365ac759670a3a0d13ea208a0869a92c7e64",
+    "isolate": "af6db68042c3aa0ded80787fbb78bc0846ea2114"
+  }
+}

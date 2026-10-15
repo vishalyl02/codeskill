@@ -1,0 +1,39 @@
+name: Piston integration validation
+on:
+  pull_request:
+    paths: ['backend-nestjs/**', 'frontend-v2/**', 'deployment/piston/**', 'scripts/piston/**', 'terraform/modules/piston-execution/**', '.github/workflows/piston-validation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: '**/package-lock.json'
+      - name: Install backend
+        run: npm ci --legacy-peer-deps
+        working-directory: backend-nestjs
+      - name: Test Piston contracts, security regressions and build backend
+        run: |
+          npm test -- --runInBand
+          npm run build
+        working-directory: backend-nestjs
+      - name: Install frontend
+        run: npm ci --legacy-peer-deps
+        working-directory: frontend-v2
+      - name: Test and build frontend
+        run: |
+          npm test -- --runInBand
+          npm run build
+        working-directory: frontend-v2
+      - name: Validate trusted provisioning scripts
+        run: |
+          bash -n scripts/piston/preflight.sh
+          node --check scripts/piston/provision.mjs
+          node --check scripts/piston/smoke.mjs
+      # No production deployment or privileged sandbox on a shared CI runner.

@@ -20,6 +20,7 @@ describe('QuestionsService - True/False Questions Handling', () => {
       findOne: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
       createQueryBuilder: jest.fn(),
+      query: jest.fn(),
     };
 
     mockQuestionBankRepo = {
@@ -322,6 +323,27 @@ describe('QuestionsService - True/False Questions Handling', () => {
       mockQuestionRepo.createQueryBuilder.mockReturnValue(qb);
       await service.findAll({ questionType: type as string });
       expect(qb.andWhere).toHaveBeenCalledWith('question.questionType IN (:...questionTypes)', { questionTypes: aliases });
+    });
+  });
+
+  describe('Subject-specific topic options', () => {
+    it('returns distinct approved subtopics matching the selected subject', async () => {
+      mockQuestionRepo.query.mockResolvedValue([
+        { topic: 'Algebra' },
+        { topic: 'Geometry' },
+      ]);
+
+      await expect(service.getTopicsDistribution('Mathematics')).resolves.toEqual([
+        'Algebra',
+        'Geometry',
+      ]);
+      expect(mockQuestionRepo.query).toHaveBeenCalledWith(
+        expect.stringContaining("status = 'approved'"),
+        ['Mathematics'],
+      );
+      expect(mockQuestionRepo.query.mock.calls[0][0]).toContain(
+        "(topic = $1 OR (metadata->'categories') ? $1)",
+      );
     });
   });
 

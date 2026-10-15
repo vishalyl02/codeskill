@@ -4,8 +4,8 @@ resource "aws_elasticache_subnet_group" "main" {
 }
 
 resource "aws_security_group" "redis" {
-  name        = "${var.name_prefix}-redis-sg"
-  vpc_id      = var.vpc_id
+  name   = "${var.name_prefix}-redis-sg"
+  vpc_id = var.vpc_id
 
   ingress {
     from_port       = 6379
@@ -16,15 +16,15 @@ resource "aws_security_group" "redis" {
 }
 
 resource "aws_elasticache_replication_group" "main" {
-  replication_group_id          = "${var.name_prefix}-redis"
-  description                   = "Redis cluster for ${var.name_prefix}"
-  node_type                     = var.node_type
-  port                          = 6379
-  parameter_group_name          = "default.redis7.cluster.on"
-  automatic_failover_enabled    = true
-  
-  subnet_group_name          = aws_elasticache_subnet_group.main.name
-  security_group_ids         = [aws_security_group.redis.id]
+  replication_group_id       = "${var.name_prefix}-redis"
+  description                = "Redis cluster for ${var.name_prefix}"
+  node_type                  = var.node_type
+  port                       = 6379
+  parameter_group_name       = "default.redis7.cluster.on"
+  automatic_failover_enabled = true
+
+  subnet_group_name  = aws_elasticache_subnet_group.main.name
+  security_group_ids = [aws_security_group.redis.id]
 
   num_node_groups         = 1
   replicas_per_node_group = 1

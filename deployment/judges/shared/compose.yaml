@@ -1,0 +1,102 @@
+name: codeskill-judges
+x-logs: &logs
+  driver: json-file
+  options: {max-size: '5m', max-file: '2'}
+x-judge: &judge
+  image: codeskill-judge0:arm64
+  restart: unless-stopped
+  networks: [judge0]
+  volumes: ['./config/judge0.conf:/judge0.conf:ro']
+  logging: *logs
+  depends_on:
+    judge0-db: {condition: service_healthy}
+    judge0-redis: {condition: service_healthy}
+services:
+  judge0-api:
+    <<: *judge
+    mem_limit: 320m
+    memswap_limit: 320m
+    cpus: 0.5
+    pids_limit: 128
+    command: ['api']
+  judge0-worker:
+    <<: *judge
+    privileged: true
+    cgroup: private
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1
+    pids_limit: 192
+    command: ['worker']
+    stop_signal: SIGQUIT
+    stop_grace_period: 60s
+  judge0-db:
+    image: postgres:16.2-bookworm
+    env_file: ./config/judge0.conf
+    command: ['postgres', '-c', 'shared_buffers=32MB', '-c', 'max_connections=20']
+    volumes: ['judge0-data:/var/lib/postgresql/data']
+    networks: [judge0]
+    restart: unless-stopped
+    mem_limit: 192m
+    memswap_limit: 192m
+    pids_limit: 64
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U judge0 -d judge0']
+      interval: 10s
+      retries: 30
+    logging: *logs
+  judge0-redis:
+    image: redis:7.2.4-bookworm
+    env_file: ./config/judge0.conf
+    command: ['sh', '-c', 'exec redis-server --maxmemory 32mb --maxmemory-policy noeviction --appendonly no --requirepass "$$REDIS_PASSWORD"']
+    networks: [judge0]
+    restart: unless-stopped
+    mem_limit: 64m
+    memswap_limit: 64m
+    pids_limit: 32
+    healthcheck:
+      test: ['CMD-SHELL', 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 10s
+      retries: 30
+    logging: *logs
+  piston:
+    image: codeskill-piston:arm64
+    privileged: true
+    cgroup: private
+    networks: [piston]
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1
+    pids_limit: 192
+    environment:
+      PISTON_DISABLE_NETWORKING: 'true'
+      PISTON_MAX_CONCURRENT_JOBS: '1'
+      PISTON_RUN_TIMEOUT: '5000'
+      PISTON_COMPILE_TIMEOUT: '10000'
+      PISTON_RUN_CPU_TIME: '5000'
+      PISTON_COMPILE_CPU_TIME: '10000'
+      PISTON_RUN_MEMORY_LIMIT: '268435456'
+      PISTON_COMPILE_MEMORY_LIMIT: '268435456'
+      PISTON_OUTPUT_MAX_SIZE: '65536'
+      PISTON_MAX_PROCESS_COUNT: '64'
+      PISTON_MAX_OPEN_FILES: '128'
+      PISTON_MAX_FILE_SIZE: '1048576'
+    tmpfs: ['/tmp:exec,size=134217728']
+    logging: *logs
+  gateway:
+    image: nginx:1.28-alpine
+    ports: ['${JUDGE_BIND_IP}:2358:2358', '${JUDGE_BIND_IP}:2001:2001']
+    volumes: ['./config/nginx.conf:/etc/nginx/nginx.conf:ro']
+    networks: [judge0, piston, ingress]
+    mem_limit: 32m
+    memswap_limit: 32m
+    pids_limit: 32
+    restart: unless-stopped
+    logging: *logs
+networks:
+  judge0: {internal: true}
+  piston: {internal: true}
+  ingress: {}
+volumes:
+  judge0-data:

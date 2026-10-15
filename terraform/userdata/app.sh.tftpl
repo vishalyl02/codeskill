@@ -1,0 +1,310 @@
+#!/bin/bash
+set -euo pipefail
+exec > >(tee -a /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+echo "=========================================================="
+echo " Starting CodeSkill Application Initialization (ARM64/x86)"
+echo " Monitoring: Prometheus Node Exporter + Promtail (Loki)    "
+echo " Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+echo "=========================================================="
+
+APP_DIR="/opt/codeskill"
+APP_USER="ec2-user"
+if ! id "$APP_USER" &>/dev/null; then
+    APP_USER="ubuntu"
+fi
+
+# Detect System Architecture (ARM64 vs x86_64)
+ARCH=$(uname -m)
+if [ "$ARCH" = "aarch64" ]; then
+    OSS_ARCH="arm64"
+else
+    OSS_ARCH="amd64"
+fi
+
+# 1. Update OS and Install Base Packages (NO CloudWatch Agent)
+echo "[1/8] Installing core system packages..."
+if command -v dnf &>/dev/null; then
+    dnf update -y
+    dnf install -y git curl wget jq unzip tar nginx docker
+    systemctl enable docker
+    systemctl start docker
+    usermod -aG docker "$APP_USER" || true
+    systemctl enable amazon-ssm-agent || true
+    systemctl start amazon-ssm-agent || true
+else
+    apt-get update -y
+    apt-get install -y git curl wget jq unzip tar nginx docker.io
+    systemctl enable docker
+    systemctl start docker
+    usermod -aG docker "$APP_USER" || true
+    systemctl enable amazon-ssm-agent || true
+    systemctl start amazon-ssm-agent || true
+fi
+
+# 2. Configure System Limits
+echo "[2/8] Tuning system file descriptor and socket limits..."
+cat << 'EOF' > /etc/security/limits.d/codeskill.conf
+* soft nofile 65536
+* hard nofile 65536
+* soft nproc 32768
+* hard nproc 32768
+EOF
+sysctl -w fs.file-max=2097152 || true
+sysctl -w net.core.somaxconn=4096 || true
+
+# 3. Install Node.js 20 & Global Tools
+echo "[3/8] Installing Node.js 20 and PM2..."
+if ! command -v node &>/dev/null; then
+    curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - || curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    if command -v dnf &>/dev/null; then
+        dnf install -y nodejs
+    else
+        apt-get install -y nodejs
+    fi
+fi
+npm install -g pm2@latest
+
+# 4. Install Prometheus Node Exporter (Lightweight OSS Host Metrics on Port 9100)
+echo "[4/8] Installing Prometheus Node Exporter ($${OSS_ARCH})..."
+NODE_EXP_VER="1.7.0"
+curl -sSL "https://github.com/prometheus/node_exporter/releases/download/v$${NODE_EXP_VER}/node_exporter-$${NODE_EXP_VER}.linux-$${OSS_ARCH}.tar.gz" | tar -xz -C /tmp
+mv "/tmp/node_exporter-$${NODE_EXP_VER}.linux-$${OSS_ARCH}/node_exporter" /usr/local/bin/
+rm -rf "/tmp/node_exporter*"
+
+cat << 'EOF' > /etc/systemd/system/node_exporter.service
+[Unit]
+Description=Prometheus Node Exporter
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/node_exporter --web.listen-address=:9100
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable node_exporter
+systemctl start node_exporter
+
+# 5. Install Promtail (Lightweight OSS Log Shipping to Loki on Port 3100)
+echo "[5/8] Installing Promtail Log Shipper ($${OSS_ARCH})..."
+PROMTAIL_VER="2.9.4"
+curl -sSL -O "https://github.com/grafana/loki/releases/download/v$${PROMTAIL_VER}/promtail-linux-$${OSS_ARCH}.zip"
+unzip -q -o "promtail-linux-$${OSS_ARCH}.zip" -d /usr/local/bin/
+rm -f "promtail-linux-$${OSS_ARCH}.zip"
+chmod +x /usr/local/bin/promtail-linux-$${OSS_ARCH}
+ln -sf /usr/local/bin/promtail-linux-$${OSS_ARCH} /usr/local/bin/promtail
+
+mkdir -p /etc/promtail /var/log/codeskill
+cat << EOF > /etc/promtail/promtail.yml
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/log/promtail-positions.yaml
+
+clients:
+  - url: http://${monitoring_host}:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: codeskill-app-nginx
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: codeskill-app
+          service: nginx
+          host: $(hostname)
+          __path__: /var/log/nginx/*.log
+
+  - job_name: codeskill-app-pm2
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: codeskill-app
+          service: application
+          host: $(hostname)
+          __path__: /opt/codeskill/logs/*.log
+
+  - job_name: codeskill-userdata
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: codeskill-app
+          service: userdata
+          host: $(hostname)
+          __path__: /var/log/user-data.log
+EOF
+
+cat << 'EOF' > /etc/systemd/system/promtail.service
+[Unit]
+Description=Promtail Log Shipper for Loki
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/promtail -config.file=/etc/promtail/promtail.yml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable promtail
+systemctl start promtail || true
+
+# 6. Retrieve Database Credentials from AWS Secrets Manager
+echo "[6/8] Fetching database credentials and configuration from Secrets Manager..."
+DB_SECRET_ARN="${db_secret_arn}"
+AWS_REGION="${aws_region}"
+
+DB_HOST=""
+DB_USER=""
+DB_PASS=""
+DB_NAME=""
+DB_PORT="5432"
+
+if [ -n "$DB_SECRET_ARN" ]; then
+    SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "$DB_SECRET_ARN" --region "$AWS_REGION" --query SecretString --output text || echo "{}")
+    if [ -n "$SECRET_JSON" ] && [ "$SECRET_JSON" != "{}" ]; then
+        DB_HOST=$(echo "$SECRET_JSON" | jq -r '.host // empty')
+        DB_USER=$(echo "$SECRET_JSON" | jq -r '.username // empty')
+        DB_PASS=$(echo "$SECRET_JSON" | jq -r '.password // empty')
+        DB_NAME=$(echo "$SECRET_JSON" | jq -r '.dbname // empty')
+        DB_PORT=$(echo "$SECRET_JSON" | jq -r '.port // "5432"')
+    fi
+fi
+
+# Fallback to template parameters if Secret not populated
+DB_HOST="$${DB_HOST:-${db_endpoint}}"
+DB_USER="$${DB_USER:-${db_username}}"
+DB_PASS="$${DB_PASS:-${db_password}}"
+DB_NAME="$${DB_NAME:-${db_name}}"
+
+echo "Database target: $DB_HOST:$DB_PORT/$DB_NAME"
+
+# 7. Deploy CodeSkill Application Code
+echo "[7/8] Preparing Application Directory..."
+mkdir -p "$APP_DIR"
+cd "$APP_DIR"
+
+if [ ! -d "$APP_DIR/.git" ]; then
+    if [ -n "${git_repo_url}" ]; then
+        git clone --depth 1 --branch "${git_branch}" "${git_repo_url}" "$APP_DIR"
+    fi
+fi
+
+# If repo cloned, configure environment files
+if [ -d "$APP_DIR/backend-nestjs" ]; then
+    cat << EOF > "$APP_DIR/backend-nestjs/.env"
+NODE_ENV=production
+PORT=5001
+DATABASE_URL=postgresql://$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$DB_NAME?sslmode=prefer
+REDIS_HOST=${redis_host}
+REDIS_PORT=${redis_port}
+JWT_SECRET=${jwt_secret}
+JUDGE0_URL=${judge0_url}
+AWS_REGION=$AWS_REGION
+S3_BUCKET_NAME=${s3_bucket_name}
+CORS_ORIGIN=*
+EOF
+
+    cat << EOF > "$APP_DIR/frontend-v2/.env.local"
+NEXT_PUBLIC_API_URL=${app_public_url}/api
+NEXT_PUBLIC_SOCKET_URL=${app_public_url}
+EOF
+
+    chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+
+    # Build and Start
+    sudo -u "$APP_USER" bash << 'SUBEOF'
+set -e
+cd /opt/codeskill
+if [ -f "package.json" ]; then
+    npm install --omit=dev || npm install
+fi
+if [ -d "backend-nestjs" ]; then
+    cd backend-nestjs && npm install && npm run build && cd ..
+fi
+if [ -d "frontend-v2" ]; then
+    cd frontend-v2 && npm install && npm run build && cd ..
+fi
+mkdir -p logs
+pm2 start ecosystem.config.js || true
+pm2 save
+SUBEOF
+
+    # Configure PM2 startup
+    env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u "$APP_USER" --hp "/home/$APP_USER" || true
+fi
+
+# 8. Configure Nginx Reverse Proxy
+echo "[8/8] Configuring Nginx reverse proxy..."
+cat << 'EOF' > /etc/nginx/conf.d/codeskill.conf
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    client_max_body_size 50M;
+
+    # Backend API
+    location /api {
+        proxy_pass http://127.0.0.1:5001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 120s;
+    }
+
+    # WebSockets
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:5001/socket.io/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Frontend Next.js
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Direct Health Check for ALB
+    location /healthz {
+        access_log off;
+        return 200 '{"status":"ok","type":"nginx-ready"}';
+        add_header Content-Type application/json;
+    }
+}
+EOF
+
+# Remove default server block if it exists
+rm -f /etc/nginx/sites-enabled/default || true
+
+systemctl enable nginx
+systemctl restart nginx
+
+touch /var/run/codeskill-initialized
+echo "CodeSkill App instance ready (with Node Exporter & Promtail) at $(date -u +"%Y-%m-%dT%H:%M:%SZ")"

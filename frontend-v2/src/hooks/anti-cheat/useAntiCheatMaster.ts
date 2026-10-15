@@ -8,6 +8,7 @@ import { useCopyPasteProtect } from "./useCopyPasteProtect";
 import { useDevToolsDetect } from "./useDevToolsDetect";
 import api from "@/config/api"; // Assuming axios instance is here
 import { io } from "socket.io-client";
+import { logger } from "@/lib/logger";
 
 interface AntiCheatConfig {
   enableFullscreen: boolean;
@@ -82,7 +83,16 @@ export function useAntiCheatMaster(
         }
       } catch (err) {
         // Backend not ready or offline, but local state already caught the cheat.
-        console.warn("Failed to report violation to backend, using local state.", err);
+        logger.warn(
+          "Failed to report violation to backend, using local state",
+          {
+            contestId,
+            sessionId,
+            type,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "useAntiCheatMaster"
+        );
       }
     },
     [contestId, sessionId, config.warningLimit, config.autoSubmitOnViolation, onAutoSubmit, enabled]

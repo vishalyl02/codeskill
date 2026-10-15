@@ -61,6 +61,11 @@ export const pdfStyles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  logoImage: {
+    width: 46,
+    height: 46,
+    objectFit: "contain",
+  },
   logoText: {
     fontSize: 10,
     fontFamily: "Helvetica-Bold",

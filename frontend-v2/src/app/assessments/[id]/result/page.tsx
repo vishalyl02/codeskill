@@ -25,6 +25,7 @@ import { studentAssessmentsAPI } from "@/config/api";
 import { ContestReportDownloadButton } from "@/components/reports/ContestReportDownloadButton";
 import { buildContestReport } from "@/lib/contest-report-builder";
 import { useAuth } from "@/context/AuthContext";
+import { releaseAssessmentStream } from "@/lib/assessment-media-session";
 
 export default function AssessmentResultPage({
   params,
@@ -40,14 +41,18 @@ export default function AssessmentResultPage({
   const [isLoading, setIsLoading] = useState(true);
   const [isRetaking, setIsRetaking] = useState(false);
 
+  useEffect(() => {
+    releaseAssessmentStream(id);
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+  }, [id]);
+
   const handleRetake = async () => {
     setIsRetaking(true);
     try {
-      await studentAssessmentsAPI.retakeAttempt(id);
-      router.push(`/assessments/${id}/take`);
+      // Preserve the explicit redo action through the briefing and fullscreen gate.
+      router.push(`/assessments/${id}?retake=1`);
     } catch (err) {
       console.error("Failed to retake assessment:", err);
-      router.push(`/assessments/${id}/take`);
     } finally {
       setIsRetaking(false);
     }
@@ -147,9 +152,9 @@ export default function AssessmentResultPage({
     rank: 18,
     totalParticipants: 245,
     evaluator: {
-      facultyName: "Dr. Rajesh Sharma",
-      designation: "Associate Professor",
-      department: "Dept. of Skill Development & Computer Science",
+      facultyName: "Dr. Ishdeep Singla",
+      designation: "Assistant Director",
+      department: "Skill Development and Labs",
       remarks: attempt?.passed
         ? "Student demonstrates proficient algorithmic reasoning and structured problem solving. Recommended to proceed with advanced graph and dynamic programming training."
         : "Student requires targeted revision on core algorithmic logic and edge case handling. Recommended to join lab remedial sessions.",
@@ -172,6 +177,7 @@ export default function AssessmentResultPage({
           <div className="hidden sm:block">
             <ContestReportDownloadButton
               data={reportData}
+              logoPath="/cu-logo.png"
               filename={`${(assessment?.title || "Contest-Report").replace(/[^a-zA-Z0-9]/g, "_")}_${user?.name || "Student"}.pdf`}
               variant="outline"
               size="sm"
@@ -209,6 +215,7 @@ export default function AssessmentResultPage({
             <div className="sm:hidden">
               <ContestReportDownloadButton
                 data={reportData}
+                logoPath="/cu-logo.png"
                 filename={`Contest_Report_${user?.name || "Student"}.pdf`}
                 variant="outline"
                 size="sm"
@@ -470,6 +477,7 @@ export default function AssessmentResultPage({
 
           <ContestReportDownloadButton
             data={reportData}
+            logoPath="/cu-logo.png"
             filename={`${(assessment?.title || "Contest-Report").replace(/[^a-zA-Z0-9]/g, "_")}_${user?.name || "Student"}.pdf`}
             variant="primary"
             size="lg"

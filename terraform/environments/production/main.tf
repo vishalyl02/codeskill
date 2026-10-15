@@ -35,8 +35,8 @@ module "vpc" {
 }
 
 resource "aws_security_group" "alb" {
-  name        = "${local.name_prefix}-alb-sg"
-  vpc_id      = module.vpc.vpc_id
+  name   = "${local.name_prefix}-alb-sg"
+  vpc_id = module.vpc.vpc_id
 
   ingress {
     from_port   = 80
@@ -146,4 +146,5 @@ module "monitoring" {
   asg_name         = module.asg.asg_name
   db_identifier    = module.rds.db_identifier
   redis_cluster_id = module.redis.redis_cluster_id
+  aws_region       = var.aws_region
 }

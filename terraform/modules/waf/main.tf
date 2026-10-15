@@ -23,14 +23,14 @@ resource "aws_wafv2_web_acl" "main" {
     }
 
     visibility_config {
-      cloudwatch_metrics_enabled = true
+      cloudwatch_metrics_enabled = false
       metric_name                = "AWSManagedRulesCommonRuleSetMetric"
       sampled_requests_enabled   = true
     }
   }
 
   visibility_config {
-    cloudwatch_metrics_enabled = true
+    cloudwatch_metrics_enabled = false
     metric_name                = "${var.name_prefix}-waf-main-metric"
     sampled_requests_enabled   = true
   }

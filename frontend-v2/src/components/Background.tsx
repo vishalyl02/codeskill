@@ -13,16 +13,8 @@ export function Background() {
 
   return (
     <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden bg-background transition-colors duration-200">
-      {/* Global Technical Grid from Login Page Reference */}
-      <div
-        className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05]"
-        style={{
-          backgroundImage: `linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px)`,
-          backgroundSize: "32px 32px",
-        }}
-      />
-      {/* Global Glow effect */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] bg-primary/3 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute -top-72 left-[8%] h-[36rem] w-[36rem] rounded-full bg-cyan-300/[0.045] blur-[130px] dark:bg-cyan-500/[0.035]" />
+      <div className="absolute -top-64 right-[4%] h-[34rem] w-[34rem] rounded-full bg-emerald-300/[0.04] blur-[130px] dark:bg-emerald-500/[0.03]" />
     </div>
   );
 }

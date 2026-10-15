@@ -1,4 +1,4 @@
-jest.mock('@nestjs/typeorm', () => ({ InjectRepository: () => () => {} }));
+jest.mock('@nestjs/typeorm', () => ({ InjectRepository: () => () => {}, InjectDataSource: () => () => {} }));
 
 import {
   BadRequestException,
@@ -160,7 +160,7 @@ describe('Admin User Role Security (AUD-020 & X-06)', () => {
     expect(savedUser.tokenVersion).toBe(2);
 
     // Password must be stripped from response
-    expect(result.password).toBeUndefined();
+    expect((result as any).password).toBeUndefined();
 
     // Session must be invalidated
     expect(mockTokenService.invalidateUserSessions).toHaveBeenCalledWith('student-uuid');

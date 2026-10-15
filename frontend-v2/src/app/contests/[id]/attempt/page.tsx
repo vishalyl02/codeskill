@@ -66,10 +66,21 @@ function ContestSession({ id }: { id: string }) {
     finally { if (!controller.signal.aborted) setBusy(false); }
   }, [id, context, router]);
   const autoSubmit = useCallback(() => { void finish(true); }, [finish]);
-  const proctor = useAntiCheatMaster(id, user?.id || user?._id || "", context?.sessionId || "", context?.antiCheatConfig || {
-    enableFullscreen: false, enableCopyProtect: false, enablePasteProtect: false, enableDevToolsDetect: false,
-    enableTabSwitchDetect: false, warningLimit: 5,
-  }, autoSubmit, hasStarted && !ended);
+  const proctor = useAntiCheatMaster(
+    id,
+    user?.id || user?._id || "",
+    context?.sessionId || "",
+    context?.antiCheatConfig || {
+      enableFullscreen: false,
+      enableCopyProtect: false,
+      enablePasteProtect: false,
+      enableDevToolsDetect: false,
+      enableTabSwitchDetect: false,
+      warningLimit: 3,
+    },
+    autoSubmit,
+    hasStarted && !ended,
+  );
   useEffect(() => {
     if (!context || ended) return;
     const tick = () => { const time = Date.now(); setNow(time); if (time >= new Date(context.contest.endTime).getTime()) void finish(true); };
@@ -81,7 +92,18 @@ function ContestSession({ id }: { id: string }) {
   if (authLoading || (!context && !error && user)) return <div role="status" className="min-h-screen flex justify-center items-center gap-3"><Spinner />Loading contest session...</div>;
   if (!user) return <div className="pt-28 p-8 text-center space-y-4"><h1 className="text-2xl font-bold">Sign in to participate</h1><Link href="/login" className="text-primary hover:underline">Log In</Link></div>;
   if (!context) return <div className="pt-28 p-8 text-center space-y-4"><h1 className="text-2xl font-bold">Contest unavailable</h1><p role="alert">{error}</p><Button onClick={() => setRetry(value => value + 1)}>Try again</Button><Link href="/contests" className="block text-primary">Browse contests</Link></div>;
-  if (!hasStarted && !ended) return <ContestStartGate onAccept={() => setHasStarted(true)} requestFullscreen={proctor.requestFullscreen} isFullscreen={proctor.isFullscreen} hasRequestedFullscreen={proctor.hasRequestedFullscreen} requireFullscreen={context.antiCheatConfig?.enableFullscreen !== false} />;
+  if (!hasStarted && !ended)
+    return (
+      <ContestStartGate
+        onAccept={() => setHasStarted(true)}
+        requestFullscreen={proctor.requestFullscreen}
+        isFullscreen={proctor.isFullscreen}
+        hasRequestedFullscreen={proctor.hasRequestedFullscreen}
+        requireFullscreen={context.antiCheatConfig?.enableFullscreen !== false}
+        maxViolations={(context.antiCheatConfig as any)?.maxTabSwitchViolations ?? (context.antiCheatConfig as any)?.warningLimit ?? 3}
+        action={(context.antiCheatConfig as any)?.actionOnMaxViolations || "auto_submit"}
+      />
+    );
   const remaining = Math.max(0, Math.ceil((new Date(context.contest.endTime).getTime() - now) / 1000));
   const elapsed = Math.max(0, Math.floor((now - new Date(context.startedAt).getTime()) / 1000));
   return <div className="h-dvh bg-background flex flex-col overflow-hidden">

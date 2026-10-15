@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+exec >> /var/log/codeskill-judges-bootstrap.log 2>&1
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y awscli jq ca-certificates
+install -d -m 0700 /opt/codeskill-judges
+cd /opt/codeskill-judges
+aws s3 cp 's3://${bundle_bucket}/${bundle_key}' runtime.tgz --region '${region}' --no-progress
+printf '%s  %s\n' '${bundle_sha256}' runtime.tgz | sha256sum --check --status
+tar -xzf runtime.tgz
+
+# A pinned source bundle builds on the target architecture. install.sh must
+# pass live execution and isolation checks before publishing ready endpoints.
+jq -e '.architecture == "${runtime_architecture}" and .cgroup_version == 2 and .mode == "native-source-build"' manifest.json >/dev/null
+test -f /sys/fs/cgroup/cgroup.controllers
+export CODESKILL_JUDGE_PARAMETER_PREFIX='${parameter_prefix}'
+export CODESKILL_JUDGE_PROVIDERS='${enabled_providers}'
+export AWS_DEFAULT_REGION='${region}'
+bash ./install.sh
+test -f /opt/codeskill-judges/verification.json
+jq -e '.passed == true' /opt/codeskill-judges/verification.json >/dev/null
+touch /opt/codeskill-judges/initialized

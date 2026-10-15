@@ -149,12 +149,12 @@ export default function InteractiveListPreview({
       {!isCoarsePointer && (
         <div
           style={{ backgroundColor: bgColor }}
-          className={`relative w-full overflow-hidden font-mono text-white ${className}`}
+          className={`relative w-full overflow-hidden font-sans text-slate-800 dark:text-slate-100 ${className}`}
         >
           {/* Subtle Row Hover Highlight Bar */}
           <div
             ref={highlightRef}
-            className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-white/[0.08] border-y border-white/20 transition-opacity"
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 border-y border-emerald-200/70 bg-emerald-100/55 transition-opacity dark:border-emerald-700/50 dark:bg-emerald-900/25"
           />
 
           <div
@@ -173,21 +173,21 @@ export default function InteractiveListPreview({
                 {items.map((item, index) => (
                   <tr
                     key={`${item.client}-${index}`}
-                    className="cursor-pointer border-b border-white/10 transition-colors hover:bg-white/[0.04]"
+                    className="cursor-pointer border-b border-slate-200/70 transition-colors hover:bg-emerald-50/70 dark:border-slate-700/70 dark:hover:bg-emerald-950/30"
                     onMouseEnter={(event) =>
                       onRowEnter(event.currentTarget, index)
                     }
                     onMouseLeave={onRowLeave}
                   >
-                    <td className="whitespace-nowrap px-6 py-4 text-xs font-bold uppercase tracking-widest text-white">
+                    <td className="whitespace-nowrap px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
                       {item.client}
                     </td>
 
-                    <td className="whitespace-nowrap px-6 py-4 text-xs uppercase tracking-widest text-white/70">
+                    <td className="whitespace-nowrap px-6 py-4 text-xs uppercase tracking-widest text-emerald-800 dark:text-emerald-300">
                       {item.platform}
                     </td>
 
-                    <td className="whitespace-nowrap px-6 py-4 text-xs uppercase tracking-widest text-white/60">
+                    <td className="whitespace-nowrap px-6 py-4 text-xs uppercase tracking-widest text-slate-600 dark:text-slate-300">
                       {item.services}
                     </td>
                   </tr>
@@ -205,24 +205,24 @@ export default function InteractiveListPreview({
       {isCoarsePointer && (
         <div
           style={{ backgroundColor: bgColor }}
-          className={`w-full font-mono text-white ${className}`}
+          className={`w-full font-sans text-slate-800 dark:text-slate-100 ${className}`}
         >
           {items.map((item, index) => (
             <div
               key={`${item.client}-${index}`}
-              className="flex flex-col border-b border-white/10 p-4 gap-2"
+              className="flex flex-col gap-2 border-b border-slate-200/70 p-4 dark:border-slate-700/70"
             >
-              <p className="font-bold uppercase tracking-widest text-sm text-white">
+              <p className="text-sm font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
                 {item.client}
               </p>
 
               {item.platform && (
-                <p className="uppercase tracking-widest text-white/70 text-xs">
+                <p className="text-xs uppercase tracking-widest text-emerald-800 dark:text-emerald-300">
                   {item.platform}
                 </p>
               )}
 
-              <p className="leading-relaxed text-white/60 text-xs">
+              <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
                 {item.services}
               </p>
             </div>

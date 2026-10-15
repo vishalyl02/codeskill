@@ -64,8 +64,9 @@ export class ContestsController {
     @CurrentUser('id') userId: string,
     @Body('sessionId') sessionId: string,
     @Body('type') type: string,
+    @Body('metadata') metadata?: any,
   ) {
-    return this.contestsService.recordViolation(id, userId, sessionId, type);
+    return this.contestsService.recordViolation(id, userId, sessionId, type, metadata);
   }
 
   @Get(':slug')

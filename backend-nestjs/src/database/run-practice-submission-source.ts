@@ -1,7 +1,16 @@
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { databaseConfig } from '../config';
 import { applyPracticeSubmissionSourceMigration } from './migrations/practice-submission-source';
 import { applyAuthTokensSchemaMigration } from './migrations/auth-tokens-schema';
+import { applyDeclarativePartitioningMigration } from './migrations/declarative-partitioning';
+import { readShardingState } from './sharding/sharding-state';
+import { parseSubmissionShardingConfig } from './sharding/sharding.config';
+import { validateShardingState } from './sharding/sharding-state';
+import { applyContestSecurityReattemptMigration } from './migrations/contest-security-reattempt';
+import { applyAssessmentAudienceTargetingMigration } from './migrations/assessment-audience-targeting';
 
 export function practiceSubmissionMigrationOptions(): DataSourceOptions {
   const postgres = databaseConfig().postgres;
@@ -36,8 +45,17 @@ export async function runPracticeSubmissionSourceMigration(): Promise<void> {
       await queryRunner.connect();
       await queryRunner.startTransaction();
       try {
-        await applyPracticeSubmissionSourceMigration(queryRunner);
+        const sharding = await readShardingState(queryRunner);
+        if (sharding)
+          validateShardingState(parseSubmissionShardingConfig(), sharding);
+        if (!sharding)
+          await applyPracticeSubmissionSourceMigration(queryRunner);
         await applyAuthTokensSchemaMigration(queryRunner);
+        await applyDeclarativePartitioningMigration(queryRunner, {
+          skipSubmissions: !!sharding,
+        });
+        await applyContestSecurityReattemptMigration(queryRunner);
+        await applyAssessmentAudienceTargetingMigration(queryRunner);
         await queryRunner.commitTransaction();
       } catch (error) {
         await queryRunner.rollbackTransaction();
@@ -58,11 +76,12 @@ if (require.main === module) {
     .then(() => {
       console.log('Practice submission source migration completed.');
     })
-    .catch(() => {
-      // Connection errors can contain credentials; keep CLI output generic.
+    .catch((error) => {
       console.error(
-        'Practice submission source migration failed. Check database connectivity and the submissions schema.',
+        'Practice submission source migration failed:',
+        error instanceof Error ? error.message : error,
       );
       process.exitCode = 1;
     });
 }
+

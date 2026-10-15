@@ -1,0 +1,8 @@
+# Temporary trusted package installation. Restore the sealed network before use.
+services:
+  piston:
+    volumes:
+      - '${JUDGE_CONFIG_DIR}/provision:/codeskill-provision:ro'
+      - 'piston-packages:/piston/packages'
+networks:
+  sandbox: { internal: false }

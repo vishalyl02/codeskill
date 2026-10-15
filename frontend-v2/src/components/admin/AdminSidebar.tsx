@@ -14,15 +14,15 @@ import {
   GraduationCap, 
   Settings,
   ShieldCheck,
-  LogOut,
   ExternalLink,
   ClipboardList,
+  ListChecks,
+  Award,
   BookOpen,
   BarChart3,
   Terminal,
+  CircleHelp,
 } from "lucide-react";
-import { useAuth } from "@/context/AuthContext";
-import { useRouter } from "next/navigation";
 import gsap from "gsap";
 
 const navItems = [
@@ -50,6 +50,7 @@ const navItems = [
       { name: "Topics", href: "/admin/questions/topics" },
     ],
   },
+  { name: "MCQs", href: "/admin/mcqs", icon: ListChecks },
   {
     name: "Assessments",
     href: "/admin/assessments",
@@ -70,6 +71,8 @@ const navItems = [
   },
   { name: "Results & Scores", href: "/admin/candidates", icon: BarChart3 },
   { name: "Contests", href: "/admin/contests", icon: Trophy },
+  { name: "FAQ", href: "/admin/faq", icon: CircleHelp },
+  { name: "Contest Results", href: "/admin/contest-results", icon: Award },
   { name: "Companies", href: "/admin/companies", icon: Building2 },
   { name: "Universities", href: "/admin/universities", icon: BookOpen },
   { name: "Settings", href: "/admin/settings", icon: Settings },
@@ -77,25 +80,17 @@ const navItems = [
 
 export function AdminSidebar() {
   const pathname = usePathname();
-  const { logout } = useAuth();
-  const router = useRouter();
-
-  const handleLogout = () => {
-    logout();
-    router.push("/admin/login");
-  };
-
   return (
-    <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col h-full border-r border-sidebar-border relative z-20">
-      <div className="h-20 flex items-center px-4 border-b border-border bg-card/60 shrink-0">
+    <aside className="admin-sidebar w-64 bg-sidebar text-sidebar-foreground flex flex-col h-full border-r border-sidebar-border relative z-20">
+      <div className="h-[72px] flex items-center px-4 border-b border-border bg-card/60 shrink-0">
         <Link href="/admin/dashboard" className="flex items-center gap-3 group select-none">
           <AdminLogo variant="icon" size="md" />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <span className="text-lg font-black tracking-tight text-foreground leading-none">
-                Code<span className="text-rose-600 dark:text-rose-500">Skill</span>
+                Code<span className="text-emerald-700 dark:text-emerald-400">Skill</span>
               </span>
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/25 px-1.5 py-0.5 rounded leading-none shadow-xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/25 px-1.5 py-0.5 rounded leading-none shadow-xs">
                 Admin
               </span>
             </div>
@@ -106,17 +101,17 @@ export function AdminSidebar() {
         </Link>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-4 px-3">
-        <nav className="space-y-0.5">
+      <div className="admin-sidebar-scroll flex-1 overflow-y-auto py-4 px-3">
+        <nav className="space-y-1">
           {navItems.map((item) => {
             const isCategoryActive = pathname === item.href || (item.href !== "/" && Boolean(pathname?.startsWith(item.href)));
             const Icon = item.icon;
             
             return (
-              <div key={item.name} className="space-y-0.5">
+              <div key={item.name} className="admin-nav-group space-y-1">
                 <Link
                   href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`admin-nav-link flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium leading-5 transition-colors ${
                     isCategoryActive 
                       ? "bg-primary/10 text-primary border border-primary/20" 
                       : "hover:bg-muted/40 hover:text-foreground border border-transparent"
@@ -135,14 +130,14 @@ export function AdminSidebar() {
                 </Link>
 
                 {item.subItems && isCategoryActive && (
-                  <div className="pl-8 pr-2 pb-1 space-y-0.5">
+                  <div className="admin-subnav pl-8 pr-2 pb-1 space-y-1">
                     {item.subItems.map((sub) => {
                       const isSubActive = pathname === sub.href;
                       return (
                         <Link
                           key={sub.name}
                           href={sub.href}
-                          className={`block px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                          className={`admin-subnav-link block px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
                             isSubActive
                               ? "bg-primary/15 text-primary font-bold"
                               : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
@@ -168,7 +163,7 @@ export function AdminSidebar() {
           <Link
             href="/company"
             target="_blank"
-            className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium hover:bg-primary/10 hover:text-primary transition-colors group text-muted-foreground"
+            className="flex items-center justify-between px-3 py-2.5 rounded-lg text-[13px] font-medium leading-5 hover:bg-primary/10 hover:text-primary transition-colors group text-muted-foreground"
           >
             <div className="flex items-center gap-3">
               <Building2 className="w-4 h-4 group-hover:text-primary" />
@@ -179,7 +174,7 @@ export function AdminSidebar() {
           <Link
             href="/campus"
             target="_blank"
-            className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium hover:bg-emerald-500/10 hover:text-emerald-500 transition-colors group text-muted-foreground"
+            className="flex items-center justify-between px-3 py-2.5 rounded-lg text-[13px] font-medium leading-5 hover:bg-emerald-500/10 hover:text-emerald-500 transition-colors group text-muted-foreground"
           >
             <div className="flex items-center gap-3">
               <GraduationCap className="w-4 h-4 group-hover:text-emerald-500" />
@@ -190,16 +185,6 @@ export function AdminSidebar() {
         </nav>
       </div>
 
-      {/* Footer */}
-      <div className="p-3 border-t border-border">
-        <button 
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-xs font-semibold text-muted-foreground hover:bg-muted/40 hover:text-rose-500 transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-          Log out
-        </button>
-      </div>
-    </div>
+    </aside>
   );
 }

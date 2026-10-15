@@ -2,98 +2,23 @@ import {
   Injectable,
   CanActivate,
   ExecutionContext,
-  HttpException,
-  HttpStatus,
-  Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { RedisService } from '../../redis/redis.service';
+import { ExecutionAdmissionService } from '../../execution/admission/execution-admission.service';
 
 @Injectable()
 export class SubmissionRateLimitGuard implements CanActivate {
-  private readonly logger = new Logger(SubmissionRateLimitGuard.name);
-  private readonly maxPerMinute: number;
-  private readonly maxConcurrent: number;
-
-  constructor(
-    private readonly redisService: RedisService,
-    private readonly configService: ConfigService,
-  ) {
-    this.maxPerMinute =
-      this.configService.get<number>('runner.rateLimitPerMin') ||
-      parseInt(process.env.SUBMISSION_RATE_LIMIT_PER_MINUTE || '15', 10);
-    this.maxConcurrent =
-      this.configService.get<number>('runner.maxConcurrentPerUser') ||
-      parseInt(process.env.MAX_CONCURRENT_JOBS_PER_USER || '2', 10);
-  }
-
+  constructor(private readonly admission: ExecutionAdmissionService) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest();
-    const userId = request.user?._id || request.user?.id || 'anonymous';
-    const clientIp =
-      request.headers['x-forwarded-for']?.split(',')[0] ||
-      request.socket?.remoteAddress ||
-      'unknown-ip';
-
-    const client = this.redisService.getClient();
-    if (!client) {
-      return true; // Gracefully permit if Redis rate limiting is offline
-    }
-
-    const now = Date.now();
-    const windowSec = 60;
-    const rateLimitKey = `ratelimit:submissions:${userId !== 'anonymous' ? userId : clientIp}`;
-    const activeJobsKey = `active:submissions:${userId}`;
-
-    try {
-      // 1. Check concurrent active executions for user
-      if (userId !== 'anonymous') {
-        const activeCount = parseInt(
-          (await client.get(activeJobsKey)) || '0',
-          10,
-        );
-        if (activeCount >= this.maxConcurrent) {
-          throw new HttpException(
-            {
-              success: false,
-              statusCode: HttpStatus.TOO_MANY_REQUESTS,
-              error: 'Too Many Requests',
-              message: `You have ${activeCount} active code execution(s) in progress. Please wait for them to finish.`,
-            },
-            HttpStatus.TOO_MANY_REQUESTS,
-          );
-        }
-      }
-
-      // 2. Sliding window rate limiting
-      const multi = client.multi();
-      multi.zremrangebyscore(rateLimitKey, 0, now - windowSec * 1000);
-      multi.zcard(rateLimitKey);
-      multi.zadd(rateLimitKey, now, `${now}-${Math.random()}`);
-      multi.expire(rateLimitKey, windowSec);
-
-      const results = await multi.exec();
-      const currentCount = (results?.[1]?.[1] as number) || 0;
-
-      if (currentCount >= this.maxPerMinute) {
-        throw new HttpException(
-          {
-            success: false,
-            statusCode: HttpStatus.TOO_MANY_REQUESTS,
-            error: 'Too Many Requests',
-            message: `Rate limit exceeded. Maximum ${this.maxPerMinute} submissions per minute allowed. Please try again shortly.`,
-          },
-          HttpStatus.TOO_MANY_REQUESTS,
-        );
-      }
-
-      return true;
-    } catch (err: any) {
-      if (err instanceof HttpException) {
-        throw err;
-      }
-      this.logger.warn(`Rate limiter check error: ${err.message}`);
-      return true; // Fallback permit on non-HTTP error
-    }
+    const request = context
+      .switchToHttp()
+      .getRequest<{ method: string; user?: { id?: string; _id?: string } }>();
+    if (request.method === 'GET') return true;
+    if (!(request.user?.id || request.user?._id))
+      throw new UnauthorizedException();
+    // Reservation happens after payload validation in the service/controller.
+    // This guard never creates a lease that a rejected HTTP request could leak.
+    await this.admission.assertReady();
+    return true;
   }
 }

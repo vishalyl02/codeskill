@@ -10,12 +10,16 @@ interface ContestStartGateProps {
   isFullscreen: boolean;
   hasRequestedFullscreen: boolean;
   requireFullscreen?: boolean;
+  maxViolations?: number;
+  action?: string;
 }
 
 export function ContestStartGate({ 
   onAccept, 
   requestFullscreen, 
-  requireFullscreen = true
+  requireFullscreen = true,
+  maxViolations = 3,
+  action = "auto_submit",
 }: ContestStartGateProps) {
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -47,7 +51,7 @@ export function ContestStartGate({
             <li>Do not switch tabs, minimize the browser, or open other applications.</li>
             <li>Copying code from external sources and pasting is strictly prohibited.</li>
             <li>Right-clicking and Developer Tools are disabled.</li>
-            <li>Violations will be logged. Exceeding the warning limit will result in immediate auto-submission.</li>
+            <li>Exceeding the configured limit of <strong className="text-white">{maxViolations} violations</strong> (tab-switching, leaving the contest page, or exiting fullscreen) will trigger the policy: <strong className="text-white">{action === 'lock_attempt' ? 'Session Lock' : action === 'flag_review' ? 'Administrative Review Flag' : 'Immediate Auto-Submission'}</strong>.</li>
             <li>Your activity, device fingerprint, and IP address are monitored in real-time.</li>
           </ul>
         </div>

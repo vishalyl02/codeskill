@@ -1,9 +1,11 @@
 "use client";
 
+import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
+
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { 
-  Play, Send, Settings, BookOpen, Terminal, Clock, ChevronLeft, ChevronRight, ChevronDown, 
+  Play, Pause, Send, Download, Settings, BookOpen, Terminal, Clock, Timer, ChevronLeft, ChevronRight, ChevronDown,
   Maximize2, Minimize2, CheckCircle2, XCircle, AlertTriangle, 
   List, MessageSquare, Lightbulb, Sparkles, StickyNote, Tag, BarChart3,
   Trophy, Flame, Copy, RotateCcw, History, Eye, EyeOff, Plus, Trash2,
@@ -67,10 +69,20 @@ const SIDEBAR_TABS = [
   { id: "discussion", icon: MessageSquare, label: "Discussion", shortcut: "⌘/" },
 ];
 
+const EDITOR_THEMES = [
+  { id: "auto", label: "Match app theme" },
+  { id: "codeskill-hackerrank", label: "HackerRank Light" },
+  { id: "light", label: "Light" },
+  { id: "vs-dark", label: "Dark" },
+  { id: "codeskill-monokai", label: "Monokai" },
+  { id: "codeskill-solarized", label: "Solarized Dark" },
+];
+const EDITOR_FONTS = ["Roboto Mono", "JetBrains Mono", "Fira Code", "Menlo", "Monaco", "Consolas"];
+
 export default function ProblemWorkspace({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
   const problemId = unwrappedParams.id;
-  const { theme } = useTheme();
+  const { theme: appTheme } = useTheme();
   
   const [problem, setProblem] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -89,14 +101,53 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
   const [activeSidebarTab, setActiveSidebarTab] = useState("description");
   
   // Editor State
+  const executionRuntimes = useExecutionRuntimes();
   const [language, setLanguage] = useState<string>("javascript");
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
+  const [showEditorSettings, setShowEditorSettings] = useState(false);
   const [code, setCode] = useState<string>("");
+  const [editorThemeName, setEditorThemeName] = useState("auto");
+  const [editorFontSize, setEditorFontSize] = useState(14);
+  const [editorFontFamily, setEditorFontFamily] = useState("Roboto Mono");
+  const [editorPreferencesReady, setEditorPreferencesReady] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const monacoRef = useRef<any>(null);
 
   const [vimMode, setVimMode] = useState(false);
   const [editorInst, setEditorInst] = useState<any>(null);
   const [vimInst, setVimInst] = useState<any>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("codeskill_editor_preferences_v2");
+    if (saved) {
+      try {
+        const preferences = JSON.parse(saved);
+        if (EDITOR_THEMES.some(({ id }) => id === preferences.theme)) setEditorThemeName(preferences.theme);
+        if ([12, 13, 14, 16, 18, 20].includes(preferences.fontSize)) setEditorFontSize(preferences.fontSize);
+        if (EDITOR_FONTS.includes(preferences.fontFamily)) setEditorFontFamily(preferences.fontFamily);
+      } catch {
+        localStorage.removeItem("codeskill_editor_preferences_v2");
+      }
+    }
+    setEditorPreferencesReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!editorPreferencesReady) return;
+    localStorage.setItem("codeskill_editor_preferences_v2", JSON.stringify({
+      theme: editorThemeName,
+      fontSize: editorFontSize,
+      fontFamily: editorFontFamily,
+    }));
+  }, [editorPreferencesReady, editorThemeName, editorFontSize, editorFontFamily]);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+    const interval = window.setInterval(() => setElapsedSeconds((seconds) => seconds + 1), 1000);
+    return () => window.clearInterval(interval);
+  }, [timerRunning]);
 
   // Execution State
   const [activeBottomTab, setActiveBottomTab] = useState("testcases");
@@ -286,9 +337,56 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     return () => window.removeEventListener("keydown", handler);
   }, [code, language, problem]);
 
-  const handleEditorMount = (editor: any) => {
+  const handleEditorMount = (editor: any, monaco: any) => {
     setEditorInst(editor);
+    monacoRef.current = monaco;
+    monaco.editor.defineTheme("codeskill-hackerrank", {
+      base: "vs", inherit: true,
+      rules: [
+        { token: "keyword", foreground: "7B2CBF" },
+        { token: "string", foreground: "117A65" },
+        { token: "number", foreground: "B45309" },
+        { token: "comment", foreground: "728096", fontStyle: "italic" },
+      ],
+      colors: {
+        "editor.background": "#FFFFFF", "editor.foreground": "#1F2937",
+        "editorLineNumber.foreground": "#94A3B8", "editorLineNumber.activeForeground": "#2563EB",
+        "editor.lineHighlightBackground": "#F5F7FA", "editor.selectionBackground": "#C9DDFB",
+        "editorGutter.background": "#FFFFFF", "editorCursor.foreground": "#16A34A",
+      },
+    });
+    monaco.editor.defineTheme("codeskill-monokai", {
+      base: "vs-dark", inherit: true,
+      rules: [
+        { token: "keyword", foreground: "F92672" }, { token: "string", foreground: "E6DB74" },
+        { token: "number", foreground: "AE81FF" }, { token: "comment", foreground: "75715E", fontStyle: "italic" },
+      ],
+      colors: { "editor.background": "#272822", "editor.lineHighlightBackground": "#30312B", "editorCursor.foreground": "#F8F8F0" },
+    });
+    monaco.editor.defineTheme("codeskill-solarized", {
+      base: "vs-dark", inherit: true,
+      rules: [
+        { token: "keyword", foreground: "859900" }, { token: "string", foreground: "2AA198" },
+        { token: "number", foreground: "D33682" }, { token: "comment", foreground: "657B83", fontStyle: "italic" },
+      ],
+      colors: { "editor.background": "#002B36", "editor.foreground": "#93A1A1", "editor.lineHighlightBackground": "#073642", "editorCursor.foreground": "#B58900" },
+    });
+    monaco.editor.setTheme(editorThemeName === "auto" ? (appTheme === "dark" ? "vs-dark" : "codeskill-hackerrank") : editorThemeName);
   };
+
+  const downloadCode = () => {
+    const extension = LANGUAGES.find((item) => item.id === language)?.ext || "solution.txt";
+    const filename = `${(problem?.slug || "solution").replace(/[^a-z0-9-_]/gi, "-")}-${extension}`;
+    const blob = new Blob([code], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const formattedElapsed = `${String(Math.floor(elapsedSeconds / 3600)).padStart(2, "0")}:${String(Math.floor((elapsedSeconds % 3600) / 60)).padStart(2, "0")}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
 
   const getTestCases = () => {
     if (!problem || !problem.testCases || !problem.testCases.cases || problem.testCases.cases.length === 0) {
@@ -526,7 +624,9 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     );
   }
 
-  const editorTheme = theme === "dark" ? "vs-dark" : "light";
+  const editorTheme = editorThemeName === "auto"
+    ? (appTheme === "dark" ? "vs-dark" : "codeskill-hackerrank")
+    : editorThemeName;
   const testCases = getTestCases();
   const difficultyClass = DIFFICULTY_COLORS[problem.difficulty] || DIFFICULTY_COLORS.Easy;
   const acceptanceRate = problem.stats?.totalSubmissions > 0
@@ -534,11 +634,11 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     : "N/A";
 
   return (
-    <div ref={containerRef} className="flex flex-col h-dvh bg-background overflow-hidden font-sans text-foreground relative">
+    <div ref={containerRef} className="codeskill-problem-workspace flex flex-col h-dvh bg-background overflow-hidden font-sans text-foreground relative">
       
 
         {/* ─── TOP NAVBAR ─────────────────────────────────────────────────── */}
-        <header className="h-13 border-b border-[#1F2937] bg-[#0A0A0A] flex items-center justify-between px-4 shrink-0 gap-3">
+        <header className="workspace-topbar h-13 border-b border-[#1F2937] bg-[#0A0A0A] flex items-center justify-between px-4 shrink-0 gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <Link 
               href="/problems" 
@@ -556,12 +656,12 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
             <div className="w-px h-5 bg-[#374151] shrink-0" />
             
             <div className="flex items-center gap-2 min-w-0">
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-secondary border border-border text-[11px] font-bold text-foreground/80 shrink-0">
+              <div className="workspace-language-chip flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-secondary border border-border text-[11px] font-bold text-foreground/80 shrink-0">
                 <ProgrammingLanguageIcon language={language} className="w-3.5 h-3.5" />
                 <span>{LANGUAGES.find(l => l.id === language)?.name || "Language"}</span>
               </div>
               
-              <h1 className="text-[15px] sm:text-[16px] font-bold text-foreground truncate max-w-[280px] md:max-w-[420px] whitespace-nowrap">
+              <h1 className="text-[15px] sm:text-[16px] font-bold text-white truncate max-w-[280px] md:max-w-[420px] whitespace-nowrap">
                 {problem.title}
               </h1>
               
@@ -591,6 +691,28 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
           </div>
           
           <div className="relative flex items-center shrink-0 ml-auto z-50">
+            <div className="workspace-timer flex items-center gap-1 mr-2 rounded-md border border-[#3F3F46] bg-[#18181B] px-2 py-1 text-[13px] font-mono tabular-nums text-rose-300">
+              <Timer className="h-3.5 w-3.5 text-[#A3A3A3]" aria-hidden="true" />
+              <span aria-label={`Elapsed time ${formattedElapsed}`}>{formattedElapsed}</span>
+              <button
+                type="button"
+                onClick={() => setTimerRunning((running) => !running)}
+                className="ml-1 rounded p-1 text-[#F4F4F5] transition-colors hover:bg-[#303238]"
+                aria-label={timerRunning ? "Pause timer" : "Start timer"}
+                title={timerRunning ? "Pause timer" : "Start timer"}
+              >
+                {timerRunning ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTimerRunning(false); setElapsedSeconds(0); }}
+                className="rounded p-1 text-[#A3A3A3] transition-colors hover:bg-[#303238] hover:text-white"
+                aria-label="Reset timer"
+                title="Reset timer"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setShowLanguageDropdown(!showLanguageDropdown)}
@@ -618,7 +740,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                     className="absolute top-full right-0 mt-1.5 w-[140px] rounded-[10px] border border-[#3F3F46] bg-[#18181B] py-1.5 shadow-xl origin-top-right z-50"
                     role="listbox"
                   >
-                  {LANGUAGES.map(lang => (
+                  {LANGUAGES.filter(lang => !executionRuntimes.length || executionRuntimes.some(runtime => runtime.language === lang.id && runtime.enabled)).map(lang => (
                     <button
                       key={lang.id}
                       role="option"
@@ -637,7 +759,51 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                 </>
               )}
             </AnimatePresence>
-            
+            <button
+              type="button"
+              onClick={() => setShowEditorSettings((open) => !open)}
+              className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#3F3F46] bg-[#18181B] text-[#D1D5DB] transition-colors hover:bg-[#27272A] hover:text-white"
+              aria-label="Editor settings"
+              aria-expanded={showEditorSettings}
+              title="Editor settings"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+            <AnimatePresence>
+              {showEditorSettings && (
+                <>
+                  <button className="fixed inset-0 z-40 cursor-default" aria-label="Close editor settings" onClick={() => setShowEditorSettings(false)} />
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
+                    className="absolute right-0 top-full z-50 mt-2 w-72 rounded-lg border border-[#3F3F46] bg-[#18181B] p-4 text-[#F4F4F5] shadow-2xl"
+                    role="dialog" aria-label="Editor settings"
+                  >
+                    <div className="mb-3 text-sm font-semibold">Editor settings</div>
+                    <label className="mb-3 block text-xs text-[#A1A1AA]">
+                      Color theme
+                      <select value={editorThemeName} onChange={(event) => setEditorThemeName(event.target.value)} className="mt-1.5 block h-9 w-full rounded-md border border-[#3F3F46] bg-[#242428] px-2.5 text-sm text-white outline-none focus:border-emerald-500">
+                        {EDITOR_THEMES.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block text-xs text-[#A1A1AA]">
+                        Font size
+                        <select value={editorFontSize} onChange={(event) => setEditorFontSize(Number(event.target.value))} className="mt-1.5 block h-9 w-full rounded-md border border-[#3F3F46] bg-[#242428] px-2.5 text-sm text-white outline-none focus:border-emerald-500">
+                          {[12, 13, 14, 16, 18, 20].map((size) => <option key={size} value={size}>{size}px</option>)}
+                        </select>
+                      </label>
+                      <label className="block text-xs text-[#A1A1AA]">
+                        Font family
+                        <select value={editorFontFamily} onChange={(event) => setEditorFontFamily(event.target.value)} className="mt-1.5 block h-9 w-full rounded-md border border-[#3F3F46] bg-[#242428] px-2 text-sm text-white outline-none focus:border-emerald-500">
+                          {EDITOR_FONTS.map((font) => <option key={font} value={font}>{font}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <p className="mt-3 text-[11px] leading-relaxed text-[#92929B]">These preferences are saved in this browser.</p>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
           </div>
         </header>
 
@@ -647,7 +813,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
         {/* ═══════════════════════════════════════════════════════════════════════
             1. SLIM LEFT SIDEBAR (Activity Bar) — Modern Developer icon rail
            ═══════════════════════════════════════════════════════════════════════ */}
-        <div className="w-12 border-r border-[#1F2937] bg-[#0A0A0A] flex flex-col items-center py-3 gap-1 z-10 shrink-0">
+        <div className="workspace-activity-rail w-12 border-r border-[#1F2937] bg-[#0A0A0A] flex flex-col items-center py-3 gap-1 z-10 shrink-0">
           
           {SIDEBAR_TABS.map(tab => (
             <SidebarIcon
@@ -661,17 +827,17 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
           ))}
           
           <div className="flex-1" />
-          <SidebarIcon icon={Settings} label="Settings" onClick={() => {}} />
+          <SidebarIcon icon={Settings} label="Settings" active={showEditorSettings} onClick={() => setShowEditorSettings((open) => !open)} />
         </div>
 
         {/* ─── PANELS ──────────────────────────────────────────────────────── */}
-        <div className="flex-1 min-h-0 overflow-hidden p-1.5 relative z-0">
+        <div className="workspace-panels flex-1 min-h-0 overflow-hidden p-1.5 relative z-0">
           <PanelGroup orientation="horizontal" className="gap-1.5">
             
             {/* ═══════════════════════════════════════════════════════════════
                 CENTER PANEL — Problem Description / Editorial / Hints / etc.
                ═══════════════════════════════════════════════════════════════ */}
-            <Panel defaultSize={40} minSize={20} className="bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+            <Panel defaultSize={40} minSize={20} className="workspace-pane bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
               
               {/* Panel Header */}
               <div className="px-3.5 py-2 border-b border-border bg-muted/50 flex items-center justify-between shrink-0">
@@ -1131,7 +1297,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
 
             </Panel>
 
-            <PanelResizeHandle className="w-1.5 rounded-full bg-accent hover:bg-indigo-500/50 transition-colors cursor-col-resize" />
+            <PanelResizeHandle className="workspace-resize-handle w-1.5 rounded-full bg-accent hover:bg-indigo-500/50 transition-colors cursor-col-resize" />
 
             {/* ═══════════════════════════════════════════════════════════════
                 RIGHT PANEL — Editor + Console
@@ -1140,7 +1306,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
               <PanelGroup orientation="vertical" className="gap-1.5">
                 
                 {/* ─── Editor ──────────────────────────────────────────── */}
-                <Panel defaultSize={65} className="bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+                <Panel defaultSize={65} className="workspace-pane workspace-editor-pane bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
                   <div className="px-3.5 py-1.5 border-b border-border bg-muted flex justify-between items-center h-9 shrink-0">
                     <div className="flex items-center gap-2">
                       <List className="w-3.5 h-3.5 text-muted-foreground" />
@@ -1160,6 +1326,9 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                       <div className="w-px h-3.5 bg-muted hidden md:inline" />
                       <button onClick={handleCopyCode} title="Copy code" className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all">
                         <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={downloadCode} title="Download code" aria-label="Download code" className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all">
+                        <Download className="w-3.5 h-3.5" />
                       </button>
                       <button onClick={handleResetCode} title="Reset to default" className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all">
                         <RotateCcw className="w-3.5 h-3.5" />
@@ -1184,9 +1353,9 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                       onChange={(val) => setCode(val || "")}
                       onMount={handleEditorMount}
                       options={{
-                        minimap: { enabled: true, maxColumn: 80, scale: 1 },
-                        fontSize: 13,
-                        fontFamily: "JetBrains Mono, Fira Code, Menlo, Consolas, monospace",
+                        minimap: { enabled: false },
+                        fontSize: editorFontSize,
+                        fontFamily: `${editorFontFamily}, monospace`,
                         fontLigatures: true,
                         folding: true,
                         bracketPairColorization: { enabled: true },
@@ -1209,10 +1378,10 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                   </div>
                 </Panel>
 
-                <PanelResizeHandle className="h-1.5 rounded-full bg-accent hover:bg-primary/50 transition-colors cursor-row-resize" />
+                <PanelResizeHandle className="workspace-resize-handle h-1.5 rounded-full bg-accent hover:bg-primary/50 transition-colors cursor-row-resize" />
 
                 {/* ─── Console / Testcases ─────────────────────────────── */}
-                <Panel defaultSize={35} className="bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+                <Panel defaultSize={35} className="workspace-pane workspace-output-pane bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
                   <div className="flex items-center border-b border-border bg-muted/50 px-2 py-1 gap-1 shrink-0">
                     <TabButton active={activeBottomTab === "testcases"} onClick={() => setActiveBottomTab("testcases")} icon={Terminal}>Output</TabButton>
                     <TabButton active={activeBottomTab === "console"} onClick={() => setActiveBottomTab("console")}>
@@ -1383,27 +1552,27 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
       </div> {/* End MAIN ROW */}
 
       {/* ─── BOTTOM NAVIGATION BAR (STICKY ACTION BAR) ───────────────────── */}
-      <footer className="coding-action-bar h-[64px] border-t border-[#1F2937] bg-[#0A0A0A] flex items-center justify-between px-6 shrink-0 shadow-[0_-4px_24px_rgba(0,0,0,0.04)] pb-[env(safe-area-inset-bottom)]">
+      <footer className="coding-action-bar workspace-action-bar h-[60px] border-t border-[#D8DDE4] bg-white flex items-center justify-between px-6 shrink-0 shadow-[0_-4px_12px_rgba(15,23,42,0.04)] pb-[env(safe-area-inset-bottom)]">
 
           <div className="flex items-center gap-2">
             <Link href="/problems">
-              <Button variant="ghost" className="h-[42px] px-4 text-[14px] font-semibold gap-2 text-[#9CA3AF] hover:text-[#F3F4F6] hover:bg-[#1F2937] rounded-[8px] btn-interactive">
+              <Button variant="ghost" className="h-[38px] px-4 text-[13px] font-medium gap-2 text-[#475569] hover:text-[#111827] hover:bg-[#F1F5F9] rounded-[5px] btn-interactive">
                 <ArrowLeft className="w-4 h-4" />
                 <span className="hidden sm:inline">Back</span>
               </Button>
             </Link>
           </div>
           <div className="flex items-center gap-3">
-            <Button onClick={handleRun} disabled={isRunning || isSubmitting} className="h-[42px] px-5 text-[14px] font-bold gap-2 bg-[#1F2937] hover:bg-[#374151] text-[#E5E7EB] border border-[#374151] rounded-[8px] btn-interactive disabled:opacity-45 disabled:cursor-not-allowed">
+            <Button onClick={handleRun} disabled={isRunning || isSubmitting} className="h-[38px] px-4 text-[13px] font-medium gap-2 bg-white hover:bg-[#F8FAFC] text-[#334155] border border-[#CBD5E1] rounded-[5px] btn-interactive disabled:opacity-45 disabled:cursor-not-allowed">
               {isRunning ? <Spinner className="w-4 h-4 text-[#F5B800] animate-spin" /> : <Play className="w-4 h-4 text-[#F5B800]" />}
               <span>Run</span>
             </Button>
-            <Button onClick={handleSubmit} disabled={isRunning || isSubmitting} className="bg-[#F5B800] hover:bg-[#D99F00] text-[#111111] h-[42px] px-6 text-[14px] font-bold gap-2 shadow-sm border-0 rounded-[8px] btn-interactive disabled:opacity-45 disabled:cursor-not-allowed">
+            <Button onClick={handleSubmit} disabled={isRunning || isSubmitting} className="bg-[#0E8A43] hover:bg-[#087638] text-white h-[38px] px-5 text-[13px] font-semibold gap-2 shadow-none border-0 rounded-[5px] btn-interactive disabled:opacity-45 disabled:cursor-not-allowed">
               {isSubmitting ? <Spinner className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               <span>Submit</span>
             </Button>
             <Link href="/problems">
-              <Button variant="outline" className="h-[42px] px-5 text-[14px] font-semibold gap-2 bg-transparent hover:bg-[#1F2937] text-[#D1D5DB] border border-[#4B5563] rounded-[8px] btn-interactive">
+              <Button variant="outline" className="h-[38px] px-4 text-[13px] font-medium gap-2 bg-white hover:bg-[#F8FAFC] text-[#334155] border border-[#CBD5E1] rounded-[5px] btn-interactive">
                 <span className="hidden sm:inline">Next</span>
                 <ArrowRight className="w-4 h-4" />
               </Button>
