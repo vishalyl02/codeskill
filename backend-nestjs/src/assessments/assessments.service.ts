@@ -56,7 +56,7 @@ export class AssessmentsService {
           description: sec.description || '',
           order: sec.order || 0,
           timeLimit: sec.timeLimit || 0,
-          questions: sec.questions.map((q) => ({
+          questions: (sec.questions || []).map((q) => ({
             questionId: String(q.questionId),
             marks: q.marks || 1,
             negativeMarks: q.negativeMarks || 0,
@@ -202,25 +202,36 @@ export class AssessmentsService {
       throw new NotFoundException('Assessment not found');
     }
 
-    // Populate question details
+    // Include section references too so older assessments with section-only
+    // question IDs can still be edited without losing their question details.
+    const questionIds = Array.from(new Set([
+      ...(assessment.questions || []),
+      ...(assessment.sections || []).flatMap((section) =>
+        (section.questions || []).map((question) => String(question.questionId)),
+      ),
+    ]));
     let questionsList: Question[] = [];
-    if (assessment.questions && assessment.questions.length > 0) {
+    if (questionIds.length > 0) {
       questionsList = await this.questionRepo.find({
-        where: [
-          { id: In(assessment.questions) },
-          { mongoId: In(assessment.questions) },
-        ],
+        where: [{ id: In(questionIds) }, { mongoId: In(questionIds) }],
       });
     }
 
-    const qMap = new Map(
-      questionsList.map((q) => [q.id, { ...q, _id: q.id }]),
-    );
+    const qMap = new Map<string, Question & { _id: string }>();
+    questionsList.forEach((question) => {
+      const populated = { ...question, _id: question.id };
+      qMap.set(question.id, populated);
+      if (question.mongoId) qMap.set(question.mongoId, populated);
+    });
+    const orderedQuestions = questionIds
+      .map((id) => qMap.get(id))
+      .filter((question): question is Question & { _id: string } => Boolean(question))
+      .filter((question, index, items) => items.findIndex((item) => item.id === question.id) === index);
 
     // Populate questions in sections if present
     const sections = (assessment.sections || []).map((sec) => ({
       ...sec,
-      questions: sec.questions.map((q) => ({
+      questions: (sec.questions || []).map((q) => ({
         ...q,
         questionId: qMap.get(String(q.questionId)) || q.questionId,
       })),
@@ -231,7 +242,7 @@ export class AssessmentsService {
       assessment: {
         ...assessment,
         _id: assessment.id,
-        questions: questionsList.map((q) => ({ ...q, _id: q.id })),
+        questions: orderedQuestions,
         sections,
       },
     };
@@ -260,6 +271,8 @@ export class AssessmentsService {
     if (dto.title !== undefined) assessment.title = dto.title;
     if (dto.code !== undefined) assessment.code = dto.code.toUpperCase().trim();
     if (dto.description !== undefined) assessment.description = dto.description;
+    if (dto.category !== undefined) assessment.category = dto.category;
+    if (dto.instructions !== undefined) assessment.instructions = dto.instructions;
     if (dto.durationMinutes !== undefined)
       assessment.durationMinutes = dto.durationMinutes;
     if (dto.passingMarks !== undefined)
@@ -310,7 +323,7 @@ export class AssessmentsService {
           description: sec.description || '',
           order: sec.order || 0,
           timeLimit: sec.timeLimit || 0,
-          questions: sec.questions.map((q) => ({
+          questions: (sec.questions || []).map((q) => ({
             questionId: String(q.questionId),
             marks: q.marks || 1,
             negativeMarks: q.negativeMarks || 0,
