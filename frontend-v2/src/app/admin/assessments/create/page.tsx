@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { adminAssessmentsAPI } from "@/config/api";
@@ -29,12 +29,104 @@ function AssessmentBuilder() {
   const [activePicker, setActivePicker] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingStatus, setEditingStatus] = useState<'draft' | 'published' | 'ongoing' | 'completed' | 'archived'>('draft');
+  const [formReady, setFormReady] = useState(false);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const assessmentId = new URLSearchParams(window.location.search).get('id');
+    const hydrate = async () => {
+      if (!assessmentId) {
+        store.reset();
+        if (active) setFormReady(true);
+        return;
+      }
+
+      try {
+        const response = await adminAssessmentsAPI.getById(assessmentId);
+        const assessment = response.data?.assessment ?? response.data?.data?.assessment;
+        if (!assessment) throw new Error('Assessment details were not returned by the server.');
+
+        const questionById = new Map<string, any>();
+        (assessment.questions || []).forEach((question: any) => {
+          [question.id, question._id, question.mongoId].filter(Boolean).forEach((id: string) => questionById.set(String(id), question));
+        });
+        const sections = (assessment.sections || []).map((section: any, sectionIndex: number) => ({
+          id: `saved-section-${sectionIndex}`,
+          title: section.title || `Section ${String.fromCharCode(65 + sectionIndex)}`,
+          description: section.description || '',
+          order: Number(section.order ?? sectionIndex),
+          timeLimit: Number(section.timeLimit ?? 0),
+          questions: (section.questions || []).map((config: any, questionIndex: number) => {
+            const embedded = typeof config.questionId === 'object' ? config.questionId : undefined;
+            const id = embedded?._id || embedded?.id || String(config.questionId);
+            const question = embedded || questionById.get(String(id));
+            return {
+              questionId: String(id),
+              marks: Number(config.marks ?? question?.marks ?? 1),
+              negativeMarks: Number(config.negativeMarks ?? question?.negativeMarks ?? 0),
+              order: Number(config.order ?? questionIndex),
+              topic: question?.topic,
+              difficulty: question?.difficulty,
+              questionText: question?.question || question?.questionText || `Question ${questionIndex + 1}`,
+              questionType: question?.questionType || 'mcq',
+            };
+          }),
+        }));
+
+        if (sections.length === 0 && (assessment.questions || []).length > 0) {
+          sections.push({
+            id: 'saved-section-0', title: 'Section A', description: '', order: 0, timeLimit: 0,
+            questions: assessment.questions.map((question: any, index: number) => {
+              const embedded = typeof question === 'object' ? question : questionById.get(String(question));
+              const id = embedded?._id || embedded?.id || String(question);
+              return {
+                questionId: String(id), marks: Number(embedded?.marks ?? 1),
+                negativeMarks: Number(embedded?.negativeMarks ?? 0), order: index,
+                topic: embedded?.topic, difficulty: embedded?.difficulty,
+                questionText: embedded?.question || embedded?.questionText || `Question ${index + 1}`,
+                questionType: embedded?.questionType || 'mcq',
+              };
+            }),
+          });
+        }
+        if (sections.length === 0) sections.push({ id: 'saved-section-0', title: 'Section A', description: '', order: 0, timeLimit: 0, questions: [] });
+
+        store.hydrate({
+          title: assessment.title || '', code: assessment.code || '', description: assessment.description || '',
+          instructions: assessment.instructions || store.instructions,
+          durationMinutes: Number(assessment.durationMinutes ?? 60),
+          passingMarks: assessment.passingMarks == null ? '' : Number(assessment.passingMarks),
+          negativeMarking: assessment.negativeMarking ?? true, category: assessment.category || 'exam',
+          allowedAttempts: Number(assessment.allowedAttempts ?? 1), proctoring: assessment.proctoring || {},
+          sections, status: assessment.status === 'published' ? 'published' : 'draft',
+        });
+        if (active) {
+          setEditingId(assessmentId);
+          setEditingStatus(assessment.status || 'draft');
+          setFormReady(true);
+        }
+      } catch (error) {
+        console.error('Failed to load assessment for editing:', error);
+        if (active) {
+          const message = error instanceof Error ? error.message : 'Assessment details could not be loaded.';
+          setLoadError(message);
+          addToast('error', 'Unable to edit assessment', message);
+          setFormReady(true);
+        }
+      }
+    };
+    void hydrate();
+    return () => { active = false; };
+  }, []);
 
   // Calculate totals
   const totalQuestions = store.sections.reduce((acc, sec) => acc + sec.questions.length, 0);
   const totalMarks = store.sections.reduce((acc, sec) => acc + sec.questions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0), 0);
 
-  const handlePublish = async (status: 'draft' | 'published') => {
+  const handlePublish = async (status: 'draft' | 'published' | 'ongoing' | 'completed' | 'archived') => {
     if (!store.title.trim() || !store.code.trim()) {
       addToast("error", "Validation Error", "Title and Code are required.");
       return;
@@ -58,12 +150,12 @@ function AssessmentBuilder() {
 
     setIsPublishing(true);
     try {
-      await adminAssessmentsAPI.create({
+      const payload = {
         title: store.title,
         code: store.code,
         description: store.description,
         durationMinutes: store.durationMinutes,
-        passingMarks: store.passingMarks ? Number(store.passingMarks) : Math.ceil(totalMarks * 0.4),
+        passingMarks: store.passingMarks === '' ? Math.ceil(totalMarks * 0.4) : Number(store.passingMarks),
         category: store.category,
         allowedAttempts: store.allowedAttempts,
         negativeMarking: store.negativeMarking,
@@ -82,9 +174,11 @@ function AssessmentBuilder() {
             order: q.order
           }))
         }))
-      });
+      };
+      if (editingId) await adminAssessmentsAPI.update(editingId, { ...payload, status });
+      else await adminAssessmentsAPI.create(payload);
       
-      addToast("success", "Success", `Assessment ${status === 'published' ? 'published' : 'saved as draft'}`);
+      addToast("success", "Success", editingId ? "Assessment updated" : `Assessment ${status === 'published' ? 'published' : 'saved as draft'}`);
       setTimeout(() => router.push("/admin/assessments"), 1000);
     } catch (err: any) {
       addToast("error", "Error", err.response?.data?.message || "Failed to create assessment.");
@@ -92,6 +186,9 @@ function AssessmentBuilder() {
       setShowConfirm(false);
     }
   };
+
+  if (loadError) return <div className="min-h-screen bg-background p-8 text-foreground"><p className="mb-4">{loadError}</p><Link href="/admin/assessments" className="text-primary underline">Back to assessments</Link></div>;
+  if (!formReady) return <div className="min-h-screen bg-background flex items-center justify-center gap-3 text-muted-foreground"><Spinner className="w-5 h-5 animate-spin" /> Loading assessment and questions...</div>;
 
   return (
     <div className="min-h-screen bg-background pb-32">
@@ -103,7 +200,7 @@ function AssessmentBuilder() {
               <ArrowLeft className="w-4 h-4" />
             </Link>
             <div>
-              <h1 className="text-base font-bold text-foreground">Assessment Builder</h1>
+              <h1 className="text-base font-bold text-foreground">{editingId ? "Edit Assessment" : "Assessment Builder"}</h1>
               <p className="text-[11px] text-muted-foreground font-medium">Design professional evaluations.</p>
             </div>
           </div>
@@ -289,11 +386,11 @@ function AssessmentBuilder() {
             Cancel
           </button>
           <div className="flex gap-3">
-            <button onClick={() => handlePublish('draft')} disabled={isPublishing} className="px-5 py-2.5 rounded-xl border border-border hover:bg-muted text-sm font-semibold flex items-center gap-2">
-              <Save className="w-4 h-4" /> Save as Draft
+            <button onClick={() => handlePublish(editingId ? editingStatus : 'draft')} disabled={isPublishing} className="px-5 py-2.5 rounded-xl border border-border hover:bg-muted text-sm font-semibold flex items-center gap-2">
+              <Save className="w-4 h-4" /> {editingId ? 'Save Changes' : 'Save as Draft'}
             </button>
             <button onClick={() => setShowConfirm(true)} disabled={isPublishing} className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-semibold flex items-center gap-2 shadow-md">
-              <CheckCircle2 className="w-4 h-4" /> Publish Assessment
+              <CheckCircle2 className="w-4 h-4" /> {editingId ? "Publish Updates" : "Publish Assessment"}
             </button>
           </div>
         </div>

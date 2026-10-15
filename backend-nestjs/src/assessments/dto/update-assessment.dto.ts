@@ -26,6 +26,11 @@ export class UpdateAssessmentDto {
 
   @IsString()
   @IsOptional()
+  @IsEnum(['exam', 'quiz', 'practice', 'recruitment'])
+  category?: string;
+
+  @IsString()
+  @IsOptional()
   @IsEnum(['mcq', 'coding', 'hybrid'])
   type?: 'mcq' | 'coding' | 'hybrid';
 

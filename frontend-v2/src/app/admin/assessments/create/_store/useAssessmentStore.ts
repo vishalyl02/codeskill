@@ -52,6 +52,8 @@ interface AssessmentStore {
   setAllowedAttempts: (attempts: number) => void;
   setProctoring: (proctoring: Partial<ProctoringSettings>) => void;
   setStatus: (status: 'draft' | 'published') => void;
+  hydrate: (values: Partial<Pick<AssessmentStore, 'title' | 'code' | 'description' | 'instructions' | 'durationMinutes' | 'passingMarks' | 'negativeMarking' | 'category' | 'allowedAttempts' | 'proctoring' | 'sections' | 'status'>>) => void;
+  reset: () => void;
 
   addSection: () => void;
   updateSection: (id: string, updates: Partial<AssessmentSection>) => void;
@@ -98,6 +100,19 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   setAllowedAttempts: (allowedAttempts) => set({ allowedAttempts }),
   setProctoring: (proctoring) => set((state) => ({ proctoring: { ...state.proctoring, ...proctoring } })),
   setStatus: (status) => set({ status }),
+  hydrate: (values) => set((state) => ({ ...state, ...values, proctoring: { ...defaultProctoring, ...values.proctoring } })),
+  reset: () => set({
+    title: '', code: `EXAM-${Date.now().toString().slice(-4)}`, description: '',
+    instructions: [
+      'Ensure a stable internet connection throughout the test duration.',
+      'Fullscreen mode is strictly enforced. Leaving fullscreen or switching tabs will be recorded.',
+      'Negative marking applies for incorrect answers where specified.',
+      'The assessment will automatically submit when the countdown reaches zero.',
+    ],
+    durationMinutes: 60, passingMarks: '', negativeMarking: true, category: 'exam',
+    allowedAttempts: 1, proctoring: { ...defaultProctoring },
+    sections: [{ id: 'sec-1', title: 'Section A', description: '', order: 0, timeLimit: 0, questions: [] }], status: 'draft',
+  }),
 
   addSection: () => set((state) => ({
     sections: [...state.sections, {

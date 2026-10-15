@@ -19,9 +19,6 @@ import {
   Layers,
   Trash2,
   RefreshCw,
-  Settings2,
-  X,
-  Power,
   Edit3
 } from "lucide-react";
 import { adminAssessmentsAPI } from "@/config/api";
@@ -32,22 +29,6 @@ export default function AdminAssessmentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  // Timing & Schedule / Edit Modal State
-  const [editingAssessment, setEditingAssessment] = useState<any | null>(null);
-  const [scheduleData, setScheduleData] = useState({
-    title: "",
-    description: "",
-    allowedAttempts: 1,
-    status: "published",
-    durationMinutes: 45,
-    startTime: "",
-    endTime: "",
-    enforceFullscreen: true,
-    detectTabSwitch: true,
-    blockCopyPaste: true,
-  });
-  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
   const fetchAssessments = async () => {
     setIsLoading(true);
@@ -81,50 +62,6 @@ export default function AdminAssessmentsPage() {
       );
     } catch (err) {
       alert("Failed to toggle assessment availability status");
-    }
-  };
-
-  const handleOpenScheduleModal = (test: any) => {
-    setEditingAssessment(test);
-    setScheduleData({
-      title: test.title || "",
-      description: test.description || "",
-      allowedAttempts: test.allowedAttempts !== undefined ? Number(test.allowedAttempts) : 1,
-      status: test.status || "published",
-      durationMinutes: test.durationMinutes || 45,
-      startTime: test.startTime ? new Date(test.startTime).toISOString().slice(0, 16) : "",
-      endTime: test.endTime ? new Date(test.endTime).toISOString().slice(0, 16) : "",
-      enforceFullscreen: test.proctoring?.enforceFullscreen !== false,
-      detectTabSwitch: test.proctoring?.detectTabSwitch !== false,
-      blockCopyPaste: test.proctoring?.blockCopyPaste !== false,
-    });
-  };
-
-  const handleSaveSchedule = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingAssessment) return;
-    setIsSavingSchedule(true);
-    try {
-      await adminAssessmentsAPI.update(editingAssessment._id, {
-        title: scheduleData.title,
-        description: scheduleData.description,
-        allowedAttempts: Number(scheduleData.allowedAttempts),
-        status: scheduleData.status,
-        durationMinutes: Number(scheduleData.durationMinutes),
-        startTime: scheduleData.startTime || undefined,
-        endTime: scheduleData.endTime || undefined,
-        proctoring: {
-          enforceFullscreen: scheduleData.enforceFullscreen,
-          detectTabSwitch: scheduleData.detectTabSwitch,
-          blockCopyPaste: scheduleData.blockCopyPaste,
-        },
-      });
-      setEditingAssessment(null);
-      fetchAssessments();
-    } catch (err) {
-      alert("Failed to update assessment settings");
-    } finally {
-      setIsSavingSchedule(false);
     }
   };
 
@@ -336,14 +273,14 @@ export default function AdminAssessmentsPage() {
                     </Link>
 
                     {/* Edit Test Trigger */}
-                    <button
-                      onClick={() => handleOpenScheduleModal(test)}
+                    <Link
+                      href={`/admin/assessments/create?id=${encodeURIComponent(test._id)}`}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/10 hover:bg-primary/20 text-xs font-bold text-primary transition-colors"
-                      title="Edit Assessment Title, Attempts, Duration, and Policy"
+                      title="Edit assessment and questions"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
                       <span>Edit Test</span>
-                    </button>
+                    </Link>
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -383,181 +320,6 @@ export default function AdminAssessmentsPage() {
         </div>
       )}
 
-      {/* Edit Assessment Settings & Policy Modal */}
-      {editingAssessment && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-3xl p-6 max-w-lg w-full space-y-5 animate-in fade-in zoom-in-95 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center">
-                  <Edit3 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-foreground">Edit Assessment Settings</h3>
-                  <p className="text-xs text-muted-foreground font-mono">{editingAssessment.code}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setEditingAssessment(null)}
-                className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveSchedule} className="space-y-4 text-xs">
-              {/* Title */}
-              <div className="space-y-1.5">
-                <label className="font-semibold text-foreground">Assessment Title</label>
-                <input
-                  type="text"
-                  value={scheduleData.title}
-                  onChange={(e) => setScheduleData({ ...scheduleData, title: e.target.value })}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-medium"
-                  required
-                />
-              </div>
-
-              {/* Description */}
-              <div className="space-y-1.5">
-                <label className="font-semibold text-foreground">Description / Instructions</label>
-                <textarea
-                  rows={2}
-                  value={scheduleData.description}
-                  onChange={(e) => setScheduleData({ ...scheduleData, description: e.target.value })}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
-                  placeholder="Optional brief description or guidelines..."
-                />
-              </div>
-
-              {/* Attempt Policy */}
-              <div className="space-y-1.5 p-3 rounded-2xl bg-primary/5 border border-primary/20">
-                <label className="font-bold text-foreground flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-primary">
-                    <Award className="w-3.5 h-3.5" /> Attempt Policy
-                  </span>
-                  <span className="text-[10px] text-muted-foreground font-normal">Re-attempts keep highest score</span>
-                </label>
-                <select
-                  value={scheduleData.allowedAttempts}
-                  onChange={(e) => setScheduleData({ ...scheduleData, allowedAttempts: Number(e.target.value) })}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-medium"
-                >
-                  <option value={1}>1 Attempt Allowed (Strict Single Examination)</option>
-                  <option value={0}>Multiple / Unlimited Attempts (Keep Highest Score)</option>
-                  <option value={2}>2 Attempts Allowed (Keep Highest Score)</option>
-                  <option value={3}>3 Attempts Allowed (Keep Highest Score)</option>
-                  <option value={5}>5 Attempts Allowed (Keep Highest Score)</option>
-                </select>
-                <p className="text-[11px] text-muted-foreground">
-                  {scheduleData.allowedAttempts === 0
-                    ? "Students can re-take this test anytime. Their highest score is recorded."
-                    : scheduleData.allowedAttempts === 1
-                    ? "Students can only submit once. Once submitted, they cannot retake."
-                    : `Students can take up to ${scheduleData.allowedAttempts} attempts. The highest score will be saved.`}
-                </p>
-              </div>
-
-              {/* Status Trigger */}
-              <div className="space-y-1.5">
-                <label className="font-semibold text-foreground">Availability Status</label>
-                <select
-                  value={scheduleData.status}
-                  onChange={(e) => setScheduleData({ ...scheduleData, status: e.target.value })}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="published">Available Now (Published / Live)</option>
-                  <option value="draft">Disabled / Draft (Students Cannot Enter)</option>
-                  <option value="completed">Concluded (Completed)</option>
-                  <option value="archived">Archived</option>
-                </select>
-              </div>
-
-              {/* Duration Minutes */}
-              <div className="space-y-1.5">
-                <label className="font-semibold text-foreground">Test Duration (Minutes)</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="360"
-                  value={scheduleData.durationMinutes}
-                  onChange={(e) => setScheduleData({ ...scheduleData, durationMinutes: Number(e.target.value) })}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  required
-                />
-              </div>
-
-              {/* Start & End Times */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="font-semibold text-foreground">Start Window (Optional)</label>
-                  <input
-                    type="datetime-local"
-                    value={scheduleData.startTime}
-                    onChange={(e) => setScheduleData({ ...scheduleData, startTime: e.target.value })}
-                    className="w-full px-3 py-2 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <span className="text-[10px] text-muted-foreground">Students cannot start before this time.</span>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="font-semibold text-foreground">End Deadline (Optional)</label>
-                  <input
-                    type="datetime-local"
-                    value={scheduleData.endTime}
-                    onChange={(e) => setScheduleData({ ...scheduleData, endTime: e.target.value })}
-                    className="w-full px-3 py-2 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <span className="text-[10px] text-muted-foreground">Submissions close after this time.</span>
-                </div>
-              </div>
-
-              {/* Anti-cheat toggles */}
-              <div className="space-y-2 pt-2 border-t border-border">
-                <label className="font-semibold text-foreground block">Proctoring Enforcement</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                  <label className="flex items-center gap-2 p-2 rounded-lg bg-muted/30 border border-border cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={scheduleData.enforceFullscreen}
-                      onChange={(e) => setScheduleData({ ...scheduleData, enforceFullscreen: e.target.checked })}
-                      className="rounded border-border text-primary focus:ring-primary"
-                    />
-                    <span>Enforce Fullscreen</span>
-                  </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg bg-muted/30 border border-border cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={scheduleData.detectTabSwitch}
-                      onChange={(e) => setScheduleData({ ...scheduleData, detectTabSwitch: e.target.checked })}
-                      className="rounded border-border text-primary focus:ring-primary"
-                    />
-                    <span>Detect Tab Switches</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => setEditingAssessment(null)}
-                  className="px-4 py-2 rounded-xl border border-border hover:bg-muted text-muted-foreground hover:text-foreground font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingSchedule}
-                  className="inline-flex items-center gap-1.5 px-5 py-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl shadow-md shadow-primary/20 disabled:opacity-50"
-                >
-                  {isSavingSchedule ? <Spinner className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
