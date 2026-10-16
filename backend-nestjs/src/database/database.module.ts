@@ -76,13 +76,6 @@ const entities = [
           throw new Error('DB_SYNCHRONIZE must be disabled when using submission shards');
         }
 
-        const sslOptions = {
-          rejectUnauthorized: true,
-          ...(process.env.DATABASE_SSL_CA
-            ? { ca: process.env.DATABASE_SSL_CA.replace(/\\n/g, '\n') }
-            : {}),
-        };
-
         const poolConfig = {
           max: parseInt(process.env.DB_POOL_MAX || '50', 10),
           min: parseInt(process.env.DB_POOL_MIN || '5', 10),
@@ -94,7 +87,9 @@ const entities = [
           process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== undefined
             ? process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true'
             : isProduction;
-        const ca = process.env.DATABASE_CA_CERT;
+        const ca =
+          process.env.DATABASE_CA_CERT ||
+          process.env.DATABASE_SSL_CA?.replace(/\\n/g, '\n');
         const sslOptions = {
           rejectUnauthorized,
           ...(ca ? { ca } : {}),

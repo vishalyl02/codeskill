@@ -297,6 +297,21 @@ export class ContestsService {
     return contest;
   }
 
+  async getStartContext(id: string, userId: string) {
+    const contest = await this.eligibleContest(id, userId);
+    return {
+      contest: this.safeContest(contest),
+      antiCheatConfig: (contest.antiCheatConfig || {
+        enableFullscreen: true,
+        enableCopyProtect: true,
+        enablePasteProtect: true,
+        enableDevToolsDetect: true,
+        enableTabSwitchDetect: true,
+        warningLimit: 3,
+      }) as Record<string, unknown>,
+    };
+  }
+
   async startAttempt(id: string, userId: string) {
     const contest = await this.eligibleContest(id, userId);
     const now = Date.now();

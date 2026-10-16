@@ -28,14 +28,15 @@ it("retains warnings without forcing submission when the contest configuration d
   renderHook(() => useAntiCheatMaster("contest", "student", "session", { ...config, warningLimit: 1, autoSubmitOnViolation: false }, finish));
   await act(async () => fireEvent.keyDown(window, { key: "F12" })); expect(finish).not.toHaveBeenCalled();
 });
-it("initializes WebSocket with auth token from localStorage (AUD-007)", () => {
+it("reads the current auth token when the WebSocket connects (AUD-007)", () => {
   localStorage.setItem("codeskill_token", "jwt-secret-session-token");
   const finish = jest.fn();
   renderHook(() => useAntiCheatMaster("contest", "student", "session", config, finish, true));
-  expect(io).toHaveBeenCalledWith(
-    expect.any(String),
-    expect.objectContaining({
-      auth: { token: "Bearer jwt-secret-session-token" },
-    }),
-  );
+  expect(io).toHaveBeenCalledTimes(1);
+  const options = jest.mocked(io).mock.calls[0][1] as {
+    auth: (callback: (credentials: { token?: string }) => void) => void;
+  };
+  const callback = jest.fn();
+  options.auth(callback);
+  expect(callback).toHaveBeenCalledWith({ token: "Bearer jwt-secret-session-token" });
 });
