@@ -16,12 +16,19 @@ import PracticePet from "@/components/pet/PracticePet";
 import ExecutionFeedback from "@/components/Result/ExecutionFeedback";
 import PracticeConfetti from "@/components/Result/PracticeConfetti";
 import SubmissionDetails from "@/components/Result/SubmissionDetails";
-import SampleTestCasesPanel, { hasSampleContent } from "@/components/problems/SampleTestCasesPanel";
+import { hasSampleContent } from "@/components/problems/SampleTestCasesPanel";
+import PracticeSampleCases from "@/components/problems/PracticeSampleCases";
 import { ExecutionFeedbackResult, normalizeVerdict } from "@/lib/submission-feedback";
 import { editorLanguages, canonicalEditorLanguage, editorStarterCode } from '@/lib/editor-languages';
 import { hideEntryPoint, updateSourceFromVisibleEditor } from "@/lib/hidden-entry-point";
 import { ProgrammingLanguageIcon } from "@/components/ui/ProgrammingLanguageIcon";
-import { publicProblemRunCases } from "@/lib/problem-run-cases";
+import { usePracticeTestCases } from "@/hooks/usePracticeTestCases";
+import { PracticeTestConsole, PracticeRunStatus, SubmissionRunStatus } from "@/components/problems/PracticeTestConsole";
+import { WorkspaceTimer } from "@/components/problems/WorkspaceTimer";
+import { ProblemNavigation } from "@/components/problems/ProblemNavigation";
+import { ProblemFormats } from "@/components/problems/ProblemFormats";
+import workspaceStyles from "@/components/problems/WorkspaceEnhancements.module.css";
+import { Sun, Moon } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useCallback, useMemo, use, useRef } from "react";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
@@ -30,7 +37,6 @@ import { submissionAPI, runAPI, problemsAPI, discussionsAPI, type ProblemStats }
 import { useTheme } from "@/context/ThemeContext";
 import { Spinner } from "@/components/ui/spinner";
 import gsap from "gsap";
-import { useGSAP } from "@gsap/react";
 
 const LANGUAGES = [
   { id: "c", name: "C", ext: "main.c", defaultCode: "#include <stdio.h>\n\nint main() {\n    // Read input\n    // Write your solution here\n    return 0;\n}" },
@@ -67,28 +73,19 @@ const EDITOR_THEMES = [
   { id: "codeskill-monokai", label: "Monokai" },
   { id: "codeskill-solarized", label: "Solarized Dark" },
 ];
-const EDITOR_FONTS = ["Roboto Mono", "JetBrains Mono", "Fira Code", "Menlo", "Monaco", "Consolas"];
+const EDITOR_FONTS = ["monospace", "Menlo", "Monaco", "Courier New"];
 
 export default function ProblemWorkspace({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
   const problemId = unwrappedParams.id;
-  const { theme: appTheme } = useTheme();
+  const { resolvedTheme: appTheme, setTheme } = useTheme();
   
   const [problem, setProblem] = useState<any>(null);
-  const testCases = useMemo(() => publicProblemRunCases(problem), [problem]);
+  const practiceCases = usePracticeTestCases(problem, problemId);
+  const testCases = practiceCases.samples;
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useGSAP(() => {
-    if (!loading && containerRef.current?.querySelector(".coding-action-bar")) {
-      gsap.from(".coding-action-bar", {
-        opacity: 0,
-        y: 20,
-        duration: 0.4,
-        ease: "power2.out"
-      });
-    }
-  }, { scope: containerRef, dependencies: [loading] });
   
   // Tab State
   const [activeSidebarTab, setActiveSidebarTab] = useState("description");
@@ -104,13 +101,11 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
   const editorCode = hideEntryPoint(code, language)?.visibleCode ?? code;
   const [editorThemeName, setEditorThemeName] = useState("auto");
   const [editorFontSize, setEditorFontSize] = useState(14);
-  const [editorFontFamily, setEditorFontFamily] = useState("Roboto Mono");
+  const [editorFontFamily, setEditorFontFamily] = useState("monospace");
   const [editorPreferencesReady, setEditorPreferencesReady] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [timerRunning, setTimerRunning] = useState(false);
   const monacoRef = useRef<any>(null);
 
-  const [vimMode, setVimMode] = useState(false);
+  const vimMode = false;
   const [editorInst, setEditorInst] = useState<any>(null);
   const [vimInst, setVimInst] = useState<any>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -139,11 +134,6 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     }));
   }, [editorPreferencesReady, editorThemeName, editorFontSize, editorFontFamily]);
 
-  useEffect(() => {
-    if (!timerRunning) return;
-    const interval = window.setInterval(() => setElapsedSeconds((seconds) => seconds + 1), 1000);
-    return () => window.clearInterval(interval);
-  }, [timerRunning]);
 
   // Execution State
   const [activeBottomTab, setActiveBottomTab] = useState("testcases");
@@ -151,6 +141,10 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  // Source selection does not invalidate a run. Code, language and case edits do.
+  const practiceKey = JSON.stringify([problemId, code, language, practiceCases.samples, practiceCases.customCases]);
+  const [practiceRun, setPracticeRun] = useState<{ key: string; samples: RunResult | null; custom: RunResult | null } | null>(null);
+  const visiblePracticeResult = practiceRun?.key === practiceKey ? practiceRun[practiceCases.mode] : null;
   const [resultMode, setResultMode] = useState<'run' | 'submission'>('run');
   const [executionPhase, setExecutionPhase] = useState<string | null>(null);
   const [celebrationCount, setCelebrationCount] = useState(0);
@@ -387,7 +381,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [code, language, problem, isRunning, isSubmitting, languageEnabled]);
+  }, [code, language, problem, isRunning, isSubmitting, languageEnabled, practiceCases.samples, practiceCases.customCases, practiceCases.mode, practiceKey]);
 
   const handleEditorMount = (editor: any, monaco: any) => {
     setEditorInst(editor);
@@ -438,18 +432,23 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const formattedElapsed = `${String(Math.floor(elapsedSeconds / 3600)).padStart(2, "0")}:${String(Math.floor((elapsedSeconds % 3600) / 60)).padStart(2, "0")}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
+  useEffect(() => {
+    if (!editorInst) return;
+    editorInst.updateOptions({ fontFamily: `"${editorFontFamily}", monospace`, fontSize: editorFontSize });
+    monacoRef.current?.editor.remeasureFonts();
+  }, [editorInst, editorFontFamily, editorFontSize]);
 
-  const getTestCases = () => testCases;
 
-  const executeCode = async () => {
-    const apiTestCases = getTestCases().map((tc: any) => ({
+
+
+  const executeCode = async (cases: { id: number; input: string; expected: string }[], customInput: boolean) => {
+    const apiTestCases = cases.map((tc) => ({
       id: tc.id,
       input: tc.input,
       expected: tc.expected,
     }));
     if (apiTestCases.length === 0) {
-      throw new Error("This problem has no visible sample tests configured.");
+      throw new Error("Add a custom test or select an available public sample before running.");
     }
 
     const response = await runAPI.run({
@@ -457,6 +456,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
       language,
       testCases: apiTestCases,
       config: {
+        customInput,
         timeLimit: problem?.config?.timeLimit,
         memoryLimit: problem?.config?.memoryLimit,
         executionMode: problem?.config?.executionMode,
@@ -522,12 +522,31 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     setIsRunning(true);
     setResultMode('run');
     setExecutionPhase('queued');
-    setActiveBottomTab('console');
+    setActiveBottomTab('testcases');
     setRunResult(null);
     try {
-      const { resultState } = await executeCode();
-      setRunResult(resultState);
-      setActiveBottomTab("console");
+      const groups = {
+        samples: practiceCases.samples,
+        custom: practiceCases.customCases.map((test, index) => ({ ...test, id: index + 1 })),
+      };
+      const results: { key: string; samples: RunResult | null; custom: RunResult | null } = { key: practiceKey, samples: null, custom: null };
+      // Separate requests retain the judge's sample comparison and custom-input behavior.
+      for (const source of ["samples", "custom"] as const) {
+        if (!groups[source].length) continue;
+        // Leave an untouched blank custom draft ready for input when running samples.
+        if (source === "custom" && groups.samples.length > 0 && practiceCases.mode !== "custom" && groups.custom.every(test => !test.input && !test.expected)) continue;
+        try {
+          const { resultState } = await executeCode(groups[source], source === "custom");
+          results[source] = resultState;
+        } catch (error: unknown) {
+          const failure = error as { response?: { status?: number; data?: { message?: string } }; message?: string };
+          if (failure.response?.status === 401 || failure.response?.status === 403) setShowLoginModal(true);
+          results[source] = { status: "error", results: [], runtime: 0, passedCount: 0, totalCount: groups[source].length, logs: [failure.response?.data?.message || failure.message || "Execution could not complete. Please run again."] };
+        }
+        setPracticeRun({ ...results });
+      }
+      setRunResult(null);
+      setActiveBottomTab("testcases");
     } catch (err: any) {
       if (err.response?.status === 401 || err.response?.status === 403) {
         setRunResult({
@@ -547,12 +566,12 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
           totalCount: 0,
         });
       }
-      setActiveBottomTab("console");
+      setActiveBottomTab("testcases");
     } finally {
       setIsRunning(false);
       setExecutionPhase(null);
     }
-  }, [code, language, problem, isRunning, isSubmitting, languageEnabled]);
+  }, [code, language, problem, isRunning, isSubmitting, languageEnabled, practiceCases.samples, practiceCases.customCases, practiceCases.mode, practiceKey]);
 
   const handleSubmit = useCallback(async () => {
     if (!languageEnabled) return;
@@ -688,52 +707,23 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     : null;
 
   return (
-    <div ref={containerRef} className="codeskill-problem-workspace flex flex-col h-dvh bg-background overflow-hidden font-sans text-foreground relative">
+    <div ref={containerRef} className={`${workspaceStyles.workspace} codeskill-problem-workspace flex flex-col h-dvh bg-background overflow-hidden font-sans text-foreground relative`}>
       
 
         {/* ─── TOP NAVBAR ─────────────────────────────────────────────────── */}
         <header className="workspace-topbar h-13 border-b border-[#1F2937] bg-[#0A0A0A] flex items-center justify-between px-4 shrink-0 gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <Link 
-              href="/problems" 
-              title="Back to Problems" 
-              className="inline-flex h-9 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-[#D1D5DB] transition-colors hover:bg-[#1F2937] hover:text-[#FFFFFF] shrink-0"
-              onMouseEnter={(e) => gsap.to(e.currentTarget, { scale: 1.02, duration: 0.15 })}
-              onMouseLeave={(e) => gsap.to(e.currentTarget, { scale: 1, duration: 0.15 })}
-              onMouseDown={(e) => gsap.to(e.currentTarget, { scale: 0.98, duration: 0.15 })}
-              onMouseUp={(e) => gsap.to(e.currentTarget, { scale: 1.02, duration: 0.15 })}
-            >
-              <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>Back</span>
-            </Link>
-            
-            <div className="w-px h-5 bg-[#374151] shrink-0" />
-            
             <div className="flex items-center gap-2 min-w-0">
-              <div className="workspace-language-chip flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-secondary border border-border text-[11px] font-bold text-foreground/80 shrink-0">
-                <ProgrammingLanguageIcon language={language} className="w-3.5 h-3.5" />
-                <span>{LANGUAGES.find(l => l.id === language)?.name || "Language"}</span>
-              </div>
-              
               <h1 className="text-[15px] sm:text-[16px] font-bold text-white truncate max-w-[280px] md:max-w-[420px] whitespace-nowrap">
                 {problem.title}
               </h1>
+              <ProblemNavigation slug={problem.slug || problemId} disabled={isRunning || isSubmitting} />
               
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border uppercase tracking-wide shrink-0 ${difficultyClass}`}>
                 {problem.difficulty}
               </span>
             </div>
             
-            {/* Progress Indicator */}
-            <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-md bg-secondary border border-border text-[11px] text-muted-foreground shrink-0 ml-1">
-              <span className="font-medium text-foreground/80">Lesson Progress</span>
-              <div className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-[#10B981]" title="Completed" />
-                <span className="w-2 h-2 rounded-full bg-primary" title="Current Lesson" />
-                <span className="w-2 h-2 rounded-full bg-white/20" title="Upcoming" />
-              </div>
-            </div>
-
             {lastSaved && (
               <motion.span 
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}
@@ -745,28 +735,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
           </div>
           
           <div className="relative flex items-center shrink-0 ml-auto z-50">
-            <div className="workspace-timer flex items-center gap-1 mr-2 rounded-md border border-[#3F3F46] bg-[#18181B] px-2 py-1 text-[13px] font-mono tabular-nums text-rose-300">
-              <Timer className="h-3.5 w-3.5 text-[#A3A3A3]" aria-hidden="true" />
-              <span aria-label={`Elapsed time ${formattedElapsed}`}>{formattedElapsed}</span>
-              <button
-                type="button"
-                onClick={() => setTimerRunning((running) => !running)}
-                className="ml-1 rounded p-1 text-[#F4F4F5] transition-colors hover:bg-[#303238]"
-                aria-label={timerRunning ? "Pause timer" : "Start timer"}
-                title={timerRunning ? "Pause timer" : "Start timer"}
-              >
-                {timerRunning ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setTimerRunning(false); setElapsedSeconds(0); }}
-                className="rounded p-1 text-[#A3A3A3] transition-colors hover:bg-[#303238] hover:text-white"
-                aria-label="Reset timer"
-                title="Reset timer"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
-            </div>
+            <WorkspaceTimer />
             <button
               type="button"
               onClick={() => setShowLanguageDropdown(!showLanguageDropdown)}
@@ -817,6 +786,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                 </>
               )}
             </AnimatePresence>
+            <button type="button" className={workspaceStyles.themeToggle} onClick={() => { setTheme(appTheme === "dark" ? "light" : "dark"); setEditorThemeName("auto"); }} aria-label={`Switch whole workspace to ${appTheme === "dark" ? "light" : "dark"} mode`} title="Theme for description, editor and test console">{appTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}<span>{appTheme === "dark" ? "Light" : "Dark"}</span></button>
             <button
               type="button"
               onClick={() => setShowEditorSettings((open) => !open)}
@@ -827,41 +797,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
             >
               <Settings className="h-4 w-4" />
             </button>
-            <AnimatePresence>
-              {showEditorSettings && (
-                <>
-                  <button className="fixed inset-0 z-40 cursor-default" aria-label="Close editor settings" onClick={() => setShowEditorSettings(false)} />
-                  <motion.div
-                    initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
-                    className="absolute right-0 top-full z-50 mt-2 w-72 rounded-lg border border-[#3F3F46] bg-[#18181B] p-4 text-[#F4F4F5] shadow-2xl"
-                    role="dialog" aria-label="Editor settings"
-                  >
-                    <div className="mb-3 text-sm font-semibold">Editor settings</div>
-                    <label className="mb-3 block text-xs text-[#A1A1AA]">
-                      Color theme
-                      <select value={editorThemeName} onChange={(event) => setEditorThemeName(event.target.value)} className="mt-1.5 block h-9 w-full rounded-md border border-[#3F3F46] bg-[#242428] px-2.5 text-sm text-white outline-none focus:border-emerald-500">
-                        {EDITOR_THEMES.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-                      </select>
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="block text-xs text-[#A1A1AA]">
-                        Font size
-                        <select value={editorFontSize} onChange={(event) => setEditorFontSize(Number(event.target.value))} className="mt-1.5 block h-9 w-full rounded-md border border-[#3F3F46] bg-[#242428] px-2.5 text-sm text-white outline-none focus:border-emerald-500">
-                          {[12, 13, 14, 16, 18, 20].map((size) => <option key={size} value={size}>{size}px</option>)}
-                        </select>
-                      </label>
-                      <label className="block text-xs text-[#A1A1AA]">
-                        Font family
-                        <select value={editorFontFamily} onChange={(event) => setEditorFontFamily(event.target.value)} className="mt-1.5 block h-9 w-full rounded-md border border-[#3F3F46] bg-[#242428] px-2 text-sm text-white outline-none focus:border-emerald-500">
-                          {EDITOR_FONTS.map((font) => <option key={font} value={font}>{font}</option>)}
-                        </select>
-                      </label>
-                    </div>
-                    <p className="mt-3 text-[11px] leading-relaxed text-[#92929B]">These preferences are saved in this browser.</p>
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
+
           </div>
         </header>
 
@@ -871,23 +807,6 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
         {/* ═══════════════════════════════════════════════════════════════════════
             1. SLIM LEFT SIDEBAR (Activity Bar) — Modern Developer icon rail
            ═══════════════════════════════════════════════════════════════════════ */}
-        <div className="workspace-activity-rail w-12 border-r border-[#1F2937] bg-[#0A0A0A] flex flex-col items-center py-3 gap-1 z-10 shrink-0">
-          
-          {SIDEBAR_TABS.map(tab => (
-            <SidebarIcon
-              key={tab.id}
-              icon={tab.icon}
-              label={tab.label}
-              shortcut={tab.shortcut}
-              active={activeSidebarTab === tab.id}
-              onClick={() => setActiveSidebarTab(tab.id)}
-            />
-          ))}
-          
-          <div className="flex-1" />
-          <SidebarIcon icon={Settings} label="Settings" active={showEditorSettings} onClick={() => setShowEditorSettings((open) => !open)} />
-        </div>
-
         {/* ─── PANELS ──────────────────────────────────────────────────────── */}
         <div className="workspace-panels flex-1 min-h-0 overflow-hidden p-1.5 relative z-0">
           <PanelGroup orientation="horizontal" className="gap-1.5">
@@ -895,22 +814,13 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
             {/* ═══════════════════════════════════════════════════════════════
                 CENTER PANEL — Problem Description / Editorial / Hints / etc.
                ═══════════════════════════════════════════════════════════════ */}
-            <Panel defaultSize={40} minSize={20} className="workspace-pane bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+            <Panel defaultSize={44} minSize={25} className="workspace-pane bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
               
               {/* Panel Header */}
-              <div className="px-3.5 py-2 border-b border-border bg-muted/50 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    const tab = SIDEBAR_TABS.find(t => t.id === activeSidebarTab);
-                    const TabIcon = tab?.icon || FileText;
-                    return <TabIcon className="w-3.5 h-3.5 text-primary" />;
-                  })()}
-                  <span className="text-xs font-bold text-foreground capitalize">
-                    {activeSidebarTab.replace('_', ' ')}
-                  </span>
-                </div>
-              </div>
-              
+              <nav className={workspaceStyles.readingTabs} aria-label="Problem sections">
+                {SIDEBAR_TABS.map(tab => <button key={tab.id} type="button" aria-current={activeSidebarTab === tab.id ? "page" : undefined} onClick={() => setActiveSidebarTab(tab.id)}>{tab.label}</button>)}
+              </nav>
+
               {/* Panel Body (Scrolls Independently) */}
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <AnimatePresence mode="wait">
@@ -925,38 +835,6 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                     {/* ──────────── DESCRIPTION TAB ──────────── */}
                     {activeSidebarTab === "description" && (
                       <div className="p-5">
-                        {/* Problem Metadata Bar */}
-                        <div className="flex flex-wrap gap-2 mb-5">
-                          <MetaBadge icon={Target} label={problem.difficulty} className={difficultyClass} />
-                          {totalProblemSubmissions > 0 ? (
-                            <>
-                              <MetaBadge icon={BarChart3} label={`${acceptanceRate}% acceptance`} className="bg-secondary border-border text-foreground/80 text-[11px]" />
-                              <MetaBadge icon={Zap} label={`${totalProblemSubmissions} submissions`} className="bg-secondary border-border text-foreground/80 text-[11px]" />
-                              {problemStats && <MetaBadge icon={Users} label={`${problemStats.acceptedSolvers}/${problemStats.solvers} solved`} className="bg-secondary border-border text-foreground/80 text-[11px]" />}
-                            </>
-                          ) : (
-                            <MetaBadge icon={BarChart3} label="No submissions yet" className="bg-secondary border-border text-foreground/80 text-[11px]" />
-                          )}
-                          {problem.config?.timeLimit && <MetaBadge icon={Clock} label={`${problem.config.timeLimit}ms`} className="bg-secondary border-border text-foreground/80 text-[11px]" />}
-                          {problem.config?.memoryLimit && <MetaBadge icon={Code2} label={`${problem.config.memoryLimit}MB`} className="bg-secondary border-border text-foreground/80 text-[11px]" />}
-                        </div>
-                        
-                        {/* Tags */}
-                        {(problem.tags?.length > 0 || problem.categories?.length > 0) && (
-                          <div className="flex flex-wrap gap-1.5 mb-5">
-                            {(problem.categories || []).map((cat: string) => (
-                              <span key={cat} className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-primary/15 text-primary border border-primary/30">
-                                {cat}
-                              </span>
-                            ))}
-                            {(problem.tags || []).map((tag: string) => (
-                              <span key={tag} className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-secondary text-foreground/80 border border-border">
-                                <Hash className="w-2.5 h-2.5 inline mr-0.5 text-muted-foreground" />{tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        
                         {/* Description Content */}
                         <div className="prose dark:prose-invert prose-sm max-w-none text-foreground/80 text-[15px] leading-[1.6]
                           prose-headings:text-foreground prose-headings:font-bold prose-headings:text-[18px]
@@ -969,13 +847,17 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                           <div dangerouslySetInnerHTML={{ __html: problem.statement?.description || problem.description || "" }} />
                         </div>
                         
+                        <ProblemFormats
+                          input={problem.statement?.inputFormat || problem.inputFormat}
+                          output={problem.statement?.outputFormat || problem.outputFormat}
+                        />
                         {/* Constraints */}
                         {(problem.statement?.constraints || problem.constraints) && (
-                          <div className="mt-6 p-4 bg-secondary border border-amber-500/20 rounded-xl">
-                            <h3 className="text-xs font-bold text-[#F59E0B] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                              <AlertTriangle className="w-3.5 h-3.5" /> Constraints
+                          <section className={workspaceStyles.constraints}>
+                            <h3 className={workspaceStyles.formatHeading}>
+                              Constraints
                             </h3>
-                            <div className="text-xs text-foreground/80 leading-relaxed prose dark:prose-invert prose-sm max-w-none"
+                            <div className={workspaceStyles.formatBody}
                               dangerouslySetInnerHTML={{
                                 __html: Array.isArray(problem.statement?.constraints)
                                   ? problem.statement.constraints.join("<br />")
@@ -984,42 +866,13 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                                   : problem.statement?.constraints || problem.constraints || "",
                               }}
                             />
-                          </div>
+                          </section>
                         )}
 
-                        {/* Sample Test Cases in Description */}
-                        {displaySamples.length > 0 && (
-                          <div className="mt-6 space-y-3">
-                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">Examples</h3>
-                            {displaySamples.map((sample: any, i: number) => (
-                              <div key={i} className="border border-border bg-secondary rounded-xl overflow-hidden">
-                                <div className="bg-muted/50 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                                  Example {i + 1}
-                                </div>
-                                <div className="p-3.5 space-y-2.5 font-mono text-xs text-foreground/80">
-                                  {sample.input && (
-                                    <div>
-                                      <span className="text-muted-foreground text-[10px] font-sans font-semibold uppercase">Input: </span>
-                                      <pre className="bg-card border border-border/50 rounded-lg p-2.5 mt-1 text-foreground whitespace-pre-wrap">{sample.input}</pre>
-                                    </div>
-                                  )}
-                                  {sample.output && (
-                                    <div>
-                                      <span className="text-muted-foreground text-[10px] font-sans font-semibold uppercase">Output: </span>
-                                      <pre className="bg-card border border-border/50 rounded-lg p-2.5 mt-1 text-foreground whitespace-pre-wrap">{sample.output}</pre>
-                                    </div>
-                                  )}
-                                  {sample.explanation && (
-                                    <div className="text-foreground/80 font-sans text-xs mt-2 leading-relaxed">
-                                      <span className="font-semibold text-foreground">Explanation: </span>
-                                      {sample.explanation}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        {displaySamples.length > 0 && <div className="mt-7">
+                          <PracticeSampleCases samples={displaySamples} />
+                        </div>}
+                        <details className={workspaceStyles.topics}><summary>Topics</summary><div>{Array.from(new Set<string>([...(problem.categories || []), ...(problem.tags || [])])).map(topic => <span key={topic}>{topic}</span>)}{!problem.categories?.length && !problem.tags?.length && <span>No topics added.</span>}</div></details>
                       </div>
                     )}
 
@@ -1029,12 +882,14 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                         <h3 className="text-xs font-bold text-foreground uppercase tracking-wider mb-3">
                           Sample Test Cases
                         </h3>
-                        <SampleTestCasesPanel
+                        <PracticeSampleCases
                           samples={displaySamples}
                           onLoad={(sample) => {
                             const match = testCases.findIndex(
                               (tc: any) => (tc.input || "") === (sample.input || ""),
                             );
+                            practiceCases.setMode("samples");
+                            setRunResult(null);
                             setActiveTestCase(match >= 0 ? match : 0);
                             setActiveBottomTab("testcases");
                           }}
@@ -1403,17 +1258,13 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
             {/* ═══════════════════════════════════════════════════════════════
                 RIGHT PANEL — Editor + Console
                ═══════════════════════════════════════════════════════════════ */}
-            <Panel defaultSize={60} minSize={30} className="flex flex-col gap-1.5">
+            <Panel defaultSize={56} minSize={30} className="flex flex-col gap-1.5">
               <PanelGroup orientation="vertical" className="gap-1.5">
                 
                 {/* ─── Editor ──────────────────────────────────────────── */}
-                <Panel defaultSize={65} className="workspace-pane workspace-editor-pane bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+                <Panel defaultSize={58} minSize={25} className="workspace-pane workspace-editor-pane bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
                   <div className="px-3.5 py-1.5 border-b border-border bg-muted flex justify-between items-center h-9 shrink-0">
                     <div className="flex items-center gap-2">
-                      <List className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span className="text-xs font-semibold text-foreground bg-background px-2.5 py-0.5 rounded border border-border font-mono">
-                        {LANGUAGES.find(l => l.id === language)?.ext}
-                      </span>
                       {lastSaved && (
                         <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-muted-foreground ml-1 font-mono">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" /> Saved
@@ -1421,10 +1272,6 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-semibold text-muted-foreground hidden md:inline">
-                        {LANGUAGES.find(l => l.id === language)?.name}
-                      </span>
-                      <div className="w-px h-3.5 bg-muted hidden md:inline" />
                       <button onClick={handleCopyCode} title="Copy code" className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all">
                         <Copy className="w-3.5 h-3.5" />
                       </button>
@@ -1435,13 +1282,16 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                         <RotateCcw className="w-3.5 h-3.5" />
                       </button>
                       <div className="w-px h-3.5 bg-muted" />
-                      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors select-none">
-                        <input type="checkbox" checked={vimMode} onChange={(e) => setVimMode(e.target.checked)} className="rounded border-white/[0.12] bg-background w-3 h-3 accent-primary" />
-                        Vim
-                      </label>
+
                     </div>
                   </div>
                   
+                  {showEditorSettings && <section className={workspaceStyles.settingsPanel} aria-label="Editor preferences">
+                    <label>Theme<select value={editorThemeName} onChange={event => setEditorThemeName(event.target.value)}>{EDITOR_THEMES.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+                    <label>Font size<select value={editorFontSize} onChange={event => setEditorFontSize(Number(event.target.value))}>{[12,13,14,16,18,20].map(size => <option key={size} value={size}>{size}px</option>)}</select></label>
+                    <label>Font<select value={editorFontFamily} onChange={event => setEditorFontFamily(event.target.value)}>{EDITOR_FONTS.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
+                    <button type="button" onClick={() => setShowEditorSettings(false)} aria-label="Close editor settings">Done</button>
+                  </section>}
                   {/* Vim Status Bar */}
                   <div id="vim-status" className={`text-[10px] px-3 bg-background text-foreground border-b border-border flex items-center font-mono transition-all ${vimMode ? 'h-5 opacity-100' : 'h-0 opacity-0 overflow-hidden border-none'}`}></div>
 
@@ -1451,7 +1301,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                       language={language}
                       theme={editorTheme}
                       value={editorCode}
-                      onChange={(val) => setCode(updateSourceFromVisibleEditor(code, val || "", language))}
+                      onChange={(val) => { setCode(updateSourceFromVisibleEditor(code, val || "", language)); setRunResult(null); }}
                       onMount={handleEditorMount}
                       options={{
                         minimap: { enabled: false },
@@ -1482,12 +1332,22 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                 <PanelResizeHandle className="workspace-resize-handle h-1.5 rounded-full bg-accent hover:bg-primary/50 transition-colors cursor-row-resize" />
 
                 {/* ─── Console / Testcases ─────────────────────────────── */}
-                <Panel defaultSize={35} className="workspace-pane workspace-output-pane bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
-                  <div className="flex items-center border-b border-border bg-muted/50 px-2 py-1 gap-1 shrink-0">
-                    <TabButton active={activeBottomTab === "testcases"} onClick={() => setActiveBottomTab("testcases")} icon={Terminal}>Output</TabButton>
+                <Panel defaultSize={42} minSize={20} className="workspace-pane workspace-output-pane bg-card border border-border rounded-xl overflow-hidden flex flex-col shadow-sm">
+                  <div className={workspaceStyles.consoleHeader}>
+                    <div className={workspaceStyles.consoleActions}>
+            <Button onClick={handleRun} disabled={isRunning || isSubmitting || !languageEnabled} className={workspaceStyles.runAction}>
+              {isRunning ? <Spinner className="w-4 h-4  animate-spin" /> : <Play className="w-4 h-4 " />}
+              <span>Run</span>
+            </Button>
+            <Button onClick={handleSubmit} disabled={isRunning || isSubmitting || !languageEnabled} className={workspaceStyles.submitAction}>
+              {isSubmitting ? <Spinner className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              <span>Submit</span>
+            </Button>
+                    </div>
+                    <TabButton active={activeBottomTab === "testcases"} onClick={() => setActiveBottomTab("testcases")} icon={Terminal}>Test cases</TabButton>
                     <TabButton active={activeBottomTab === "console"} onClick={() => setActiveBottomTab("console")}>
-                      Terminal
-                      {runResult && (
+                      Results
+                      {resultMode === "submission" && runResult && (
                         <span className={`ml-1.5 w-2 h-2 rounded-full inline-block ${
                           runResult.status === "accepted" ? "bg-[#10B981]" :
                           runResult.status === "wrong_answer" ? "bg-[#EF4444]" :
@@ -1496,39 +1356,18 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                         }`} />
                       )}
                     </TabButton>
+                    {resultMode === "submission" && runResult && <SubmissionRunStatus status={runResult.status} busy={isSubmitting} />}
+                    {resultMode === "run" && <PracticeRunStatus controller={practiceCases} result={visiblePracticeResult} busy={isRunning} />}
                   </div>
                   <div className="flex-1 min-h-0 p-3.5 overflow-auto bg-background/60">
-                    {activeBottomTab === "testcases" ? (
-                      <>
-                        <div className="flex gap-1.5 mb-3">
-                          {testCases.map((tc: any, index: number) => (
-                            <button
-                              key={tc.id}
-                              onClick={() => setActiveTestCase(index)}
-                              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1.5 ${
-                                activeTestCase === index 
-                                  ? "bg-secondary text-foreground border border-white/[0.12] shadow-xs" 
-                                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50 border border-transparent"
-                              }`}
-                            >
-                              Case {tc.id}
-                            </button>
-                          ))}
-                        </div>
-                        
-                        <div className="space-y-3 font-mono text-xs">
-                          <div>
-                            <div className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider font-sans font-semibold">Input</div>
-                            <div className="bg-card border border-border rounded-lg p-2.5 text-foreground/80 whitespace-pre-wrap">{testCases[activeTestCase]?.input}</div>
-                          </div>
-                          <div>
-                            <div className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider font-sans font-semibold">Expected Output</div>
-                            <div className="bg-card border border-border rounded-lg p-2.5 text-foreground/80 whitespace-pre-wrap">{testCases[activeTestCase]?.expected}</div>
-                          </div>
-                        </div>
-                      </>
+                    {activeBottomTab === "testcases" || resultMode === "run" ? (
+                      <PracticeTestConsole
+                        controller={practiceCases} selectedIndex={activeTestCase} onSelect={setActiveTestCase}
+                        onEdit={() => setRunResult(null)} busy={isRunning || isSubmitting}
+                        result={resultMode === "run" ? visiblePracticeResult : null}
+                      />
                     ) : (
-                      <ExecutionFeedback context="practice" mode={resultMode} language={language}
+                      <ExecutionFeedback context="practice" mode="submission" language={language}
                         phase={isRunning || isSubmitting ? executionPhase || 'running' : null}
                         result={runResult ? { ...runResult, message: runResult.logs.length ? runResult.logs.join('\n') : undefined } : null} />
                     )}
@@ -1544,34 +1383,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
 
       </div> {/* End MAIN ROW */}
 
-      {/* ─── BOTTOM NAVIGATION BAR (STICKY ACTION BAR) ───────────────────── */}
-      <footer className="coding-action-bar workspace-action-bar h-[60px] border-t border-[#D8DDE4] bg-white flex items-center justify-between px-6 shrink-0 shadow-[0_-4px_12px_rgba(15,23,42,0.04)] pb-[env(safe-area-inset-bottom)]">
 
-          <div className="flex items-center gap-2">
-            <Link href="/problems">
-              <Button variant="ghost" className="h-[38px] px-4 text-[13px] font-medium gap-2 text-[#475569] hover:text-[#111827] hover:bg-[#F1F5F9] rounded-[5px] btn-interactive">
-                <ArrowLeft className="w-4 h-4" />
-                <span className="hidden sm:inline">Back</span>
-              </Button>
-            </Link>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button onClick={handleRun} disabled={isRunning || isSubmitting || !languageEnabled} className="h-[38px] px-4 text-[13px] font-medium gap-2 bg-white hover:bg-[#F8FAFC] text-[#334155] border border-[#CBD5E1] rounded-[5px] btn-interactive disabled:opacity-45 disabled:cursor-not-allowed">
-              {isRunning ? <Spinner className="w-4 h-4 text-[#F5B800] animate-spin" /> : <Play className="w-4 h-4 text-[#F5B800]" />}
-              <span>Run</span>
-            </Button>
-            <Button onClick={handleSubmit} disabled={isRunning || isSubmitting || !languageEnabled} className="bg-[#0E8A43] hover:bg-[#087638] text-white h-[38px] px-5 text-[13px] font-semibold gap-2 shadow-none border-0 rounded-[5px] btn-interactive disabled:opacity-45 disabled:cursor-not-allowed">
-              {isSubmitting ? <Spinner className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              <span>Submit</span>
-            </Button>
-            <Link href="/problems">
-              <Button variant="outline" className="h-[38px] px-4 text-[13px] font-medium gap-2 bg-white hover:bg-[#F8FAFC] text-[#334155] border border-[#CBD5E1] rounded-[5px] btn-interactive">
-                <span className="hidden sm:inline">Next</span>
-                <ArrowRight className="w-4 h-4" />
-              </Button>
-            </Link>
-          </div>
-      </footer>
 
 
       {celebrationCount > 0 && resultMode === 'submission' && runResult && normalizeVerdict(runResult.status) === 'accepted' && (
