@@ -1,7 +1,6 @@
 'use client';
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { ErrorFallback } from '@/components/errors/ErrorFallback';
 import { initClientTracePropagation } from './trace-fetch';
 
 interface Props {
@@ -76,7 +75,20 @@ export class TelemetryBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.hasError) {
-      return <ErrorFallback reset={() => window.location.reload()} reloadOnRetry />;
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center p-6 text-center">
+          <h2 className="text-xl font-semibold">Temporary UI Glitch Detected</h2>
+          <p className="mt-2 text-sm text-gray-500">
+            Your exam progress and code drafts are safe. Click below to reload the workspace.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded bg-blue-600 px-4 py-2 text-white"
+          >
+            Reload Workspace
+          </button>
+        </div>
+      );
     }
     return this.props.children;
   }
