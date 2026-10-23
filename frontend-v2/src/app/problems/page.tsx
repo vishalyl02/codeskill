@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, ChevronDown, ArrowUpRight, CheckCircle2, CircleDot } from "lucide-react";
+import { Search, Filter, ArrowUpRight, CheckCircle2, CircleDot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useState, useEffect } from "react";
@@ -20,6 +20,7 @@ export default function ProblemsPage() {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("All Topics");
   const [difficulty, setDifficulty] = useState("All");
+  const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [retry, setRetry] = useState(0);
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -86,12 +87,7 @@ export default function ProblemsPage() {
       <div className={styles.container}>
         <header className={styles.header}>
           <div>
-            <p className={styles.eyebrow}>Practice library</p>
             <h1>Problems</h1>
-          </div>
-          <div className={styles.catalogCount} aria-live="polite">
-            <strong>{loading || error ? "—" : totalItems.toLocaleString()}</strong>
-            <span>{activeCategory === "All Topics" && difficulty === "All" && !debouncedSearch ? "problems to explore" : "matching problems"}</span>
           </div>
         </header>
 
@@ -100,16 +96,30 @@ export default function ProblemsPage() {
             <Search size={17} aria-hidden="true" />
             <input type="search" aria-label="Search problems" placeholder="Search problems…" value={search} onChange={event => setSearch(event.target.value)} />
           </div>
-          <label className={styles.difficultyFilter}>
-            <span>Difficulty</span>
-            <select aria-label="Filter by difficulty" value={difficulty} onChange={event => { setDifficulty(event.target.value); setCurrentPage(1); }}>
-              <option value="All">All difficulties</option>
-              <option value="Easy">Easy</option>
-              <option value="Medium">Medium</option>
-              <option value="Hard">Hard</option>
-            </select>
-            <ChevronDown size={14} aria-hidden="true" />
-          </label>
+          <div className={styles.filterControl}>
+            <button
+              type="button"
+              className={styles.filterButton}
+              aria-expanded={showFilters}
+              aria-controls="problem-filters"
+              onClick={() => setShowFilters(open => !open)}
+            >
+              <Filter size={16} aria-hidden="true" />
+              Filters{difficulty !== "All" ? ` · ${difficulty}` : ""}
+            </button>
+            {showFilters && (
+              <div id="problem-filters" className={styles.filterPopover}>
+                <label htmlFor="problem-difficulty">Difficulty</label>
+                <select id="problem-difficulty" value={difficulty} onChange={event => { setDifficulty(event.target.value); setCurrentPage(1); }}>
+                  <option value="All">All difficulties</option>
+                  <option value="Easy">Easy</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Hard">Hard</option>
+                </select>
+                {difficulty !== "All" && <button type="button" onClick={() => { setDifficulty("All"); setCurrentPage(1); }}>Clear filter</button>}
+              </div>
+            )}
+          </div>
         </div>
 
         <nav className={styles.topics} aria-label="Problem topics">
@@ -123,35 +133,36 @@ export default function ProblemsPage() {
         <section className={styles.catalog} aria-label="Problem catalog">
           <div className={styles.tableScroll}>
             <table className={styles.table} aria-busy={loading}>
-              <colgroup><col className={styles.statusColumn}/><col/><col className={styles.difficultyColumn}/><col className={styles.categoryColumn}/><col className={styles.acceptanceColumn}/></colgroup>
+              <colgroup><col className={styles.statusColumn}/><col className={styles.serialColumn}/><col/><col className={styles.difficultyColumn}/><col className={styles.categoryColumn}/><col className={styles.acceptanceColumn}/></colgroup>
               <thead>
                 <tr>
                   <th className={styles.statusCell} scope="col">Status</th>
-                  <th scope="col">Problem</th>
+                  <th className={styles.serialCell} scope="col">No.</th>
+                  <th scope="col">Title</th>
                   <th scope="col">Difficulty</th>
-                  <th scope="col">Topic</th>
+                  <th scope="col">Category</th>
                   <th className={styles.acceptanceCell} scope="col">Acceptance</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={5} className={styles.stateCell}><span role="status" aria-label="Loading problems"><Spinner className="w-5 h-5 animate-spin mx-auto" /></span></td></tr>
+                  <tr><td colSpan={6} className={styles.stateCell}><span role="status" aria-label="Loading problems"><Spinner className="w-5 h-5 animate-spin mx-auto" /></span></td></tr>
                 ) : error ? (
-                  <tr><td colSpan={5} className={styles.stateCell}>
+                  <tr><td colSpan={6} className={styles.stateCell}>
                     <p role="alert">{error}</p>
                     <Button variant="outline" size="sm" onClick={() => setRetry(value => value + 1)}>Try again</Button>
                   </td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={5} className={styles.stateCell}>
+                  <tr><td colSpan={6} className={styles.stateCell}>
                     <strong>No problems found matching your criteria.</strong>
                     <p>Try another topic, difficulty, or search.</p>
                   </td></tr>
                 ) : filtered.map((problem, index) => (
                   <tr key={problem.id}>
-                    <td className={styles.statusCell}><ProblemProgressMark status={progress[problem.id]} className="w-[18px] h-[18px] mx-auto" /></td>
+                    <td className={styles.statusCell}><ProblemProgressMark status={progress[problem.id]} className="w-5 h-5 mx-auto" /></td>
+                    <td className={styles.serialCell}>{String((currentPage - 1) * ITEMS_PER_PAGE + index + 1).padStart(2, "0")}</td>
                     <td>
                       <div className={styles.problemTitle}>
-                        <span className={styles.number} aria-hidden="true">{String((currentPage - 1) * ITEMS_PER_PAGE + index + 1).padStart(2, "0")}</span>
                         {problem.slug ? <Link href={`/problems/${encodeURIComponent(problem.slug)}`}>
                           <span>{problem.title}</span><ArrowUpRight size={14} aria-hidden="true" />
                         </Link> : <span>{problem.title}</span>}

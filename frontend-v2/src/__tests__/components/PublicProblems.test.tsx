@@ -21,7 +21,7 @@ it("loads public problems for a guest and renders canonical IDs, difficulty, cat
   expect(screen.getByRole("status", { name: "Loading problems" })).toBeInTheDocument();
   expect(await screen.findByRole("link", { name: "Two Sum" })).toHaveAttribute("href", "/problems/two-sum");
   expect(getAll).toHaveBeenCalledWith(1, 20, "", "All Topics", expect.any(AbortSignal));
-  expect(screen.getByText("Easy")).toHaveClass("text-emerald-600");
+  expect(screen.getByText("Easy", { selector: "span.difficulty" })).toHaveClass("difficulty", "easy");
   expect(screen.getByText("45%")).toBeInTheDocument();
   expect(screen.getByText("42")).toBeInTheDocument();
   expect(screen.queryByText("No problems found matching your criteria.")).not.toBeInTheDocument();
@@ -53,7 +53,7 @@ it("makes a malformed response recoverable and avoids links for records without 
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByText("No Slug")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "No Slug" })).not.toBeInTheDocument();
-  expect(screen.getByText("Hard")).toHaveClass("text-destructive");
+  expect(screen.getByText("Hard", { selector: "span.difficulty" })).toHaveClass("difficulty", "hard");
 });
 
 it("resets to page one when the topic changes", async () => {
@@ -74,7 +74,7 @@ it("debounces search and resets its pagination", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   await act(async () => {});
   expect(getAll).toHaveBeenLastCalledWith(2, 20, "", "All Topics", expect.any(AbortSignal));
-  fireEvent.change(screen.getByRole("textbox", { name: "Search problems" }), { target: { value: "  trees  " } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search problems" }), { target: { value: "  trees  " } });
   expect(getAll).toHaveBeenCalledTimes(2);
   await act(async () => { jest.advanceTimersByTime(301); });
   expect(getAll).toHaveBeenLastCalledWith(1, 20, "trees", "All Topics", expect.any(AbortSignal));
