@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { authAPI } from "@/config/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Spinner } from "@/components/ui/spinner";
-import { ChevronDown, UserCog, SlidersHorizontal, LogOut, Menu } from "lucide-react";
+import { ChevronDown, ChevronRight, UserCog, SlidersHorizontal, LogOut, Menu } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -170,50 +170,50 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   openOnHover
                   delay={100}
                   closeDelay={150}
-                  className="flex items-center gap-2 sm:gap-3 p-1.5 sm:px-2.5 rounded-xl border border-transparent hover:border-border hover:bg-muted/60 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 group select-none text-left"
+                  className="flex items-center gap-2.5 p-1.5 sm:px-2.5 rounded-xl border border-transparent hover:border-border/80 hover:bg-muted/50 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 group select-none text-left"
                 >
-                  <div className="w-8 h-8 bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 shadow-xs ring-1 ring-amber-500/10">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500 dark:text-amber-400 flex items-center justify-center font-bold text-xs shrink-0 ring-1 ring-amber-500/15 shadow-2xs">
                     {userInitial}
                   </div>
                   <div className="hidden lg:block min-w-0 max-w-60">
                     <div className="flex items-center gap-1.5">
-                      <p className="text-xs font-semibold text-foreground leading-none truncate">
+                      <p className="text-xs font-semibold text-foreground leading-tight truncate">
                         {userName}
                       </p>
-                      <span className="text-[10px] font-bold text-muted-foreground shrink-0">
+                      <span className="text-[10px] font-medium text-muted-foreground shrink-0">
                         ({userRole})
                       </span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground font-medium mt-1">
+                    <p className="text-[10px] text-muted-foreground/80 font-medium leading-none mt-1 truncate">
                       Examination Controller
                     </p>
                   </div>
-                  <ChevronDown className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-transform duration-200 group-data-[popup-open]:rotate-180 ml-0.5 shrink-0" />
+                  <ChevronDown className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-transform duration-200 group-data-[popup-open]:rotate-180 shrink-0 ml-0.5" />
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent
                   align="end"
                   sideOffset={8}
-                  className="w-72 max-w-[calc(100vw-1rem)] bg-card/95 backdrop-blur-xl border border-border/80 rounded-2xl shadow-2xl shadow-slate-900/10 dark:shadow-black/40 p-2 z-50 text-foreground"
+                  className="w-[290px] max-w-[calc(100vw-1.5rem)] rounded-2xl bg-popover/98 dark:bg-[#141416]/98 backdrop-blur-2xl border border-border/80 dark:border-white/[0.08] p-1.5 shadow-2xl shadow-black/50 dark:shadow-black/70 ring-1 ring-white/[0.03] z-50 text-foreground outline-none"
                 >
-                  {/* User Header Section: Show user full name, role, and email address */}
-                  <div className="px-3 py-3 mb-1.5 bg-muted/40 rounded-xl border border-border/50">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-sm shrink-0">
+                  {/* User Profile Header */}
+                  <div className="p-3 mb-1 bg-muted/40 dark:bg-white/[0.03] rounded-xl border border-border/60 dark:border-white/[0.05]">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/35 text-amber-500 dark:text-amber-400 flex items-center justify-center font-bold text-sm shrink-0 ring-2 ring-amber-500/15 shadow-2xs">
                         {userInitial}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-foreground break-words">
+                        <p className="text-[13px] font-semibold text-foreground tracking-tight leading-snug break-words">
                           {userName}
                         </p>
-                        <p className="text-[11px] text-muted-foreground break-all">
+                        <p className="text-[11px] text-muted-foreground/80 font-normal break-all leading-tight mt-0.5">
                           {userEmail}
                         </p>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 rounded">
+                        <div className="flex items-center gap-1.5 mt-2">
+                          <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-zinc-800/90 dark:bg-white/[0.08] text-zinc-300 dark:text-zinc-200 border border-zinc-700/60 dark:border-white/[0.08] rounded-md shrink-0 shadow-2xs">
                             {userRole}
                           </span>
-                          <span className="text-[10px] text-muted-foreground font-medium truncate">
+                          <span className="text-[11px] text-muted-foreground/90 font-medium truncate leading-none">
                             Examination Controller
                           </span>
                         </div>
@@ -221,32 +221,41 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     </div>
                   </div>
 
-                  <DropdownMenuGroup>
+                  {/* Actions Group */}
+                  <DropdownMenuGroup className="space-y-0.5 py-0.5">
                     <DropdownMenuItem
                       onClick={() => router.push("/profile")}
-                      className="cursor-pointer gap-2.5 px-3 py-2.5 text-[13px] font-medium rounded-xl hover:bg-muted focus:bg-muted text-foreground transition-colors"
+                      className="group/item flex items-center justify-between gap-3 px-3 py-2.5 text-xs font-medium rounded-xl text-foreground/90 hover:text-foreground hover:bg-muted/70 dark:hover:bg-white/[0.06] focus:bg-muted/70 dark:focus:bg-white/[0.06] transition-all cursor-pointer select-none"
                     >
-                      <UserCog className="w-4 h-4 text-muted-foreground shrink-0" />
-                      <span>Profile Settings</span>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <UserCog className="w-4 h-4 text-muted-foreground group-hover/item:text-foreground group-focus/item:text-foreground transition-colors shrink-0" />
+                        <span className="truncate">Profile Settings</span>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover/item:text-muted-foreground/80 group-hover/item:translate-x-0.5 transition-all shrink-0" aria-hidden="true" />
                     </DropdownMenuItem>
 
                     <DropdownMenuItem
                       onClick={() => router.push("/profile")}
-                      className="cursor-pointer gap-2.5 px-3 py-2.5 text-[13px] font-medium rounded-xl hover:bg-muted focus:bg-muted text-foreground transition-colors"
+                      className="group/item flex items-center justify-between gap-3 px-3 py-2.5 text-xs font-medium rounded-xl text-foreground/90 hover:text-foreground hover:bg-muted/70 dark:hover:bg-white/[0.06] focus:bg-muted/70 dark:focus:bg-white/[0.06] transition-all cursor-pointer select-none"
                     >
-                      <SlidersHorizontal className="w-4 h-4 text-muted-foreground shrink-0" />
-                      <span>Account Preferences</span>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <SlidersHorizontal className="w-4 h-4 text-muted-foreground group-hover/item:text-foreground group-focus/item:text-foreground transition-colors shrink-0" />
+                        <span className="truncate">Account Preferences</span>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover/item:text-muted-foreground/80 group-hover/item:translate-x-0.5 transition-all shrink-0" aria-hidden="true" />
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
 
-                  <DropdownMenuSeparator className="my-1 bg-border/80" />
+                  {/* Refined Divider */}
+                  <DropdownMenuSeparator className="my-1 mx-1 bg-border/60 dark:bg-white/[0.08]" />
 
+                  {/* Log Out Action */}
                   <DropdownMenuItem
                     variant="destructive"
                     onClick={handleLogout}
-                    className="cursor-pointer gap-2.5 px-3 py-2.5 text-[13px] font-semibold rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 focus:bg-rose-500/10 focus:text-rose-600 transition-colors"
+                    className="group/logout flex items-center gap-2.5 px-3 py-2.5 text-xs font-medium rounded-xl text-rose-500 dark:text-rose-400 hover:text-rose-600 dark:hover:text-rose-300 hover:bg-rose-500/10 focus:bg-rose-500/10 focus:text-rose-600 dark:focus:text-rose-300 transition-colors cursor-pointer select-none"
                   >
-                    <LogOut className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                    <LogOut className="w-4 h-4 text-rose-500/90 dark:text-rose-400/90 group-hover/logout:text-rose-600 dark:group-hover/logout:text-rose-300 transition-colors shrink-0" />
                     <span>Log Out</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
