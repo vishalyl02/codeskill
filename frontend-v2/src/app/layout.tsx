@@ -51,6 +51,7 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Providers } from "@/components/Providers";
 import { TelemetryBoundary } from "@/telemetry/error-boundary";
+import { ServiceErrorOverlay } from "@/components/errors/ServiceErrorOverlay";
 
 const antiFlashScript = `
   (function() {
@@ -87,6 +88,7 @@ export default function RootLayout({
         <Providers>
           <Background />
           <Navbar />
+          <ServiceErrorOverlay />
           <main className="flex-1 flex flex-col">
             <TelemetryBoundary>
               {children}
