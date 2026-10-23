@@ -335,6 +335,8 @@ export interface ProblemStats {
 }
 
 export const submissionAPI = {
+  getProgress: (problemIds: string[], signal?: AbortSignal) =>
+    api.get<{ data: { problemId: string; status: 'solved' | 'attempted' }[] }>("/submissions/progress", { params: { problemIds: problemIds.join(',') }, signal }),
   submit: (data: any) =>
     api.post("/submissions", data),
   getSubmissions: (problemId: number | string) => api.get(`/submissions/problem/${problemId}`),

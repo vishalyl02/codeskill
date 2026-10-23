@@ -135,3 +135,16 @@
 .compactTimer button:focus-visible, .problemNavigation a:focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 2px; }
 
 .caseTabs { padding-bottom: 4px; margin-bottom: 6px; }
+
+/* Keep the language, workspace theme, and settings controls aligned in both modes. */
+.toolbarControls { display:flex; align-items:center; gap:7px; margin-left:auto; flex-shrink:0; position:relative; z-index:50; }
+.toolbarControls .themeToggle, .toolbarControls .settingsToggle, .toolbarControls .languageTrigger { display:inline-flex; align-items:center; justify-content:center; gap:7px; height:34px; padding:0 10px; border:1px solid hsl(var(--border)); border-radius:7px; background:hsl(var(--secondary)); color:hsl(var(--foreground)); font-family:inherit; font-size:12px; font-weight:500; line-height:1; white-space:nowrap; cursor:pointer; }
+.toolbarControls .languageTrigger { min-width:116px; justify-content:space-between; }
+.toolbarControls .settingsToggle { width:34px; padding:0; }
+.toolbarControls :is(.themeToggle,.settingsToggle,.languageTrigger):hover { background:hsl(var(--muted)); }
+.toolbarControls :is(.themeToggle,.settingsToggle,.languageTrigger):focus-visible { outline:2px solid var(--workspace-accent); outline-offset:2px; }
+.languageControl { position:relative; display:flex; align-items:center; }
+.languageMenu { position:absolute; top:100%; right:0; z-index:50; min-width:160px; margin-top:7px; padding:5px; border:1px solid hsl(var(--border)); border-radius:9px; background:hsl(var(--card)); color:hsl(var(--foreground)); box-shadow:0 8px 24px #0002; }
+.languageOption { display:flex; width:100%; align-items:center; justify-content:space-between; padding:9px 10px; border-radius:5px; color:hsl(var(--foreground)); text-align:left; font-size:12px; }
+.languageOption:hover,.languageOption[aria-selected="true"] { background:hsl(var(--muted)); }
+@media (max-width:600px) { .toolbarControls { gap:4px; } .toolbarControls .languageTrigger { min-width:90px; } .toolbarControls .themeToggle { width:34px; padding:0; } .toolbarControls .themeToggle span { display:none; } }

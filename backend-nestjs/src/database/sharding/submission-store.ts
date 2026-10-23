@@ -65,6 +65,21 @@ export class SubmissionStore {
     return value;
   }
 
+  /** Personal progress reads only the authenticated user's owning shard. */
+  async problemProgress(userId: string, problemIds: string[]) {
+    const repository = this.isSharded
+      ? this.registry.forUser(userId).getRepository(Submission)
+      : this.primary;
+    return repository.createQueryBuilder('submission')
+      .select('submission.problemId', 'problemId')
+      .addSelect("CASE WHEN bool_or(lower(trim(submission.status)) = 'accepted') THEN 'solved' ELSE 'attempted' END", 'status')
+      .where('submission.userId = :userId', { userId })
+      .andWhere('submission.problemId IN (:...problemIds)', { problemIds })
+      .andWhere("lower(trim(submission.status)) NOT IN ('queued', 'pending', 'running', 'testing', 'cancelled')")
+      .groupBy('submission.problemId')
+      .getRawMany<{ problemId: string; status: 'solved' | 'attempted' }>();
+  }
+
   /** Run work in a transaction on the database that owns this user's submissions. */
   async transaction<T>(
     userId: string,

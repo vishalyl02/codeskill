@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { isUUID } from 'class-validator';
 import { SubmissionStore } from '../database/sharding/submission-store';
 import { User } from '../database/entities/user.entity';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -345,6 +346,17 @@ export class SubmissionsService {
           { mongoId: id, ...scope },
         ]
       : [{ mongoId: id, ...scope }];
+  }
+
+  async getProblemProgress(userId: string, input: string = '') {
+    if (typeof input !== 'string' || input.length > 5000) {
+      throw new BadRequestException('Provide up to 100 valid problem IDs');
+    }
+    const ids = [...new Set(input.split(',').map(value => value.trim()).filter(Boolean))];
+    if (ids.length > 100 || ids.some(id => !isUUID(id))) {
+      throw new BadRequestException('Provide up to 100 valid problem IDs');
+    }
+    return { data: ids.length ? await this.submissionRepo.problemProgress(userId, ids) : [] };
   }
 
   async getSubmissionsByProblem(userId: string, problemId: string) {

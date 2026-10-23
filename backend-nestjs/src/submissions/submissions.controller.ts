@@ -46,6 +46,15 @@ export class SubmissionsController {
     };
   }
 
+  @Get('progress')
+  @ApiOperation({ summary: 'Get personal solved/attempted status for visible problems' })
+  async getProblemProgress(
+    @CurrentUser('id') userId: string,
+    @Query('problemIds') problemIds?: string,
+  ) {
+    return this.submissionsService.getProblemProgress(userId, problemIds);
+  }
+
   @Get('recent')
   @ApiOperation({ summary: 'Get recent submissions' })
   async getRecentSubmissions(@CurrentUser('id') userId: string) {

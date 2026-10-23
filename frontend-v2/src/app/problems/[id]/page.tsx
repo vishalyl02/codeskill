@@ -30,6 +30,8 @@ import { ProblemNavigation } from "@/components/problems/ProblemNavigation";
 import { ProblemFormats } from "@/components/problems/ProblemFormats";
 import workspaceStyles from "@/components/problems/WorkspaceEnhancements.module.css";
 import { Sun, Moon } from "lucide-react";
+import { CircleDot } from "lucide-react";
+import { useProblemProgress, refreshProblemProgress } from "@/hooks/useProblemProgress";
 import Link from "next/link";
 import { useState, useEffect, useCallback, useMemo, use, useRef } from "react";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
@@ -82,6 +84,8 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
   const { resolvedTheme: appTheme, setTheme } = useTheme();
   
   const [problem, setProblem] = useState<any>(null);
+  const progress = useProblemProgress(problem?._id ? [problem._id] : []);
+  const problemProgress = problem?._id ? progress[problem._id] : undefined;
   const practiceCases = usePracticeTestCases(problem, problemId);
   const testCases = practiceCases.samples;
   const [loading, setLoading] = useState(true);
@@ -597,6 +601,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     try {
       const result = await submissionAPI.submitAndWait({ problemId: problem._id, language, code }, setExecutionPhase);
       setRunResult({ ...result, logs: [] });
+      refreshProblemProgress();
       refreshProblemStats(problem._id);
       // Surface the judged submission in the history table and expand it.
       setActiveSidebarTab("submissions");
@@ -733,7 +738,12 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
               </span>
             </div>
             
-            {lastSaved && (
+            {problemProgress ? (
+              <span role="status" className={`inline-flex text-[11px] font-medium px-2 py-1 rounded-md border items-center gap-1.5 shrink-0 ${problemProgress === "solved" ? "text-emerald-600 dark:text-emerald-400 border-emerald-500/25 bg-emerald-500/10" : "text-amber-600 dark:text-amber-400 border-amber-500/25 bg-amber-500/10"}`}>
+                {problemProgress === "solved" ? <CheckCircle2 className="w-3.5 h-3.5"/> : <CircleDot className="w-3.5 h-3.5"/>}
+                {problemProgress === "solved" ? "Solved" : "Attempted"}
+              </span>
+            ) : lastSaved && (
               <motion.span 
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                 className="hidden xl:flex text-[11px] text-muted-foreground ml-1 items-center gap-1.5 shrink-0"
@@ -743,18 +753,19 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
             )}
           </div>
           
-          <div className="relative flex items-center shrink-0 ml-auto z-50">
+          <div className={workspaceStyles.toolbarControls}>
             <WorkspaceTimer />
+            <div className={workspaceStyles.languageControl}>
             <button
               type="button"
               onClick={() => setShowLanguageDropdown(!showLanguageDropdown)}
-              className="inline-flex h-9 min-w-[120px] items-center justify-between gap-2 rounded-[8px] border border-[#3F3F46] bg-[#18181B] px-3 text-sm font-medium text-[#F3F4F6] hover:bg-[#27272A] focus:outline-none focus:ring-1 focus:ring-[#F5B800] transition-colors"
+              className={workspaceStyles.languageTrigger}
               aria-expanded={showLanguageDropdown}
               aria-haspopup="listbox"
               aria-label="Select programming language"
             >
               <span>{LANGUAGES.find(l => l.id === language)?.name || "Language"}</span>
-              <ChevronDown className={`h-4 w-4 text-[#9CA3AF] transition-transform duration-200 ${showLanguageDropdown ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${showLanguageDropdown ? 'rotate-180' : ''}`} />
             </button>
 
             <AnimatePresence>
@@ -769,7 +780,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -4, scale: 0.98 }}
                     transition={{ duration: 0.2, ease: "easeOut" }}
-                    className="absolute top-full right-0 mt-1.5 w-[140px] rounded-[10px] border border-[#3F3F46] bg-[#18181B] py-1.5 shadow-xl origin-top-right z-50"
+                    className={workspaceStyles.languageMenu}
                     role="listbox"
                   >
                   {languageOptions.map(lang => (
@@ -784,10 +795,10 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                         setRunResult(null);
                         setShowLanguageDropdown(false);
                       }}
-                      className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#E5E7EB] hover:bg-[#27272A] transition-colors text-left"
+                      className={workspaceStyles.languageOption}
                     >
-                      <span className={language === lang.id ? "text-[#F5B800] font-semibold" : "font-medium"}>{lang.name}</span>
-                      {language === lang.id && <Check className="h-3.5 w-3.5 text-[#F5B800]" />}
+                      <span className={language === lang.id ? "font-semibold" : "font-medium"}>{lang.name}</span>
+                      {language === lang.id && <Check className="h-3.5 w-3.5 text-primary" />}
                     </button>
                   ))}
                   {!languageOptions.length && <p className="px-3 py-2 text-xs text-zinc-400">No runtime is available for this problem.</p>}
@@ -795,11 +806,12 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                 </>
               )}
             </AnimatePresence>
+            </div>
             <button type="button" className={workspaceStyles.themeToggle} onClick={() => { setTheme(appTheme === "dark" ? "light" : "dark"); setEditorThemeName("auto"); }} aria-label={`Switch whole workspace to ${appTheme === "dark" ? "light" : "dark"} mode`} title="Theme for description, editor and test console">{appTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}<span>{appTheme === "dark" ? "Light" : "Dark"}</span></button>
             <button
               type="button"
               onClick={() => setShowEditorSettings((open) => !open)}
-              className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#3F3F46] bg-[#18181B] text-[#D1D5DB] transition-colors hover:bg-[#27272A] hover:text-white"
+              className={workspaceStyles.settingsToggle}
               aria-label="Editor settings"
               aria-expanded={showEditorSettings}
               title="Editor settings"
