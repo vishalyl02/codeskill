@@ -136,15 +136,15 @@ export default function AssessmentResultPage({
   const reportData = buildContestReport({
     student: {
       name: user?.name || "Candidate",
-      uid: (user as any)?.uid || (user as any)?.registrationNumber || "24BCS-STUDENT",
-      registrationId: (user as any)?.registrationNumber || (user as any)?.rollNumber || "REG-2026-CU",
-      program: (user as any)?.program || "B.Tech Computer Science & Engineering",
-      batch: (user as any)?.batch || "2024 - 2028",
-      section: (user as any)?.section || "Section B",
-      group: (user as any)?.group || "Group G1",
-      semester: (user as any)?.semester ? `Semester ${(user as any).semester}` : "Semester 4",
+      uid: user?.uid || (user as any)?.studentProfile?.rollNumber || (user as any)?.studentProfile?.uid || (user as any)?.registrationNumber || "N/A",
+      registrationId: (user as any)?.registrationNumber || (user as any)?.rollNumber || user?.uid || "N/A",
+      program: (user as any)?.studentProfile?.course || (user as any)?.program || "B.Tech Computer Science & Engineering",
+      batch: (user as any)?.studentProfile?.batch || (user as any)?.batch || "2024 - 2028",
+      section: (user as any)?.studentProfile?.section || (user as any)?.section || "Section B",
+      group: (user as any)?.studentProfile?.group || (user as any)?.group || "Group G1",
+      semester: (user as any)?.studentProfile?.semester ? `Semester ${(user as any).studentProfile.semester}` : (user as any)?.semester ? `Semester ${(user as any).semester}` : "Semester 4",
       email: user?.email || "student@cuchd.in",
-      institution: "Chandigarh University",
+      institution: (user as any)?.studentProfile?.university || "Chandigarh University",
     },
     contest: {
       id: id || "CS-CONTEST",
@@ -155,7 +155,7 @@ export default function AssessmentResultPage({
       generatedOn: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
       totalProblems: data?.reviewQuestions?.length || attempt?.totalAttempted || 5,
       maximumScore: attempt?.maxScore || 100,
-      totalParticipants: 245,
+      totalParticipants: data?.totalParticipants || 1,
     },
     problems: (data?.reviewQuestions || []).map((q: any, idx: number) => ({
       index: idx + 1,
@@ -178,8 +178,8 @@ export default function AssessmentResultPage({
       solved: t.correct || 0,
       total: t.total || 0,
     })),
-    rank: 18,
-    totalParticipants: 245,
+    rank: data?.rank || 1,
+    totalParticipants: data?.totalParticipants || 1,
     evaluator: {
       facultyName: "Dr. Ishdeep Singla",
       designation: "Assistant Director",

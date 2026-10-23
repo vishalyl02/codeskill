@@ -7,6 +7,7 @@ import { googleClientId, googleOAuthEnabled } from "@/config/auth";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { Toaster } from "react-hot-toast";
 import { logger } from "@/lib/logger";
+import { MotionProvider } from "@/components/providers/MotionProvider";
 
 export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -78,13 +79,15 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <ThemeProvider defaultTheme="light">
-      {googleOAuthEnabled ? (
-        <GoogleOAuthProvider clientId={googleClientId}>
-          {content}
-        </GoogleOAuthProvider>
-      ) : (
-        content
-      )}
+      <MotionProvider>
+        {googleOAuthEnabled ? (
+          <GoogleOAuthProvider clientId={googleClientId}>
+            {content}
+          </GoogleOAuthProvider>
+        ) : (
+          content
+        )}
+      </MotionProvider>
     </ThemeProvider>
   );
 }

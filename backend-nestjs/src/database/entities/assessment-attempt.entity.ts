@@ -22,7 +22,11 @@ export type AttemptStatus =
 @Entity('assessment_attempts')
 @Index(['assessmentId', 'studentId'])
 @Index(['assessmentId', 'score'])
+@Index(['assessmentId', 'status'])
 @Index(['studentUid', 'status'])
+@Index(['startedAt'])
+@Index(['submittedAt'])
+@Index(['status'])
 export class AssessmentAttempt {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -106,7 +106,14 @@
 .butter { --tone-a: #fff9df; --tone-b: #efd79c; }
 .aqua { --tone-a: #dcfcf5; --tone-b: #9cddd4; }
 @media (max-width: 1200px) and (min-width: 768px) { .experience { grid-template-columns: minmax(0, 1.8fr) 300px; gap: 20px; } .stage { --radius: 230px; --card-w: 150px; --card-h: 200px; height: 610px; } }
-@media (max-width: 767px) { .stage { --radius: 198px; --card-w: 126px; --card-h: 176px; height: 520px; perspective: 1200px; } .experience { gap: 32px; } }
+@media (max-width: 767px) {
+  .section { padding: 60px 16px 50px; overflow: hidden; max-width: 100%; }
+  .inner { width: 100%; max-width: 100%; overflow: hidden; }
+  .experience { display: flex; flex-direction: column; gap: 28px; width: 100%; max-width: 100%; overflow: hidden; }
+  .visual { width: 100%; max-width: 100%; overflow: hidden; }
+  .stage { --radius: 140px; --card-w: 112px; --card-h: 155px; height: 380px; perspective: 800px; width: 100%; max-width: 100%; overflow: hidden; }
+  .reader { width: 100%; max-width: 100%; min-height: auto; box-sizing: border-box; }
+}
 
 .jump { display: flex; align-items: center; justify-content: center; gap: 9px; margin-top: 18px; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .jump input { width: 60px; min-height: 36px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: hsl(var(--foreground)); border-radius: 9px; padding: 7px; text-align: center; font-variant-numeric: tabular-nums; }

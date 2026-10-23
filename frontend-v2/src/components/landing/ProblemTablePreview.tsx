@@ -99,8 +99,8 @@ export function ProblemTablePreview() {
         </div>
 
         {/* LeetCode-style Problem Table */}
-        <div className="rounded-md border border-border bg-card overflow-hidden">
-          <table className="w-full text-left text-xs border-collapse">
+        <div className="rounded-md border border-border bg-card overflow-x-auto max-w-full">
+          <table className="w-full min-w-[480px] sm:min-w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-border bg-neutral-50 dark:bg-neutral-900/50 text-neutral-500 font-medium">
                 <th className="py-2.5 px-4 w-10 text-center">Status</th>

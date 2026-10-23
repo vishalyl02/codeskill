@@ -1,7 +1,7 @@
 import { Spinner } from "@/components/ui/spinner";
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
-import { motion, HTMLMotionProps } from "framer-motion"
+import { m, type HTMLMotionProps } from "motion/react"
 
 import { cn } from "@/lib/utils"
 import { buttonInteract } from "@/lib/animations"
@@ -47,7 +47,7 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, isLoading, children, ...props }, ref) => {
     return (
-      <motion.button
+      <m.button
         ref={ref}
         variants={buttonInteract}
         whileHover="whileHover"
@@ -64,7 +64,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             <Spinner className="h-5 w-5 animate-spin" />
           </span>
         )}
-      </motion.button>
+      </m.button>
     )
   }
 )

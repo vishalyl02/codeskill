@@ -184,6 +184,7 @@ export class JudgeProcessor extends WorkerHost {
     if (job.name === 'run-code' && job.data.userId)
       this.appGateway.emitToUser(job.data.userId, 'execution_error', {
         jobId: job.id,
+        executionId: job.data.executionId,
         status: SubmissionStatus.SYSTEM_ERROR,
         error: 'Code execution is temporarily unavailable.',
       });
@@ -197,10 +198,11 @@ export class JudgeProcessor extends WorkerHost {
     );
 
     if (job.name === 'run-code') {
-      const { code, language, testCases, config = {}, userId } = job.data;
+      const { code, language, testCases, config = {}, userId, executionId } = job.data;
       if (userId) {
         this.appGateway.emitToUser(userId, 'run_status', {
           jobId: job.id,
+          executionId,
           status: 'running',
           message: `Running code in isolated container sandbox...`,
         });
@@ -216,6 +218,7 @@ export class JudgeProcessor extends WorkerHost {
       const status = results.length === testCases.length ? this.overallStatus(results) : Status.SYSTEM_ERROR;
 
       const payload = {
+        executionId,
         success: true,
         status,
         results: job.data.resultContext === 'assessment'

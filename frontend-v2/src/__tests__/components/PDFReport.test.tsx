@@ -124,4 +124,78 @@ describe("PDF Report & ScoreDonutChart Layout Tests", () => {
     expect(container.textContent).toContain("Total Evaluation");
     expect(container.textContent).toContain("85 / 100 Pts (85%)");
   });
+
+  it("renders accurate candidate UID, dynamic rank and percentile without falling back to 24BCS-10492 or Rank 18 of 245", () => {
+    const candidates = [
+      {
+        name: "Ishita Patel",
+        email: "ishita.patel@cuchd.in",
+        uid: "CU-2026-002",
+        score: 50,
+        rank: 1,
+        totalParticipants: 6,
+        percentile: "Top 17%",
+      },
+      {
+        name: "Rohan Gupta",
+        email: "rohan.gupta@cuchd.in",
+        uid: "CU-2026-003",
+        score: 35,
+        rank: 3,
+        totalParticipants: 6,
+        percentile: "Top 50%",
+      },
+      {
+        name: "Ananya Roy",
+        email: "ananya.roy@cuchd.in",
+        uid: "CU-2026-006",
+        score: 15,
+        rank: 6,
+        totalParticipants: 6,
+        percentile: "Top 100%",
+      },
+    ];
+
+    candidates.forEach((c) => {
+      const data = {
+        reportId: `CU-CS-2026-${c.uid}`,
+        assessmentName: "Practice Assessment 3 - Problem Solving",
+        student: {
+          name: c.name,
+          email: c.email,
+          rollNumber: c.uid,
+          studentId: c.uid,
+          institution: "Chandigarh University",
+        },
+        performance: {
+          totalProblems: 4,
+          totalSolved: c.score >= 50 ? 4 : c.score >= 35 ? 3 : 1,
+          score: c.score,
+          maxScore: 50,
+          rank: c.rank,
+          totalParticipants: c.totalParticipants,
+          percentile: c.percentile,
+        },
+        questions: [
+          { id: "1", title: "Problem 1", difficulty: "Easy", status: "Passed", points: 10 },
+          { id: "2", title: "Problem 2", difficulty: "Medium", status: c.score >= 35 ? "Passed" : "Partial", points: c.score >= 35 ? 10 : 5 },
+          { id: "3", title: "Problem 3", difficulty: "Hard", status: c.score >= 35 ? "Passed" : "Failed", points: c.score >= 35 ? 15 : 0 },
+          { id: "4", title: "Problem 4", difficulty: "Hard", status: c.score >= 50 ? "Passed" : "Failed", points: c.score >= 50 ? 15 : 0 },
+        ],
+      };
+
+      const { container } = render(<AssessmentPerformanceReport data={data} />);
+
+      // Candidate identity must match exact record
+      expect(container.textContent).toContain(c.name);
+      expect(container.textContent).toContain(c.uid);
+      expect(container.textContent).not.toContain("24BCS-10492");
+
+      // Score and rank must match exact calculations
+      expect(container.textContent).toContain(`${c.score} / 50 Pts`);
+      expect(container.textContent).toContain(`Rank ${c.rank} of ${c.totalParticipants}`);
+      expect(container.textContent).toContain(c.percentile);
+      expect(container.textContent).not.toContain("Rank 18 of 245");
+    });
+  });
 });

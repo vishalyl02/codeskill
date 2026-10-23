@@ -21,6 +21,8 @@ export const AssessmentReportPDF = ({ data }: { data: AssessmentReportData }) =>
       program: data.student.role || "B.Tech Computer Science & Engineering",
       role: data.student.role || "Candidate",
       lastActiveAt: data.student.lastActiveAt || "Today",
+      rollNumber: (data.student as any)?.rollNumber || (data.student as any)?.uid || (data.student as any)?.studentId || "N/A",
+      studentId: (data.student as any)?.studentId || (data.student as any)?.uid || "N/A",
     },
     performance: {
       totalProblems: totalSubmissions,
@@ -29,9 +31,9 @@ export const AssessmentReportPDF = ({ data }: { data: AssessmentReportData }) =>
       maxScore: 100,
       acceptanceRate: data.performance.acceptanceRate || 80,
       streak: data.performance.streak || 21,
-      rank: 18,
-      totalParticipants: 245,
-      percentile: "Top 3%",
+      rank: (data.performance as any)?.rank ?? 1,
+      totalParticipants: (data.performance as any)?.totalParticipants ?? 1,
+      percentile: (data.performance as any)?.percentile || "Top 1%",
     },
     questions: subs.map((s, idx) => ({
       id: s._id || String(idx + 1),

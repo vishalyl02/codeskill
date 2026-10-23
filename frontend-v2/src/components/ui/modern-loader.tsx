@@ -153,7 +153,7 @@ export const ModernLoader: React.FC<ModernLoaderProps> = ({
 
         <div
           ref={containerRef}
-          className="relative px-5 py-4 font-mono text-sm overflow-y-hidden h-[calc(100%-48px)] bg-white dark:bg-transparent"
+          className="relative px-5 py-4 font-mono text-sm overflow-hidden h-[calc(100%-48px)] bg-white dark:bg-transparent"
         >
           <div className="space-y-2 relative z-10">
             <AnimatePresence mode="sync">

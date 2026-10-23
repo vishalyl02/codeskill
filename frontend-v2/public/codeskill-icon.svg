@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+  <rect width="100" height="100" rx="22" fill="#0b0f19"/>
+  <!-- Hexagon Outline -->
+  <polygon points="50,16 80,33.3 80,66.7 50,84 20,66.7 20,33.3" fill="none" stroke="#ffffff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- Left Bracket < -->
+  <path d="M39 42.5 L31 50 L39 57.5" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Slash / -->
+  <path d="M53.5 39.5 L46.5 60.5" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+  <!-- Right Bracket > (Sky Blue) -->
+  <path d="M61 42.5 L69 50 L61 57.5" fill="none" stroke="#38bdf8" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -131,9 +131,13 @@ export function AdminLogo({
           </span>
         </div>
         {showSubtitle && (
-          <span className={`${currentSize.sub} font-semibold text-muted-foreground uppercase tracking-wider mt-1 truncate`}>
-            Chandigarh University
-          </span>
+          <div className="mt-1 flex items-center h-4">
+            <img
+              src="/cu-logo-tight.png"
+              alt="Chandigarh University"
+              className="h-full w-auto object-contain block max-h-4"
+            />
+          </div>
         )}
       </div>
     </div>

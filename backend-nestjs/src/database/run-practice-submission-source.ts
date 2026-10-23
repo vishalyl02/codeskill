@@ -15,7 +15,9 @@ import { applyAssessmentProctorCapturesMigration } from './migrations/assessment
 import { applyAssessmentProctoringModesMigration } from './migrations/assessment-proctoring-modes';
 import { applyAssessmentResumeLimitMigration } from './migrations/assessment-resume-limit';
 import { applyBugReportsMigration } from './migrations/bug-reports';
+import { applyLearningModuleMigration } from './migrations/learning-module';
 import { applyProblemConfigDefaultLanguageMigration } from './migrations/problem-config-default-language';
+import { applyAnalyticsOptimizationIndexesMigration } from './migrations/analytics-optimization-indexes';
 
 export function practiceSubmissionMigrationOptions(): DataSourceOptions {
   const postgres = databaseConfig().postgres;
@@ -67,7 +69,9 @@ export async function runPracticeSubmissionSourceMigration(): Promise<void> {
         await applyAssessmentProctoringModesMigration(queryRunner);
         await applyAssessmentResumeLimitMigration(queryRunner);
         await applyBugReportsMigration(queryRunner);
+        await applyLearningModuleMigration(queryRunner);
         await applyProblemConfigDefaultLanguageMigration(queryRunner);
+        await applyAnalyticsOptimizationIndexesMigration(queryRunner);
         await queryRunner.commitTransaction();
       } catch (error) {
         await queryRunner.rollbackTransaction();

@@ -1,3 +1,4 @@
+
 import { canonicalLanguage } from '../execution/execution.types';
 import { PistonUnavailableError } from '../execution/piston/piston.types';
 import {
@@ -2320,8 +2321,80 @@ export class AssessmentsService {
       ],
     });
 
+    // Calculate authoritative candidate rank and percentile
+    const completedStatuses = ['submitted', 'auto_submitted', 'timed_out'];
+    const assessmentAttempts = await this.attemptRepo.find({
+      where: {
+        assessmentId: assessment.id,
+        status: In(completedStatuses),
+      },
+      order: {
+        score: 'DESC',
+        timeSpentSeconds: 'ASC',
+        submittedAt: 'ASC',
+      },
+    });
+
+    const candidateBestAttemptsMap = new Map<string, AssessmentAttempt>();
+    for (const att of assessmentAttempts) {
+      const sKey = att.studentId ? String(att.studentId) : String(att.studentUid || att.id);
+      const existing = candidateBestAttemptsMap.get(sKey);
+      if (!existing) {
+        candidateBestAttemptsMap.set(sKey, att);
+      } else {
+        const existingScore = existing.score ?? 0;
+        const currentScore = att.score ?? 0;
+        if (
+          currentScore > existingScore ||
+          (currentScore === existingScore && (att.timeSpentSeconds ?? 0) < (existing.timeSpentSeconds ?? 0))
+        ) {
+          candidateBestAttemptsMap.set(sKey, att);
+        }
+      }
+    }
+
+    const eligibleCandidates = Array.from(candidateBestAttemptsMap.values()).sort((a, b) => {
+      const scoreDiff = (b.score ?? 0) - (a.score ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      const timeDiff = (a.timeSpentSeconds ?? 0) - (b.timeSpentSeconds ?? 0);
+      if (timeDiff !== 0) return timeDiff;
+      const dateA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
+      const dateB = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
+      return dateA - dateB;
+    });
+
+    const totalParticipants = Math.max(1, eligibleCandidates.length);
+    const targetStudentKey = String(studentId);
+    const candidateBest = candidateBestAttemptsMap.get(targetStudentKey) || attempt;
+    const targetScore = candidateBest.score ?? 0;
+    const targetTime = candidateBest.timeSpentSeconds ?? 0;
+    const targetSubmittedAt = candidateBest.submittedAt ? new Date(candidateBest.submittedAt).getTime() : 0;
+
+    let rank = 1;
+    for (const other of eligibleCandidates) {
+      const otherKey = other.studentId ? String(other.studentId) : String(other.studentUid || other.id);
+      if (otherKey === targetStudentKey) continue;
+      const otherScore = other.score ?? 0;
+      const otherTime = other.timeSpentSeconds ?? 0;
+      const otherSubmittedAt = other.submittedAt ? new Date(other.submittedAt).getTime() : 0;
+
+      if (
+        otherScore > targetScore ||
+        (otherScore === targetScore && otherTime < targetTime) ||
+        (otherScore === targetScore && otherTime === targetTime && otherSubmittedAt < targetSubmittedAt)
+      ) {
+        rank++;
+      }
+    }
+
+    const topPercent = Math.max(1, Math.round((rank / totalParticipants) * 100));
+    const percentile = `Top ${topPercent}%`;
+
     return {
       success: true,
+      rank,
+      totalParticipants,
+      percentile,
       canRetake:
         assessment.allowedAttempts === 0
           ? true

@@ -501,9 +501,13 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
   const totalAccuracy = totalProblemsCount > 0 ? Math.round((totalSolvedCount / totalProblemsCount) * 100) : 80;
 
   const status = data.status || (totalSolvedCount > 0 ? "Completed" : "In Progress");
-  const rank = perf.rank || 18;
-  const totalParticipants = perf.totalParticipants || 245;
-  const percentile = perf.percentile || "Top 3%";
+  const rank = perf.rank ?? 1;
+  const totalParticipants = perf.totalParticipants ?? 1;
+  const percentile =
+    perf.percentile ||
+    (perf.rank && perf.totalParticipants
+      ? `Top ${Math.max(1, Math.round((Number(perf.rank) / Number(perf.totalParticipants)) * 100))}%`
+      : "Top 1%");
 
   // Initials for avatar
   const initials = student.name
@@ -607,7 +611,7 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
               <View style={styles.infoField}>
                 <Text style={styles.fieldLabel}>Roll / UID:</Text>
                 <Text style={[styles.fieldValue, { color: BRAND_COLORS.navyDark }]}>
-                  {student.rollNumber || student.studentId || "24BCS-10492"}
+                  {student.rollNumber || student.studentId || "N/A"}
                 </Text>
               </View>
               <View style={styles.infoField}>

@@ -19,7 +19,7 @@ export function buildContestReport(params: {
   evaluator?: ContestReportData["evaluator"];
   feedback?: ContestReportData["feedback"];
 }): ContestReportData {
-  const { student, contest, problems, submissions = [], rawTopics = [], rank = 18, totalParticipants = 245, evaluator, feedback } = params;
+  const { student, contest, problems, submissions = [], rawTopics = [], rank = 1, totalParticipants = 1, evaluator, feedback } = params;
 
   // 1. Calculate problem statistics
   const totalProblems = problems.length || contest.totalProblems || 1;

@@ -1,4 +1,5 @@
 import { canonicalLanguage } from './execution.types';
+import { randomUUID } from 'node:crypto';
 import { AdminGuard } from '../common/guards/admin.guard';
 import {
   Controller,
@@ -211,8 +212,10 @@ export class ExecutionController {
     }
     this.executionService.validateRequest(code, testCases);
     await this.assertQueueCapacity();
+    const executionId = body.executionId || randomUUID();
     const admissionId = await this.admission.reserve(userId, {
       kind: 'run',
+      executionId,
       language: canonicalLanguage(language),
       code,
       testCases,
@@ -222,7 +225,7 @@ export class ExecutionController {
     try {
       job = await this.submissionQueue.add(
         'run-code',
-        { code, language, testCases, config, userId, admissionId },
+        { code, language, testCases, config, userId, admissionId, executionId },
         {
           attempts: 2,
           jobId: admissionId,
@@ -242,6 +245,7 @@ export class ExecutionController {
       success: true,
       status: 'queued',
       jobId: job.id,
+      executionId,
       message: 'Execution queued',
     };
   }

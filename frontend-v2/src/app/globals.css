@@ -4,6 +4,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Prevent horizontal overflow on mobile viewports */
+html,
+body {
+  overflow-x: clip;
+  max-width: 100%;
+}
+
 /* Visible, contained scrolling for long questions in the fullscreen exam. */
 .assessment-scroll {
   scrollbar-width: auto;
@@ -1286,5 +1293,78 @@ html.dark .codeskill-home > section:not(:first-child) :is([class*="border-slate-
   border-color: var(--cs-border);
 }
 html.dark .codeskill-home > section:not(:first-child) :is([class*="text-slate-100"], [class*="text-slate-200"]) { color: var(--cs-text); }
-html.dark .codeskill-home > section:not(:first-child) [class*="text-slate-300"] { color: var(--cs-text-secondary); }
 html.dark .codeskill-home > section:not(:first-child) :is([class*="text-slate-400"], [class*="text-slate-500"]) { color: var(--cs-text-muted); }
+
+/* ==========================================================================
+   University Certificate Print Isolation
+   Ensures ONLY the A4 landscape certificate is printed, eliminating all UI chrome
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 0mm;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 297mm !important;
+    height: 210mm !important;
+    max-width: 297mm !important;
+    max-height: 210mm !important;
+    overflow: hidden !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Force hide all standard UI navigation, headers, footers, and print-hidden elements */
+  nav,
+  header,
+  footer,
+  aside,
+  .print\\:hidden,
+  [data-print-hidden="true"] {
+    display: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* When printing the certificate page, hide everything except the certificate */
+  body:has(#printable-university-certificate) * {
+    visibility: hidden !important;
+  }
+
+  body:has(#printable-university-certificate) #printable-university-certificate,
+  body:has(#printable-university-certificate) #printable-university-certificate * {
+    visibility: visible !important;
+  }
+
+  body:has(#printable-university-certificate) #printable-university-certificate {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 297mm !important;
+    height: 210mm !important;
+    max-width: 297mm !important;
+    max-height: 210mm !important;
+    min-width: 297mm !important;
+    min-height: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    z-index: 99999999 !important;
+    page-break-after: avoid !important;
+    page-break-before: avoid !important;
+    page-break-inside: avoid !important;
+    background: #fdfcf9 !important;
+  }
+}

@@ -55,6 +55,7 @@ interface TestResult {
 type SubmissionStatus = "accepted" | "wrong_answer" | "compile_error" | "runtime_error" | "time_limit" | "memory_limit" | "system_error" | "error";
 
 interface RunResult {
+  executionId?: string;
   status: SubmissionStatus;
   results: TestResult[];
   runtime: number;
@@ -122,6 +123,8 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const activeExecutionIdRef = useRef<string | null>(null);
+  const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
 
   // Notes State
   const [noteContent, setNoteContent] = useState("");
@@ -321,7 +324,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
 
   const getTestCases = () => testCases;
 
-  const executeCode = async () => {
+  const executeCode = async (executionId: string) => {
     const apiTestCases = getTestCases().map((tc: any) => ({
       id: tc.id,
       input: tc.input,
@@ -334,6 +337,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
     const response = await runAPI.run({
       code,
       language,
+      executionId,
       testCases: apiTestCases,
       config: {
         timeLimit: problem?.config?.timeLimit,
@@ -346,21 +350,35 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
     if (data.status === "queued" && data.jobId) {
       const deadline = Date.now() + 60_000;
       while (Date.now() < deadline) {
+        if (activeExecutionIdRef.current !== executionId) {
+          return null;
+        }
         await new Promise((resolve) => window.setTimeout(resolve, 400));
+        if (activeExecutionIdRef.current !== executionId) {
+          return null;
+        }
         const jobResponse = await runAPI.getJob(data.jobId);
         data = jobResponse.data;
         if (!["waiting", "active", "delayed", "prioritized", "queued"].includes(data.status)) {
           break;
         }
       }
+      if (activeExecutionIdRef.current !== executionId) {
+        return null;
+      }
       if (["waiting", "active", "delayed", "prioritized", "queued"].includes(data.status)) {
         throw new Error("Execution is taking longer than expected. Please try again.");
       }
     }
 
+    if (activeExecutionIdRef.current !== executionId) {
+      return null;
+    }
+
     let resultState: RunResult;
     if (!data.success) {
       resultState = {
+        executionId,
         status: (data.status as SubmissionStatus) || "error",
         results: data.results || [],
         runtime: data.runtime || 0,
@@ -376,6 +394,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
         }
       }
       resultState = {
+        executionId,
         status: data.status as SubmissionStatus,
         results: data.results || [],
         runtime: data.runtime || 0,
@@ -393,16 +412,25 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
       setShowLoginModal(true);
       return;
     }
+    const executionId = crypto.randomUUID();
+    activeExecutionIdRef.current = executionId;
+    setActiveExecutionId(executionId);
     setIsRunning(true);
-    setRunResult(null);
+    setRunResult(null); // Explicitly clear previous result to prevent stale output
     try {
-      const { resultState } = await executeCode();
-      setRunResult(resultState);
+      const result = await executeCode(executionId);
+      if (!result || activeExecutionIdRef.current !== executionId) {
+        // Newer execution took precedence; ignore stale result
+        return;
+      }
+      setRunResult(result.resultState);
       setActiveResultCase(0);
       setActiveBottomTab("console");
     } catch (err: any) {
+      if (activeExecutionIdRef.current !== executionId) return;
       if (err.response?.status === 401 || err.response?.status === 403) {
         setRunResult({
+          executionId,
           status: "error",
           results: [],
           runtime: 0,
@@ -413,6 +441,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
         setShowLoginModal(true);
       } else {
         setRunResult({
+          executionId,
           status: "error",
           results: [],
           runtime: 0,
@@ -423,7 +452,9 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
       }
       setActiveBottomTab("console");
     } finally {
-      setIsRunning(false);
+      if (activeExecutionIdRef.current === executionId) {
+        setIsRunning(false);
+      }
     }
   }, [code, language, problem]);
 
@@ -476,8 +507,12 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
           totalCount: finalData.totalTestCases || 0,
         });
       } else {
-        const { resultState } = await executeCode();
-        setRunResult(resultState);
+        const executionId = crypto.randomUUID();
+        activeExecutionIdRef.current = executionId;
+        const res = await executeCode(executionId);
+        if (res && activeExecutionIdRef.current === executionId) {
+          setRunResult(res.resultState);
+        }
       }
       setActiveResultCase(0);
       setActiveBottomTab("console");

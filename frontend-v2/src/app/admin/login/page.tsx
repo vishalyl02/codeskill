@@ -107,12 +107,28 @@ export default function AdminLoginPage() {
           <div className="rounded-3xl border border-border/70 bg-card/60 backdrop-blur-sm p-6 sm:p-8 shadow-sm transition-all space-y-6">
             {/* Dual Co-Branding Header: CodeSkill Admin Logo | CU Logo */}
             <div className="flex items-center justify-center gap-3 sm:gap-4 select-none pt-1">
-              {/* CodeSkill Logo + Wordmark */}
+              {/* 1. Chandigarh University Logo (Enlarged) - FIRST */}
+              <div
+                className="h-[54px] sm:h-[62px] px-3.5 py-1.5 rounded-2xl overflow-hidden bg-white border border-border/80 shadow-xs flex items-center justify-center shrink-0 transition-transform duration-200 hover:scale-105"
+                title="Chandigarh University"
+              >
+                <img
+                  src="/cu-logo-tight.png"
+                  alt="Chandigarh University"
+                  className="h-full w-auto object-contain"
+                />
+              </div>
+
+              {/* Divider */}
+              <div className="h-9 sm:h-11 w-[1px] bg-border/80 shrink-0" aria-hidden="true" />
+
+              {/* 2. CodeSkill Logo + Wordmark - SECOND */}
               <Link
                 href="/"
-                className="inline-flex items-center gap-2.5 group transition-transform hover:scale-[1.02]"
+                className="inline-flex items-center gap-2.5 group transition-transform duration-200 hover:scale-[1.02]"
+                title="CodeSkill Home"
               >
-                <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-2xl overflow-hidden border border-black/10 dark:border-white/15 shadow-xs flex items-center justify-center p-0.5 group-hover:scale-105 transition-transform duration-200">
+                <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-2xl overflow-hidden border border-black/10 dark:border-white/15 bg-background shadow-xs flex items-center justify-center p-0.5 group-hover:scale-105 transition-transform duration-200">
                   <img
                     src="/icon.svg"
                     alt="CodeSkill Logo"
@@ -123,21 +139,6 @@ export default function AdminLoginPage() {
                   CodeSkill
                 </span>
               </Link>
-
-              {/* Divider */}
-              <div className="h-9 sm:h-11 w-[1px] bg-border/80 shrink-0" aria-hidden="true" />
-
-              {/* Chandigarh University Logo (Enlarged) */}
-              <div
-                className="h-[52px] sm:h-[60px] px-3.5 py-1.5 rounded-2xl overflow-hidden bg-white border border-border/70 shadow-xs flex items-center justify-center shrink-0 transition-transform hover:scale-[1.02]"
-                title="Chandigarh University"
-              >
-                <img
-                  src="/cu-logo-tight.png"
-                  alt="Chandigarh University"
-                  className="h-full w-auto object-contain"
-                />
-              </div>
             </div>
 
             <div className="space-y-1.5 text-center flex flex-col items-center">

@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AdminLogo } from "./AdminLogo";
 import { 
   LayoutDashboard, 
   Home,
@@ -19,12 +18,24 @@ import {
   BarChart3,
   CircleHelp,
   Bug,
+  Compass,
+  X,
 } from "lucide-react";
 import gsap from "gsap";
 
 const adminNavItems = [
   { name: "Home", href: "/", icon: Home },
   { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
+  { name: "Analytics", href: "/admin/analytics", icon: BarChart3 },
+  {
+    name: "Learning Studio",
+    href: "/admin/learning",
+    icon: Compass,
+    subItems: [
+      { name: "Overview", href: "/admin/learning" },
+      { name: "Learning Paths", href: "/admin/learning/paths" },
+    ],
+  },
   {
     name: "Students",
     href: "/admin/students",
@@ -80,29 +91,64 @@ const teacherNavItems = adminNavItems.filter((item) =>
   !["Companies", "Universities", "Settings", "Bugs"].includes(item.name),
 );
 
-export function AdminSidebar({ portal = "admin" }: { portal?: "admin" | "teacher" }) {
+interface AdminSidebarProps {
+  portal?: "admin" | "teacher";
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}
+
+export function AdminSidebar({
+  portal = "admin",
+  mobileOpen = false,
+  onMobileClose,
+}: AdminSidebarProps) {
   const pathname = usePathname();
   const navItems = portal === "teacher" ? teacherNavItems : adminNavItems;
   const isTeacher = portal === "teacher";
-  return (
-    <aside className="admin-sidebar w-64 bg-sidebar text-sidebar-foreground flex flex-col h-full border-r border-sidebar-border relative z-20">
-      <div className="h-[72px] flex items-center px-4 border-b border-border bg-card/60 shrink-0">
-        <Link href={isTeacher ? "/teacher/dashboard" : "/admin/dashboard"} className="flex items-center gap-3 group select-none">
-          <AdminLogo variant="icon" size="md" />
+
+  const renderSidebarContent = (isMobileView = false) => (
+    <>
+      <div className="h-[72px] flex items-center justify-between px-4 border-b border-border bg-card/60 shrink-0">
+        <Link
+          href={isTeacher ? "/teacher/dashboard" : "/admin/dashboard"}
+          onClick={() => onMobileClose?.()}
+          className="flex items-center gap-2.5 group select-none min-w-0"
+        >
+          <div
+            className="relative w-9 h-9 rounded-xl overflow-hidden bg-slate-950 border border-border/80 shadow-xs flex items-center justify-center p-1 shrink-0 transition-transform duration-200 group-hover:scale-105"
+            title="CodeSkill"
+          >
+            <img
+              src="/icon.svg"
+              alt="CodeSkill Logo"
+              className="w-full h-full object-contain block"
+            />
+          </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-lg font-black tracking-tight text-foreground leading-none">
+              <span className="text-base font-black tracking-tight text-foreground leading-none">
                 Code<span className="text-emerald-700 dark:text-emerald-400">Skill</span>
               </span>
               <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded leading-none shadow-xs bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/25">
                 {isTeacher ? "Teacher" : "Admin"}
               </span>
             </div>
-            <p className="text-[11px] font-semibold text-muted-foreground tracking-wide mt-1.5 truncate">
-              Chandigarh University
+            <p className="text-[10px] font-semibold text-muted-foreground tracking-wide mt-1 truncate">
+              Department of Skill Development
             </p>
           </div>
         </Link>
+
+        {isMobileView && (
+          <button
+            type="button"
+            onClick={onMobileClose}
+            className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors ml-2 cursor-pointer shrink-0"
+            aria-label="Close navigation menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
       <div className="admin-sidebar-scroll flex-1 overflow-y-auto py-4 px-3">
@@ -116,6 +162,7 @@ export function AdminSidebar({ portal = "admin" }: { portal?: "admin" | "teacher
               <div key={item.name} className="admin-nav-group space-y-1">
                 <Link
                   href={href}
+                  onClick={() => onMobileClose?.()}
                   className={`admin-nav-link flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium leading-5 transition-colors ${
                     isCategoryActive 
                       ? "bg-primary/10 text-primary border border-primary/20" 
@@ -143,6 +190,7 @@ export function AdminSidebar({ portal = "admin" }: { portal?: "admin" | "teacher
                         <Link
                           key={sub.name}
                           href={subHref}
+                          onClick={() => onMobileClose?.()}
                           className={`admin-subnav-link block px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
                             isSubActive
                               ? "bg-primary/15 text-primary font-bold"
@@ -171,6 +219,7 @@ export function AdminSidebar({ portal = "admin" }: { portal?: "admin" | "teacher
               <Link
                 href="/company"
                 target="_blank"
+                onClick={() => onMobileClose?.()}
                 className="flex items-center justify-between px-3 py-2.5 rounded-lg text-[13px] font-medium leading-5 hover:bg-primary/10 hover:text-primary transition-colors group text-muted-foreground"
               >
                 <div className="flex items-center gap-3">
@@ -182,6 +231,7 @@ export function AdminSidebar({ portal = "admin" }: { portal?: "admin" | "teacher
               <Link
                 href="/campus"
                 target="_blank"
+                onClick={() => onMobileClose?.()}
                 className="flex items-center justify-between px-3 py-2.5 rounded-lg text-[13px] font-medium leading-5 hover:bg-emerald-500/10 hover:text-emerald-500 transition-colors group text-muted-foreground"
               >
                 <div className="flex items-center gap-3">
@@ -194,7 +244,29 @@ export function AdminSidebar({ portal = "admin" }: { portal?: "admin" | "teacher
           </>
         )}
       </div>
+    </>
+  );
 
-    </aside>
+  return (
+    <>
+      {/* Desktop Persistent Sidebar */}
+      <aside className="admin-sidebar hidden md:flex flex-col w-64 bg-sidebar text-sidebar-foreground h-full border-r border-sidebar-border shrink-0 z-20">
+        {renderSidebarContent(false)}
+      </aside>
+
+      {/* Mobile Drawer Overlay */}
+      {mobileOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 md:hidden transition-opacity"
+            onClick={onMobileClose}
+            aria-hidden="true"
+          />
+          <aside className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-sidebar text-sidebar-foreground z-50 flex flex-col h-full shadow-2xl border-r border-sidebar-border md:hidden animate-in slide-in-from-left duration-200">
+            {renderSidebarContent(true)}
+          </aside>
+        </>
+      )}
+    </>
   );
 }

@@ -125,7 +125,7 @@ describe("Contest Results Portal", () => {
     render(<ContestResultsPage />);
 
     expect(
-      screen.getByText(/Department of Skill Development & Lab/i),
+      screen.getByText(/Department of Skill Development/i),
     ).toBeInTheDocument();
     expect(
       screen.getByText("Contest Results & Proctoring Hub"),

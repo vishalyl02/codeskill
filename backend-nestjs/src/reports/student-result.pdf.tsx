@@ -38,6 +38,12 @@ export interface StudentResult {
   studentId?: string;
   program?: string;
   institution?: string;
+  rank?: number;
+  totalParticipants?: number;
+  percentile?: string;
+  attemptId?: string;
+  attemptStatus?: string;
+  verificationStatus?: string;
   questions: {
     id: string;
     title: string;
@@ -448,7 +454,7 @@ export const StudentResultReport = ({ result }: { result: StudentResult }) => {
               </View>
               <View style={[styles.infoField, { marginBottom: 0 }]}>
                 <Text style={styles.fieldLabel}>Roll / UID:</Text>
-                <Text style={styles.fieldValue}>{result.rollNumber || result.studentId || "24BCS-10492"}</Text>
+                <Text style={styles.fieldValue}>{result.rollNumber || result.studentId || "N/A"}</Text>
               </View>
             </View>
             <View style={styles.studentDetailsCol2}>
@@ -469,7 +475,9 @@ export const StudentResultReport = ({ result }: { result: StudentResult }) => {
               <View style={styles.avatarCircle}>
                 <Text style={styles.avatarText}>{initials}</Text>
               </View>
-              <Text style={{ fontSize: 6, color: BRAND_COLORS.slateMuted, marginTop: 3 }}>VERIFIED</Text>
+              <Text style={{ fontSize: 6, color: BRAND_COLORS.slateMuted, marginTop: 3 }}>
+                {result.verificationStatus || "VERIFIED"}
+              </Text>
             </View>
           </View>
         </View>
@@ -493,8 +501,12 @@ export const StudentResultReport = ({ result }: { result: StudentResult }) => {
           </View>
           <View style={styles.kpiCard}>
             <Text style={styles.kpiLabel}>Rank / Percentile</Text>
-            <Text style={[styles.kpiValue, { color: BRAND_COLORS.cuRed }]}>Top 3%</Text>
-            <Text style={styles.kpiSubLabel}>Rank 18 of 245</Text>
+            <Text style={[styles.kpiValue, { color: BRAND_COLORS.cuRed }]}>
+              {result.percentile || (result.rank && result.totalParticipants ? `Top ${Math.max(1, Math.round((result.rank / result.totalParticipants) * 100))}%` : 'N/A')}
+            </Text>
+            <Text style={styles.kpiSubLabel}>
+              {result.rank && result.totalParticipants ? `Rank ${result.rank} of ${result.totalParticipants}` : (result.rank ? `Rank ${result.rank}` : 'Rank N/A')}
+            </Text>
           </View>
         </View>
 

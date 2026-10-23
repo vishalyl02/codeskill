@@ -53,6 +53,7 @@ import { AppService } from './app.service';
 import { ExamSecurityModule } from './exam-security/exam-security.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { BugsModule } from './bugs/bugs.module';
+import { LearningModule } from './learning/learning.module';
 
 @Module({
   imports: [
@@ -147,6 +148,7 @@ import { BugsModule } from './bugs/bugs.module';
     ReportsModule,
     BugsModule,
     PetModule,
+    LearningModule,
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule, RedisModule],
       inject: [ThrottlerRedisStorageService],

@@ -17,7 +17,7 @@ import { QuoteOrbit } from "@/components/landing/QuoteOrbit";
 
 export default function Home() {
   return (
-    <div className="codeskill-home flex w-full flex-1 flex-col bg-background font-sans text-foreground selection:bg-emerald-600 selection:text-white dark:selection:bg-emerald-400 dark:selection:text-slate-950">
+    <div className="codeskill-home flex w-full max-w-full overflow-x-clip flex-1 flex-col bg-background font-sans text-foreground selection:bg-emerald-600 selection:text-white dark:selection:bg-emerald-400 dark:selection:text-slate-950">
       <Hero />
       <TrustBar />
       <ProblemTablePreview />

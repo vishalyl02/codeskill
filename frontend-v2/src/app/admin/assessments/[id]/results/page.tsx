@@ -63,7 +63,8 @@ export default function AssessmentResultsPage({
       const url = URL.createObjectURL(response.data);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `assessment-report-${attemptId}.pdf`;
+      const candidateUid = attempt.studentUid || attempt.student?.uid || attemptId;
+      link.download = `assessment-report-${candidateUid}.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();

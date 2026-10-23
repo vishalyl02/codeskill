@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useState, useId, useEffect } from "react";
+import { useState, useId, useEffect, useRef } from "react";
 import { Slot } from "@radix-ui/react-slot";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Sparkles, Quote as QuoteIcon } from "lucide-react";
+import gsap from "gsap";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -267,6 +268,7 @@ export function AuthUI({ signInContent = {}, signUpContent = {}, children }: Aut
 
   const [quote, setQuote] = useState<{ text: string; author: string }>(currentContent.quote);
   const [isQuoteLoading, setIsQuoteLoading] = useState(false);
+  const heroRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let rotationInterval: NodeJS.Timeout;
@@ -289,47 +291,111 @@ export function AuthUI({ signInContent = {}, signUpContent = {}, children }: Aut
     };
   }, [currentContent.quote]);
 
+  // GSAP animation for hero showcase
+  useEffect(() => {
+    if (typeof window === "undefined" || !heroRef.current) return;
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) return;
+
+    const ctx = gsap.context(() => {
+      gsap.from(".gsap-hero-bg", {
+        scale: 1.08,
+        duration: 2,
+        ease: "power2.out",
+      });
+
+      gsap.from(".gsap-hero-badge", {
+        y: -18,
+        opacity: 0,
+        duration: 0.8,
+        delay: 0.2,
+        ease: "power3.out",
+      });
+
+      gsap.from(".gsap-quote-panel", {
+        y: 28,
+        opacity: 0,
+        duration: 0.9,
+        delay: 0.35,
+        ease: "power3.out",
+      });
+    }, heroRef);
+
+    return () => ctx.revert();
+  }, []);
+
   return (
-    <div className="w-full min-h-screen md:grid md:grid-cols-2">
+    <div className="w-full min-h-screen lg:grid lg:grid-cols-2 relative overflow-hidden bg-background">
       <style>{`
         input[type="password"]::-ms-reveal,
         input[type="password"]::-ms-clear {
           display: none;
         }
       `}</style>
-      <div className="flex min-h-screen items-center justify-center p-6 md:h-auto md:p-0 md:py-12 bg-background">
+
+      {/* Left Form Column (Full Screen Responsive) */}
+      <div className="flex min-h-screen items-center justify-center p-4 py-8 sm:p-6 sm:py-12 lg:p-12 relative z-10 bg-background/50 overflow-y-auto">
         {children}
       </div>
 
+      {/* Right Hero / Campus Showcase Column (Desktop Only) */}
       <div
-        className="hidden md:block relative bg-cover bg-center transition-all duration-500 ease-in-out"
-        style={{ backgroundImage: `url(${currentContent.image.src})` }}
+        ref={heroRef}
+        className="hidden lg:flex relative overflow-hidden flex-col justify-between p-10 xl:p-14 min-h-screen select-none"
       >
-        <div className="absolute inset-0 bg-black/40" />
-        <div className="absolute inset-x-0 bottom-0 h-[400px] bg-gradient-to-t from-black/90 to-transparent" />
-        
-        <div className="relative z-10 flex h-full flex-col items-center justify-end p-8 pb-16">
-            <blockquote className="space-y-6 text-center text-white max-w-lg min-h-[140px] flex flex-col justify-end transition-opacity duration-500">
+        {/* Background Image with GSAP subtle scale */}
+        <div
+          className="gsap-hero-bg absolute inset-0 bg-cover bg-center transition-all duration-700 ease-in-out"
+          style={{ backgroundImage: `url(${currentContent.image.src})` }}
+        />
+        <div className="absolute inset-0 bg-black/45" />
+        <div className="absolute inset-x-0 bottom-0 h-[480px] bg-gradient-to-t from-black/95 via-black/60 to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-[180px] bg-gradient-to-b from-black/60 to-transparent" />
+
+        {/* Top Floating Badge */}
+        <div className="relative z-10 flex items-center justify-start">
+          <div className="gsap-hero-badge inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white shadow-xl shadow-black/20">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            <span className="text-xs font-semibold tracking-wide text-white/95">
+              Chandigarh University • Department of Skill Development
+            </span>
+          </div>
+        </div>
+
+        {/* Bottom Frosted Glass Quote Card */}
+        <div className="relative z-10 flex flex-col items-center justify-end">
+          <div className="gsap-quote-panel w-full max-w-xl rounded-3xl bg-black/40 backdrop-blur-xl border border-white/15 p-6 sm:p-8 shadow-2xl space-y-4">
+            <div className="flex items-center gap-2 text-emerald-400/90 text-xs font-bold uppercase tracking-wider">
+              <QuoteIcon className="w-4 h-4 fill-emerald-400/20" />
+              <span>Campus Inspiration</span>
+            </div>
+
+            <blockquote className="space-y-4 text-white min-h-[90px] flex flex-col justify-end">
               {isQuoteLoading ? (
-                <div className="flex flex-col items-center justify-center space-y-4 opacity-70">
-                  <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <p className="text-sm font-medium tracking-wide">Loading inspiration...</p>
+                <div className="flex items-center space-x-3 text-white/70 py-4">
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <p className="text-sm font-medium">Loading inspiration...</p>
                 </div>
               ) : (
                 <>
-                  <p className="text-2xl font-bold leading-tight drop-shadow-md">
+                  <p className="text-xl xl:text-2xl font-bold leading-snug drop-shadow-md text-white/95">
                     “<Typewriter
                         key={quote.text}
                         text={quote.text}
-                        speed={50}
+                        speed={45}
                       />”
                   </p>
-                  <cite className="block text-sm font-medium text-white/80 not-italic uppercase tracking-widest drop-shadow-sm">
-                      — {quote.author}
+                  <cite className="block text-xs font-semibold text-emerald-300 not-italic uppercase tracking-widest">
+                    — {quote.author}
                   </cite>
                 </>
               )}
             </blockquote>
+          </div>
         </div>
       </div>
     </div>

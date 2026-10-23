@@ -18,9 +18,9 @@ describe('Footer Component', () => {
   it('renders correctly on normal pages', () => {
     // @ts-ignore
     usePathname.mockReturnValue('/');
-    
+
     render(<Footer />);
-    
+
     // Check for logo text or trademark
     expect(screen.getByText(/© 2026/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Privacy Policy', exact: true })).toBeInTheDocument();
@@ -29,9 +29,9 @@ describe('Footer Component', () => {
   it('hides the footer on workspace/editor pages', () => {
     // @ts-ignore
     usePathname.mockReturnValue('/problems/two-sum');
-    
+
     const { container } = render(<Footer />);
-    
+
     // It should render null (nothing)
     expect(container.firstChild).toBeNull();
   });

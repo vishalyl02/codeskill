@@ -315,7 +315,7 @@ export default function ContestResultsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
-            <span>Department of Skill Development & Lab</span>
+            <span>Department of Skill Development</span>
             <span>•</span>
             <span>Chandigarh University</span>
           </div>

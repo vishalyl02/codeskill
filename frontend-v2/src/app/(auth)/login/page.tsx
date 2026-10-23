@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { KeyRound, AlertCircle, CheckCircle2, ShieldCheck } from "lucide-react";
+import { KeyRound, AlertCircle, CheckCircle2, ShieldCheck, Sparkles } from "lucide-react";
+import gsap from "gsap";
 
 import { useAuth } from "@/context/AuthContext";
 import { Spinner } from "@/components/ui/spinner";
@@ -37,6 +38,7 @@ export default function AppLoginPage() {
   const [showForcePasswordModal, setShowForcePasswordModal] = useState(false);
   const [passwordChangeSuccess, setPasswordChangeSuccess] = useState(false);
 
+  const containerRef = useRef<HTMLDivElement>(null);
   const { login, forceChangePassword } = useAuth();
   const router = useRouter();
 
@@ -44,6 +46,79 @@ export default function AppLoginPage() {
     resolver: zodResolver(forcePasswordSchema),
     defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
   });
+
+  // Responsive GSAP animations
+  useEffect(() => {
+    if (typeof window === "undefined" || !containerRef.current) return;
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) return;
+
+    const ctx = gsap.context(() => {
+      const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
+
+      tl.from(".gsap-card", {
+        y: 28,
+        opacity: 0,
+        scale: 0.97,
+        duration: 0.75,
+      })
+      .from(".gsap-header-cu", {
+        x: -16,
+        opacity: 0,
+        scale: 0.9,
+        duration: 0.55,
+      }, "-=0.45")
+      .from(".gsap-header-divider", {
+        scaleY: 0,
+        opacity: 0,
+        duration: 0.35,
+      }, "-=0.35")
+      .from(".gsap-header-codeskill", {
+        x: 16,
+        opacity: 0,
+        scale: 0.9,
+        duration: 0.55,
+      }, "-=0.35")
+      .from(".gsap-welcome-text", {
+        y: 12,
+        opacity: 0,
+        duration: 0.45,
+      }, "-=0.3")
+      .from(".gsap-form-content", {
+        y: 14,
+        opacity: 0,
+        duration: 0.5,
+      }, "-=0.25")
+      .from(".gsap-footer-links", {
+        y: 10,
+        opacity: 0,
+        duration: 0.4,
+      }, "-=0.2");
+
+      // Continuous gentle ambient breathing animation
+      gsap.to(".gsap-ambient-orb-1", {
+        x: 18,
+        y: -14,
+        scale: 1.08,
+        duration: 7,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut",
+      });
+      gsap.to(".gsap-ambient-orb-2", {
+        x: -18,
+        y: 16,
+        scale: 1.1,
+        duration: 9,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut",
+      });
+    }, containerRef);
+
+    return () => ctx.revert();
+  }, []);
 
   const handleLogin = async (data: LoginFormValues) => {
     setLoading(true);
@@ -109,17 +184,46 @@ export default function AppLoginPage() {
           }
         }}
       >
-        <div className="w-full max-w-[420px] flex flex-col gap-6 mx-auto px-4 sm:px-0">
+        <div ref={containerRef} className="w-full max-w-[440px] flex flex-col gap-5 sm:gap-6 mx-auto px-2 sm:px-0 relative z-10 my-auto">
+          {/* GSAP Ambient Animated Orbs */}
+          <div
+            className="gsap-ambient-orb-1 absolute -top-16 -left-14 w-60 h-60 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 blur-3xl pointer-events-none -z-10"
+            aria-hidden="true"
+          />
+          <div
+            className="gsap-ambient-orb-2 absolute -bottom-16 -right-14 w-64 h-64 rounded-full bg-sky-500/10 dark:bg-sky-500/15 blur-3xl pointer-events-none -z-10"
+            aria-hidden="true"
+          />
+
           {/* Unified Login Box */}
-          <div className="rounded-3xl border border-border/70 bg-card/60 backdrop-blur-sm p-6 sm:p-8 shadow-sm transition-all space-y-6">
-            {/* Dual Co-Branding Header: CodeSkill Logo | CU Logo */}
+          <div className="gsap-card rounded-3xl border border-border/80 bg-card/85 backdrop-blur-xl p-5 sm:p-8 md:p-9 shadow-xl shadow-black/5 dark:shadow-2xl dark:shadow-black/40 transition-all space-y-5 sm:space-y-6 relative overflow-hidden">
+            {/* Top decorative hairline accent */}
+            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-500/60 to-transparent" />
+
+            {/* Dual Co-Branding Header: CU Logo FIRST | CodeSkill Logo */}
             <div className="flex items-center justify-center gap-3 sm:gap-4 select-none pt-1">
-              {/* CodeSkill Logo + Wordmark */}
+              {/* 1. Chandigarh University Logo (Enlarged) - FIRST */}
+              <div
+                className="gsap-header-cu h-[54px] sm:h-[62px] px-3.5 py-1.5 rounded-2xl overflow-hidden bg-white border border-border/80 shadow-xs flex items-center justify-center shrink-0 transition-transform duration-200 hover:scale-105"
+                title="Chandigarh University"
+              >
+                <img
+                  src="/cu-logo-tight.png"
+                  alt="Chandigarh University"
+                  className="h-full w-auto object-contain"
+                />
+              </div>
+
+              {/* Divider */}
+              <div className="gsap-header-divider h-9 sm:h-11 w-[1px] bg-border/80 shrink-0 origin-center" aria-hidden="true" />
+
+              {/* 2. CodeSkill Logo + Wordmark - SECOND */}
               <Link
                 href="/"
-                className="inline-flex items-center gap-2.5 group transition-transform hover:scale-[1.02]"
+                className="gsap-header-codeskill inline-flex items-center gap-2.5 group transition-transform duration-200 hover:scale-[1.02]"
+                title="CodeSkill Home"
               >
-                <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-2xl overflow-hidden border border-black/10 dark:border-white/15 shadow-xs flex items-center justify-center p-0.5 group-hover:scale-105 transition-transform duration-200">
+                <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-2xl overflow-hidden border border-black/10 dark:border-white/15 bg-background shadow-xs flex items-center justify-center p-0.5 group-hover:scale-105 transition-transform duration-200">
                   <img
                     src="/icon.svg"
                     alt="CodeSkill Logo"
@@ -130,24 +234,9 @@ export default function AppLoginPage() {
                   CodeSkill
                 </span>
               </Link>
-
-              {/* Divider */}
-              <div className="h-9 sm:h-11 w-[1px] bg-border/80 shrink-0" aria-hidden="true" />
-
-              {/* Chandigarh University Logo (Enlarged) */}
-              <div
-                className="h-[52px] sm:h-[60px] px-3.5 py-1.5 rounded-2xl overflow-hidden bg-white border border-border/70 shadow-xs flex items-center justify-center shrink-0 transition-transform hover:scale-[1.02]"
-                title="Chandigarh University"
-              >
-                <img
-                  src="/cu-logo-tight.png"
-                  alt="Chandigarh University"
-                  className="h-full w-auto object-contain"
-                />
-              </div>
             </div>
 
-            <div className="space-y-1.5 text-center flex flex-col items-center">
+            <div className="gsap-welcome-text space-y-1.5 text-center flex flex-col items-center">
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground text-center">
                 Welcome back
               </h1>
@@ -156,11 +245,13 @@ export default function AppLoginPage() {
               </p>
             </div>
 
-            <LoginForm onSubmit={handleLogin} loading={loading} />
+            <div className="gsap-form-content">
+              <LoginForm onSubmit={handleLogin} loading={loading} />
+            </div>
           </div>
 
           {/* Footer & Administrative Link */}
-          <div className="flex flex-col gap-3 text-center">
+          <div className="gsap-footer-links flex flex-col gap-3 text-center">
             <p className="text-xs text-muted-foreground">
               By signing in, you agree to our{" "}
               <a href="#" className="underline font-medium hover:text-foreground transition-colors">

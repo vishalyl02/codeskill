@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { adminDashboardAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
+import { AnalyticsDashboardView } from "@/components/analytics";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 
@@ -240,24 +241,32 @@ export default function AdminDashboardPage() {
   ];
 
   return (
-    <div ref={containerRef} className="p-6 md:p-8 font-sans relative min-h-full">
+    <div ref={containerRef} className="p-3.5 sm:p-6 md:p-8 font-sans relative min-h-full">
       {/* Background radial gradient */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/5 via-background to-background pointer-events-none" />
 
-      <div className="relative z-10 max-w-7xl mx-auto space-y-8">
+      <div className="relative z-10 max-w-7xl mx-auto space-y-6 sm:space-y-8">
         {/* Header Strip */}
-        <div className="page-header flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-2 border-b border-border/40">
+        <div className="page-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3.5 pb-3 border-b border-border/40">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold font-heading text-foreground tracking-tight">
-              {isTeacher ? "Teacher" : "Admin"} <span className="text-transparent bg-clip-text bg-gradient-to-r from-foreground via-foreground/85 to-primary">Dashboard</span>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold font-heading text-foreground tracking-tight">
+              {isTeacher ? "Teacher" : "Admin"}{" "}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-foreground via-foreground/85 to-primary">
+                Dashboard
+              </span>
             </h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+              {isTeacher
+                ? "Academic evaluation, test batches, and candidate performance monitoring."
+                : "Real-time assessment telemetry, candidate management, and examination operations."}
+            </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
             {!isTeacher && <button
               onClick={() => fetchStats(true)}
               disabled={isRefreshing}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl border border-border bg-card/60 hover:bg-card text-foreground transition-all shadow-xs hover:border-primary/40 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-2 px-3 py-2 sm:px-3.5 text-xs font-semibold rounded-xl border border-border bg-card/60 hover:bg-card text-foreground transition-all shadow-xs hover:border-primary/40 disabled:opacity-50 cursor-pointer"
               title="Refresh telemetry data"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground ${isRefreshing ? "animate-spin text-primary" : ""}`} />
@@ -265,7 +274,7 @@ export default function AdminDashboardPage() {
             </button>}
             <Link
               href={`${portalBase}/assessments/create`}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md shadow-primary/20"
+              className="inline-flex items-center gap-2 px-3.5 py-2 sm:px-4 text-xs font-bold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md shadow-primary/20"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>New Assessment</span>
@@ -274,17 +283,17 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* 6 Key Performance Metric Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           {kpis.map((kpi) => {
             const Icon = kpi.icon;
             return (
               <Link
                 key={kpi.title}
                 href={kpi.href}
-                className={`stat-card bg-card/50 backdrop-blur-md p-4 md:p-5 rounded-2xl border border-border/60 transition-[background-color,border-color,box-shadow,translate] group hover:-translate-y-0.5 shadow-xs ${kpi.border}`}
+                className={`stat-card bg-card/50 backdrop-blur-md p-3.5 sm:p-4 md:p-5 rounded-2xl border border-border/60 transition-[background-color,border-color,box-shadow,translate] group hover:-translate-y-0.5 shadow-xs ${kpi.border}`}
               >
                 <div className="flex items-center justify-between mb-3">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${kpi.bg} ${kpi.color} group-hover:scale-105 transition-transform`}>
+                  <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 ${kpi.bg} ${kpi.color} group-hover:scale-105 transition-transform`}>
                     <Icon className="w-4.5 h-4.5" />
                   </div>
                   <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
@@ -307,6 +316,30 @@ export default function AdminDashboardPage() {
               </Link>
             );
           })}
+        </div>
+
+        {/* Recharts Analytics Dashboard Section */}
+        <div className="space-y-4 pt-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-primary" />
+                Platform Evaluation &amp; Submission Analytics
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Interactive Recharts telemetry: acceptance rates, engagement curves, score distributions, and compiler distribution
+              </p>
+            </div>
+            <Link
+              href="/admin/analytics"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline self-start sm:self-auto"
+            >
+              <span>Full Analytics Portal</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <AnalyticsDashboardView initialTimeframe="7d" showSimulateEmptyToggle={true} />
         </div>
 
         {/* Action Center - 4 Functional Tiles */}

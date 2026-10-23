@@ -36,6 +36,24 @@ import { BugReport } from './entities/bug-report.entity';
 import { BugImage } from './entities/bug-image.entity';
 import { BugComment } from './entities/bug-comment.entity';
 import { BugActivity } from './entities/bug-activity.entity';
+import {
+  LearningPath,
+  LearningPathCourse,
+  Course,
+  CourseModule,
+  Lesson,
+  CourseExercise,
+  LearningEnrollment,
+  LessonProgress,
+  CourseProgress,
+  PathProgress,
+  XPLedger,
+  BadgeDefinition,
+  StudentBadge,
+  CertificateTemplate,
+  Certificate,
+  CertificateEvent,
+} from '../learning/entities';
 
 const entities = [
   User,
@@ -71,6 +89,22 @@ const entities = [
   EmailJob,
   ExamSession,
   ExamSecurityEvent,
+  LearningPath,
+  LearningPathCourse,
+  Course,
+  CourseModule,
+  Lesson,
+  CourseExercise,
+  LearningEnrollment,
+  LessonProgress,
+  CourseProgress,
+  PathProgress,
+  XPLedger,
+  BadgeDefinition,
+  StudentBadge,
+  CertificateTemplate,
+  Certificate,
+  CertificateEvent,
 ];
 
 @Module({

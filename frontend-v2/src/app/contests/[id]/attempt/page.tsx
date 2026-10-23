@@ -98,9 +98,20 @@ function ContestSession({ id }: { id: string }) {
     autoSubmit,
     hasStarted && !ended,
   );
+  const hasExpiredRef = useRef(false);
   useEffect(() => {
     if (!context || ended) return;
-    const tick = () => { const time = Date.now(); setNow(time); if (time >= new Date(context.contest.endTime).getTime()) void finish(true); };
+    const endTimeMs = new Date(context.contest.endTime).getTime();
+    const tick = () => {
+      const time = Date.now();
+      setNow(time);
+      if (time >= endTimeMs) {
+        if (!hasExpiredRef.current) {
+          hasExpiredRef.current = true;
+          void finish(true);
+        }
+      }
+    };
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [context, ended, finish]);

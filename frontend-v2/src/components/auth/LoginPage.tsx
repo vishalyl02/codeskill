@@ -65,7 +65,7 @@ export function LoginPage({ redirectUrl = "/dashboard" }: LoginPageProps) {
             <div>
               <h2 className="text-2xl font-bold text-foreground">CodeSkill</h2>
               <p className="text-sm font-semibold text-primary mt-1">by Chandigarh University</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Department of Skill Development & Lab</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Department of Skill Development</p>
             </div>
             
             <p className="text-sm text-foreground/80 leading-relaxed max-w-md border-l-2 border-primary/30 pl-4 py-1">

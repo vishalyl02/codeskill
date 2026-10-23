@@ -35,7 +35,9 @@
     "test:judges:integration": "ts-node test/judge-resilience.integration.ts",
     "test:judges:live": "ts-node test/judges-live.integration.ts",
     "test:feedback:integration": "ts-node test/submission-feedback.integration.ts",
-    "db:bugs:migrate": "ts-node -r tsconfig-paths/register src/database/run-bug-reports-migration.ts"
+    "db:bugs:migrate": "ts-node -r tsconfig-paths/register src/database/run-bug-reports-migration.ts",
+    "db:learning:migrate": "ts-node -r tsconfig-paths/register src/database/run-learning-module-migration.ts",
+    "seed:learning": "ts-node -r tsconfig-paths/register src/seeds/seed-learning-module.ts"
   },
   "dependencies": {
     "@apollo/server": "^5.5.1",

@@ -301,16 +301,20 @@ export default function TakeAssessmentPage({
         : await studentAssessmentsAPI.startAttempt(id);
       const data = res.data;
       setQuestions(data.questions || []);
-      setDurationMinutes(data.durationMinutes || 45);
+      const resolvedDurationMinutes = data.durationMinutes !== undefined && data.durationMinutes > 0
+        ? data.durationMinutes
+        : 0.5; // 30-second standardized default when duration is missing
+      setDurationMinutes(resolvedDurationMinutes);
       if (data.code) setAssessmentCode(data.code);
       if (data.title) setAssessmentTitle(data.title);
 
       const start = new Date(data.startedAt || new Date());
       setStartedAt(start);
 
+      const fallbackMs = resolvedDurationMinutes * 60_000;
       const deadline = data.attemptExpiresAt
         ? new Date(data.attemptExpiresAt).getTime()
-        : start.getTime() + (data.durationMinutes || 45) * 60_000;
+        : start.getTime() + fallbackMs;
       setAttemptDeadlineAt(deadline);
       setTimeLeftSeconds(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
 
@@ -634,11 +638,22 @@ export default function TakeAssessmentPage({
     return () => clearInterval(timer);
   }, [attemptDeadlineAt, isLoading, isSubmitting]);
 
+  const hasAutoSubmittedRef = useRef(false);
+
   useEffect(() => {
-    if (!isLoading && !isSubmitting && loadedAssessmentId === id && timeLeftSeconds <= 0) {
-      void submitExam(true);
+    if (
+      !isLoading &&
+      !isSubmitting &&
+      loadedAssessmentId === id &&
+      attemptDeadlineAt !== null &&
+      timeLeftSeconds <= 0
+    ) {
+      if (!hasAutoSubmittedRef.current) {
+        hasAutoSubmittedRef.current = true;
+        void submitExam(true);
+      }
     }
-  }, [id, isLoading, isSubmitting, loadedAssessmentId, submitExam, timeLeftSeconds]);
+  }, [id, isLoading, isSubmitting, loadedAssessmentId, submitExam, timeLeftSeconds, attemptDeadlineAt]);
 
   // 5. Autosave Progress Interval (Every 15 Seconds)
   useEffect(() => {

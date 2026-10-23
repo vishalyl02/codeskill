@@ -2,7 +2,7 @@
 
 import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ResizableAssessmentPanels } from "./ResizableAssessmentPanels";
 import { useTheme } from "@/context/ThemeContext";
@@ -258,6 +258,7 @@ export default function DSAAssessmentEditor({
   const [resultMode, setResultMode] = useState<'run' | 'submission'>('run');
   const [copied, setCopied] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
+  const activeExecutionIdRef = useRef<string | null>(null);
 
 
 
@@ -354,10 +355,12 @@ export default function DSAAssessmentEditor({
   // Run Test (Single or Sample cases)
   const handleRunTest = async () => {
     if (isRunning || isSubmitting) return;
+    const executionId = crypto.randomUUID();
+    activeExecutionIdRef.current = executionId;
     setIsRunning(true);
     setResultMode('run');
     setBottomTab("output");
-    setRunResult(null);
+    setRunResult(null); // Clear previous result immediately
 
     try {
       if (bottomTab === "custom_input") {
@@ -367,6 +370,7 @@ export default function DSAAssessmentEditor({
           () => runAPI.run({
             code,
             language,
+            executionId,
             testCases: [{ id: "run", input: customInput || "", expected: "" }],
             config: {
               customInput: true,
@@ -376,7 +380,9 @@ export default function DSAAssessmentEditor({
           }),
           (jobId) => runAPI.getJob(jobId),
         );
-        setRunResult(res.data);
+        if (activeExecutionIdRef.current === executionId) {
+          setRunResult(res.data);
+        }
       } else if (sampleCases.length > 0) {
         // Run against all sample test cases through the judge
         const payloadTestCases = sampleCases.map((tc, idx) => ({
@@ -389,6 +395,7 @@ export default function DSAAssessmentEditor({
           () => runAPI.run({
             code,
             language,
+            executionId,
             testCases: payloadTestCases,
             config: {
               timeLimit: question.timeLimit || 12000,
@@ -397,13 +404,16 @@ export default function DSAAssessmentEditor({
           }),
           (jobId) => runAPI.getJob(jobId),
         );
-        setRunResult(res.data);
+        if (activeExecutionIdRef.current === executionId) {
+          setRunResult(res.data);
+        }
       } else {
         // Run without testcases
         const res = await awaitExecution(
           () => runAPI.run({
             code,
             language,
+            executionId,
             testCases: [{ id: "run", input: customInput || "", expected: "" }],
             config: {
               customInput: true,
@@ -413,15 +423,21 @@ export default function DSAAssessmentEditor({
           }),
           (jobId) => runAPI.getJob(jobId),
         );
-        setRunResult(res.data);
+        if (activeExecutionIdRef.current === executionId) {
+          setRunResult(res.data);
+        }
       }
     } catch (err: any) {
-      setRunResult({
-        status: 'system_error', passedCount: 0, totalCount: 0, results: [],
-        message: err.response?.data?.message || err.message || 'Failed to execute code',
-      });
+      if (activeExecutionIdRef.current === executionId) {
+        setRunResult({
+          status: 'system_error', passedCount: 0, totalCount: 0, results: [],
+          message: err.response?.data?.message || err.message || 'Failed to execute code',
+        });
+      }
     } finally {
-      setIsRunning(false);
+      if (activeExecutionIdRef.current === executionId) {
+        setIsRunning(false);
+      }
     }
   };
 

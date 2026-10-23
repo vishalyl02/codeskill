@@ -159,10 +159,10 @@ export default function InteractiveListPreview({
 
           <div
             ref={tableRef}
-            className="relative w-full"
+            className="relative w-full overflow-x-auto max-w-full"
             onMouseLeave={onTableLeave}
           >
-            <table className="relative z-20 w-full table-fixed border-collapse">
+            <table className="relative z-20 w-full min-w-[620px] lg:min-w-full table-fixed border-collapse">
               <colgroup>
                 <col style={{ width: "25%" }} />
                 <col style={{ width: "22%" }} />

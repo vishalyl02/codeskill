@@ -63,8 +63,8 @@ export const StudentResultReport = ({ result }: { result: StudentResult }) => {
     student: {
       name: result.studentName,
       email: result.studentEmail,
-      rollNumber: result.rollNumber || result.studentId || "24BCS-10492",
-      studentId: result.studentId || "UID-89421",
+      rollNumber: result.rollNumber || result.studentId || "N/A",
+      studentId: result.studentId || result.rollNumber || "N/A",
       institution: result.institution || "Chandigarh University",
       program: result.program || "B.Tech Computer Science & Engineering",
       role: "Undergraduate Candidate",
@@ -76,9 +76,13 @@ export const StudentResultReport = ({ result }: { result: StudentResult }) => {
       score: result.score,
       maxScore: result.maxScore,
       acceptanceRate: totalProblems > 0 ? Math.round((totalSolved / totalProblems) * 100) : 80,
-      rank: result.rank || 18,
-      totalParticipants: result.totalParticipants || 245,
-      percentile: result.percentile || (scorePercent >= 80 ? "Top 3%" : scorePercent >= 60 ? "Top 15%" : "Top 35%"),
+      rank: result.rank ?? 1,
+      totalParticipants: result.totalParticipants ?? 1,
+      percentile:
+        result.percentile ||
+        (result.rank && result.totalParticipants
+          ? `Top ${Math.max(1, Math.round((result.rank / result.totalParticipants) * 100))}%`
+          : "Top 1%"),
       streak: 21,
     },
     difficultyBreakdown: {

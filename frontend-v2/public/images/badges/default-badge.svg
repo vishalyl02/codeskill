@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="defBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="54" fill="#0c0d18" stroke="url(#defBg)" stroke-width="3" />
+  <circle cx="60" cy="60" r="46" fill="url(#defBg)" fill-opacity="0.12" />
+  <!-- Award Medal / Ribbon -->
+  <circle cx="60" cy="52" r="18" fill="#1e2238" stroke="url(#defBg)" stroke-width="2.5" />
+  <polygon points="60,42 63,48 69,49 65,53 66,59 60,56 54,59 55,53 51,49 57,48" fill="#fbbf24" />
+  <path d="M52 68 l-6 24 l14 -8 l14 8 l-6 -24" fill="#3b82f6" opacity="0.8" />
+</svg>

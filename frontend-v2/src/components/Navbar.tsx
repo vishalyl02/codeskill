@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Presentation,
   ArrowRight,
+  Compass,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -94,6 +95,7 @@ export function Navbar() {
   const isTeacher = Boolean(user && (user.isTeacher || ["teacher", "faculty", "instructor"].includes(String(user.role || "").toLowerCase())));
 
   const navLinks = [
+    { name: "Learning", href: "/learning", icon: Compass },
     { name: "Problems", href: "/problems", icon: Code2 },
     { name: "Assessments", href: "/assessments", icon: ClipboardList },
     { name: "Contests", href: "/contests", icon: Trophy },
@@ -103,18 +105,42 @@ export function Navbar() {
 
   return (
     <>
-      <header className="fixed top-2.5 sm:top-3 left-0 right-0 z-50 px-3 sm:px-6 max-w-[1440px] mx-auto transition-all duration-200">
+      <header className="fixed top-2 sm:top-2.5 left-0 right-0 z-50 px-3 sm:px-6 max-w-[1440px] mx-auto transition-all duration-300 print:hidden">
         <div
-          className={`w-full bg-background/95 dark:bg-card/95 backdrop-blur-md border border-black/8 dark:border-white/10 rounded-2xl shadow-[0_6px_24px_rgba(0,0,0,0.05)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.30)] px-3 sm:px-4 lg:px-5 h-[56px] flex items-center justify-between transition-all duration-200 ${
+          className={`relative w-full backdrop-blur-xl border rounded-2xl px-3 sm:px-4 lg:px-5 h-[60px] sm:h-[62px] flex items-center justify-between transition-all duration-300 ${
             scrolled
-              ? "bg-background dark:bg-card border-black/10 dark:border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.08)] dark:shadow-[0_12px_36px_rgba(0,0,0,0.45)]"
-              : ""
+              ? "bg-background/95 dark:bg-[#090a0f]/95 border-black/10 dark:border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.08)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.55)]"
+              : "bg-background/85 dark:bg-[#090a0f]/80 border-black/[0.08] dark:border-white/[0.08] shadow-[0_8px_30px_rgba(0,0,0,0.04)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
           }`}
         >
-          {/* 1. LEFT — BRAND */}
-          <Link href="/" className="flex items-center gap-2.5 group shrink-0 select-none">
-            {/* CodeSkill Primary Logo */}
-            <div className="relative w-8.5 h-8.5 rounded-lg overflow-hidden bg-slate-950 border border-black/10 dark:border-white/15 shadow-xs flex items-center justify-center p-1 group-hover:scale-105 transition-all duration-300 z-10">
+          {/* Subtle Top Ambient Gradient Edge Line matching Footer */}
+          <span
+            aria-hidden="true"
+            className="absolute top-0 left-1/2 -translate-x-1/2 h-[1.5px] w-[65%] max-w-[640px] bg-gradient-to-r from-transparent via-indigo-500/40 dark:via-indigo-400/50 via-pink-500/30 to-transparent pointer-events-none rounded-full"
+          />
+
+          {/* 1. LEFT — BRAND (CU Logo first & bigger, followed by CodeSkill) */}
+          <Link href="/" className="flex items-center gap-2 sm:gap-2.5 group shrink-0 select-none">
+            {/* Chandigarh University Logo Badge (Enlarged & Prominent) */}
+            <div
+              className="flex items-center h-[40px] sm:h-[44px] px-2.5 sm:px-3 py-1 rounded-xl bg-white border border-black/10 dark:border-white/15 shadow-xs shrink-0 transition-transform duration-200 group-hover:scale-[1.03]"
+              title="Chandigarh University"
+            >
+              <img
+                src="/cu-logo-tight.png"
+                alt="Chandigarh University"
+                className="h-full w-auto object-contain block max-h-[34px] sm:max-h-[37px]"
+              />
+            </div>
+
+            {/* Elegant Divider */}
+            <span
+              className="inline-block h-6 sm:h-7 w-[1.5px] bg-black/15 dark:bg-white/15 shrink-0 mx-0.5"
+              aria-hidden="true"
+            />
+
+            {/* CodeSkill Primary Logo Icon */}
+            <div className="relative w-8 h-8 rounded-lg overflow-hidden bg-slate-950 border border-black/10 dark:border-white/15 shadow-xs flex items-center justify-center p-1 group-hover:scale-105 group-hover:shadow-md transition-all duration-300 z-10 shrink-0">
               <svg viewBox="0 0 160 160" className="w-full h-full" fill="none">
                 <polygon
                   points="80,10 145,45 145,115 80,150 15,115 15,45"
@@ -146,15 +172,15 @@ export function Navbar() {
               </svg>
             </div>
 
-            <div className="flex flex-col justify-center">
-              <span className="font-bold text-[18px] sm:text-[19px] tracking-tight leading-none text-foreground">
+            <div className="flex items-center">
+              <span className="font-extrabold text-[17px] sm:text-[18px] tracking-tight leading-none text-foreground group-hover:text-primary transition-colors">
                 CodeSkill
               </span>
             </div>
           </Link>
 
           {/* 2. CENTER — NAVIGATION (Desktop 1024px and above) */}
-          <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1 shrink-0">
+          <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5 shrink-0">
             {navLinks.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -166,14 +192,14 @@ export function Navbar() {
                 <Link
                   key={item.name}
                   href={item.href}
-                  className={`relative flex items-center gap-1.5 px-2 xl:px-2.5 py-1.5 xl:py-2 rounded-lg text-[13px] xl:text-[14px] whitespace-nowrap shrink-0 transition-all duration-150 ${
+                  className={`relative flex items-center gap-1.5 px-2.5 xl:px-3 py-1.5 xl:py-2 rounded-xl text-[13px] xl:text-[14px] whitespace-nowrap shrink-0 transition-all duration-200 ${
                     isActive
-                      ? "text-foreground bg-black/[0.04] border border-black/8 dark:text-white dark:bg-white/[0.08] font-bold dark:border-white/10 shadow-xs"
-                      : "text-muted-foreground hover:text-foreground hover:bg-black/[0.03] dark:text-muted-foreground dark:hover:text-white dark:hover:bg-white/[0.04] font-medium border border-transparent"
+                      ? "text-foreground dark:text-white font-bold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:text-white dark:hover:bg-white/[0.05] font-medium"
                   }`}
                 >
                   <Icon
-                    className={`w-3.5 h-3.5 xl:w-4 xl:h-4 shrink-0 transition-colors duration-150 ${
+                    className={`w-3.5 h-3.5 xl:w-4 xl:h-4 shrink-0 transition-colors duration-200 ${
                       isActive
                         ? "text-primary dark:text-primary"
                         : "text-muted-foreground group-hover:text-foreground dark:text-muted-foreground dark:group-hover:text-white"
@@ -184,9 +210,12 @@ export function Navbar() {
                   {isActive && (
                     <motion.span
                       layoutId="activeNavIndicator"
-                      className="absolute -bottom-[5px] left-3.5 right-3.5 h-[2px] bg-primary rounded-full shadow-[0_0_6px_rgba(34,197,94,0.2)]"
+                      className="absolute inset-0 rounded-xl bg-black/[0.05] dark:bg-white/[0.08] border border-black/8 dark:border-white/10 shadow-xs -z-10"
                       transition={{ type: "spring", stiffness: 380, damping: 30 }}
                     />
+                  )}
+                  {isActive && (
+                    <span className="absolute -bottom-[5px] left-3.5 right-3.5 h-[2px] bg-gradient-to-r from-emerald-500 via-primary to-sky-400 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
                   )}
                 </Link>
               );
@@ -236,10 +265,10 @@ export function Navbar() {
               <div className="flex items-center gap-1.5 xl:gap-2.5 shrink-0">
                 <Link
                   href="/login"
-                  className="inline-flex items-center justify-center gap-1.5 h-8.5 xl:h-9 px-3 xl:px-4 rounded-xl text-[13.5px] xl:text-[15px] font-bold bg-foreground hover:bg-[#262626] text-background shadow-xs hover:shadow dark:bg-white dark:hover:bg-neutral-200 dark:text-black transition-all duration-150 whitespace-nowrap shrink-0"
+                  className="relative group overflow-hidden inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl text-[13.5px] xl:text-[14.5px] font-bold text-white bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-neutral-100 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap shrink-0"
                 >
                   <span className="whitespace-nowrap">Get Started</span>
-                  <ArrowRight className="w-3.5 h-3.5 xl:w-4 xl:h-4 shrink-0" />
+                  <ArrowRight className="w-3.5 h-3.5 xl:w-4 xl:h-4 group-hover:translate-x-0.5 transition-transform duration-200 shrink-0" />
                 </Link>
               </div>
             )}
@@ -283,6 +312,16 @@ export function Navbar() {
               transition={{ duration: 0.18, ease: "easeOut" }}
               className="fixed top-[66px] sm:top-[70px] right-3 sm:right-6 z-50 w-[calc(100vw-24px)] sm:w-[360px] max-w-sm max-h-[calc(100vh-85px)] overflow-y-auto bg-background/98 dark:bg-card/95 backdrop-blur-2xl border border-black/10 dark:border-white/12 rounded-2xl p-3.5 sm:p-4 shadow-[0_20px_50px_rgba(0,0,0,0.18)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.65)] flex flex-col gap-3 lg:hidden"
             >
+              <div className="flex items-center justify-between px-2.5 py-1.5 pb-2.5 border-b border-black/8 dark:border-white/10">
+                <div className="h-7 px-2 py-0.5 rounded-lg bg-white border border-black/10 dark:border-white/15 shadow-2xs flex items-center">
+                  <img
+                    src="/cu-logo-tight.png"
+                    alt="Chandigarh University"
+                    className="h-full w-auto object-contain block"
+                  />
+                </div>
+              </div>
+
               <div className="flex flex-col gap-1">
                 <div className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70">
                   Navigation

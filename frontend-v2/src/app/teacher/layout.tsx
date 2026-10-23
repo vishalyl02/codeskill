@@ -1,8 +1,7 @@
 "use client";
-
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { ChevronDown, LogOut, SlidersHorizontal, UserCog } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ChevronDown, LogOut, SlidersHorizontal, UserCog, Menu } from "lucide-react";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Spinner } from "@/components/ui/spinner";
@@ -22,6 +21,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading, logout } = useAuth();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const isTeacher = Boolean(user && (user.isTeacher || TEACHER_ROLES.has(String(user.role || "").toLowerCase())));
 
@@ -48,9 +48,29 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
 
   return (
     <div className="admin-shell flex h-screen overflow-hidden bg-background font-sans">
-      <AdminSidebar portal="teacher" />
+      <AdminSidebar portal="teacher" mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="bg-card/90 backdrop-blur-md border-b border-border h-[72px] flex items-center justify-between gap-3 px-2 sm:px-6 sticky top-0 z-10 shrink-0 shadow-xs">
+        <header className="bg-card/90 backdrop-blur-md border-b border-border h-[72px] flex items-center justify-between gap-3 px-3 sm:px-6 sticky top-0 z-10 shrink-0 shadow-xs">
+          {/* Mobile hamburger menu & CodeSkill branding */}
+          <div className="flex items-center gap-2.5 md:hidden min-w-0">
+            <button
+              type="button"
+              onClick={() => setMobileOpen(true)}
+              className="p-2 -ml-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer shrink-0"
+              aria-label="Open navigation menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-slate-950 border border-border/80 flex items-center justify-center p-0.5 shrink-0 shadow-xs">
+                <img src="/icon.svg" alt="CodeSkill" className="w-full h-full object-contain" />
+              </div>
+              <span className="text-sm font-bold text-foreground truncate">
+                Code<span className="text-emerald-700 dark:text-emerald-400">Skill</span>
+              </span>
+            </div>
+          </div>
+
           <div className="hidden min-w-0 items-center gap-4 md:flex">
             <p className="min-w-0 truncate text-base font-semibold tracking-[0.01em] text-foreground md:text-[17px]">Chandigarh University • Department of Skill Development</p>
           </div>
