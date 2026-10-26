@@ -15,6 +15,8 @@ The backend operates as both an HTTP REST / Socket.IO API server and a decoupled
 - **Execution & Sandboxing (`src/execution/`):** BullMQ queue processor executing multi-language code (Python, C++, Java, C, TypeScript) inside isolated Docker containers or remote Piston microservices with strict CPU/memory cgroups and network disabling.
 - **AI Anti-Cheat & Security (`src/exam-security/`):** Heartbeat tracking, Safe Exam Browser (SEB) verification, and timestamped proctoring violation ingestion.
 - **Student Onboarding (`src/students/`):** Streamed CSV/Excel bulk upload, cross-table deduplication, transactional insertion, and BullMQ AWS SES credential dispatch.
+- **Learning Paths & Certification (`src/learning/`):** Structured curriculum paths, lessons without video dependency, embedded practice exercises, automated XP/badge gamification, and digital credentials with public verification (`/certificates/verify/:credentialId`).
+- **Bug Reporting & Tracking (`src/bugs/`):** Admin bug triage studio supporting S3 screenshot evidence, status lifecycles, comments, and activity logs.
 
 ---
 
@@ -53,7 +55,7 @@ npm run admin:bootstrap
 # Start API in watch mode (Port 5001)
 NODE_ENV=development npm run start:dev
 
-# Run complete test suite (56 suites, 510 tests):
+# Run complete test suite (81 spec files):
 npm test -- --runInBand
 
 # Run single test file:
@@ -68,7 +70,7 @@ npx --no-install tsc -p tsconfig.build.json --noEmit --incremental false
 # Build production bundle
 npm run build
 
-# Start API and Judge Worker instances via PM2:
+# Start API and Judge Worker instances via PM2 (from repository root):
 pm2 start ecosystem.config.js
 ```
 

@@ -57,10 +57,20 @@ export class UsersService {
 
       return { success: true, leaderboard, total: leaderboard.length };
     } catch {
-      const users = await this.userRepository.find({
-        where: { isActive: true },
-        take: limit,
-      });
+      let users: UserEntity[] = [];
+      try {
+        users = await this.userRepository
+          .createQueryBuilder('u')
+          .where('u.isActive = :isActive', { isActive: true })
+          .orderBy("COALESCE((u.stats->>'xp')::numeric, 0)", 'DESC')
+          .take(limit)
+          .getMany();
+      } catch {
+        users = await this.userRepository.find({
+          where: { isActive: true },
+          take: limit,
+        });
+      }
 
       const sortedUsers = [...users].sort(
         (a, b) => (b.stats?.xp ?? 0) - (a.stats?.xp ?? 0),

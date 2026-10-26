@@ -454,6 +454,8 @@ export class AssessmentsService {
           : 'auto',
       proctoring: {
         mode: dto.proctoring?.mode || 'fully_proctored',
+        cameraSelectionPolicy:
+          dto.proctoring?.cameraSelectionPolicy || 'student_select',
         violationPenaltyMarks:
           dto.proctoring?.violationPenaltyMarks !== undefined
             ? Number(dto.proctoring.violationPenaltyMarks)

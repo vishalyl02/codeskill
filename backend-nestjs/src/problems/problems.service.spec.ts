@@ -385,7 +385,6 @@ it.each([
   {},
   { visibility: 'Draft' },
   { visibility: 'Private' },
-  { visibility: 'Published', contestOnly: true },
 ])('does not publish bank records with metadata %p', async (metadata) => {
   const { service, bankQuery, bank } = setup();
   bankQuery.getOne.mockResolvedValueOnce(codingQuestion(metadata));
@@ -396,6 +395,26 @@ it.each([
   await expect(
     service.getExecutionProblem(id, 'question'),
   ).rejects.toBeInstanceOf(NotFoundException);
+});
+it('allows contestOnly bank records to resolve by slug and for execution', async () => {
+  const { service, bankQuery, bank } = setup();
+  const contestQuestion = codingQuestion({
+    visibility: 'Published',
+    contestOnly: true,
+  });
+  bankQuery.getOne.mockResolvedValueOnce(contestQuestion);
+  const detail = await service.getProblemBySlug('bank-title');
+  expect(detail.data).toMatchObject({
+    id,
+    title: 'Bank Title',
+  });
+
+  bank.findOne.mockResolvedValueOnce(contestQuestion);
+  const execution = await service.getExecutionProblem(id, 'question');
+  expect(execution).toMatchObject({
+    id,
+    source: 'question',
+  });
 });
 it.each(['MCQ', 'TRUE_FALSE', 'CODE_OUTPUT', 'MULTIPLE_CHOICE'])(
   'excludes noncoding %s despite public visibility',

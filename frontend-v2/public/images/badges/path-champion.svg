@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="champbg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="trophygrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="108" height="108" rx="28" fill="url(#champbg)" stroke="#fbbf24" stroke-width="2.5"/>
+  <!-- Trophy Cup -->
+  <path d="M42 32 L78 32 C78 52 70 62 60 62 C50 62 42 52 42 32 Z" fill="url(#trophygrad)"/>
+  <!-- Handles -->
+  <path d="M42 38 C30 38 30 52 42 52" fill="none" stroke="url(#trophygrad)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M78 38 C90 38 90 52 78 52" fill="none" stroke="url(#trophygrad)" stroke-width="4" stroke-linecap="round"/>
+  <!-- Stem & Base -->
+  <rect x="56" y="62" width="8" height="14" fill="url(#trophygrad)"/>
+  <rect x="44" y="76" width="32" height="8" rx="3" fill="url(#trophygrad)"/>
+  <polygon points="60,38 63,46 71,46 65,51 67,58 60,53 53,58 55,51 49,46 57,46" fill="#fff" opacity="0.9"/>
+</svg>

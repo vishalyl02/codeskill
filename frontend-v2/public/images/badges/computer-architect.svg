@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="caBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="50%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <filter id="caGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3.5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <circle cx="60" cy="60" r="54" fill="#0b0c16" stroke="url(#caBg)" stroke-width="3" />
+  <circle cx="60" cy="60" r="46" fill="url(#caBg)" fill-opacity="0.12" />
+
+  <!-- CPU Silicon Die Body -->
+  <rect x="42" y="42" width="36" height="36" rx="6" fill="#131428" stroke="url(#caBg)" stroke-width="2.5" />
+  <rect x="50" y="50" width="20" height="20" rx="3" fill="#6366f1" fill-opacity="0.3" stroke="#a5b4fc" stroke-width="1.5" />
+
+  <!-- Processor Pins / Traces -->
+  <!-- Top Pins -->
+  <line x1="48" y1="34" x2="48" y2="42" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+  <line x1="60" y1="34" x2="60" y2="42" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+  <line x1="72" y1="34" x2="72" y2="42" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+
+  <!-- Bottom Pins -->
+  <line x1="48" y1="78" x2="48" y2="86" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+  <line x1="60" y1="78" x2="60" y2="86" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+  <line x1="72" y1="78" x2="72" y2="86" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+
+  <!-- Left Pins -->
+  <line x1="34" y1="48" x2="42" y2="48" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+  <line x1="34" y1="60" x2="42" y2="60" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+  <line x1="34" y1="72" x2="42" y2="72" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+
+  <!-- Right Pins -->
+  <line x1="78" y1="48" x2="86" y2="48" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+  <line x1="78" y1="60" x2="86" y2="60" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+  <line x1="78" y1="72" x2="86" y2="72" stroke="#818cf8" stroke-width="2" stroke-linecap="round" />
+
+  <!-- Central Core Pulse -->
+  <circle cx="60" cy="60" r="4" fill="#38bdf8" filter="url(#caGlow)" />
+</svg>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import RootError from "@/app/error";
 import NotFound from "@/app/not-found";
 import { ErrorFallback } from "@/components/errors/ErrorFallback";
@@ -37,8 +37,11 @@ describe("route fallback screens", () => {
     expect(reset).toHaveBeenCalledTimes(1);
     expect(reset).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Try again" }).hasAttribute("disabled")).toBe(true);
-    jest.advanceTimersByTime(900);
-    jest.useRealTimers();
+    try {
+      act(() => jest.advanceTimersByTime(900));
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("renders the network-specific recovery message", () => {

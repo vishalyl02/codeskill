@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Presentation,
   ArrowRight,
+  Compass,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -94,6 +95,7 @@ export function Navbar() {
   const isTeacher = Boolean(user && (user.isTeacher || ["teacher", "faculty", "instructor"].includes(String(user.role || "").toLowerCase())));
 
   const navLinks = [
+    { name: "Learning", href: "/learning", icon: Compass },
     { name: "Problems", href: "/problems", icon: Code2 },
     { name: "Assessments", href: "/assessments", icon: ClipboardList },
     { name: "Contests", href: "/contests", icon: Trophy },
@@ -103,7 +105,7 @@ export function Navbar() {
 
   return (
     <>
-      <header className="fixed top-2 sm:top-2.5 left-0 right-0 z-50 px-3 sm:px-6 max-w-[1440px] mx-auto transition-all duration-300">
+      <header className="fixed top-2 sm:top-2.5 left-0 right-0 z-50 px-3 sm:px-6 max-w-[1440px] mx-auto transition-all duration-300 print-hidden">
         <div
           className={`relative w-full backdrop-blur-xl border rounded-2xl px-3 sm:px-4 lg:px-5 h-[60px] sm:h-[62px] flex items-center justify-between transition-all duration-300 ${
             scrolled

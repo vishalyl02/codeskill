@@ -25,6 +25,7 @@ import { submissionAPI, runAPI, problemsAPI, discussionsAPI } from "@/config/api
 import { useTheme } from "@/context/ThemeContext";
 import { Spinner } from "@/components/ui/spinner";
 import { hideEntryPoint, updateSourceFromVisibleEditor } from "@/lib/hidden-entry-point";
+import ContestMCQWorkspace, { isContestMcq } from "@/app/contests/[id]/attempt/_components/ContestMCQWorkspace";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 
@@ -55,6 +56,7 @@ interface TestResult {
 type SubmissionStatus = "accepted" | "wrong_answer" | "compile_error" | "runtime_error" | "time_limit" | "memory_limit" | "system_error" | "error";
 
 interface RunResult {
+  executionId?: string;
   status: SubmissionStatus;
   results: TestResult[];
   runtime: number;
@@ -74,6 +76,10 @@ const SIDEBAR_TABS = [
   { id: "discussion", icon: MessageSquare, label: "Discussion", shortcut: "⌘/" },
   { id: "ai_tutor", icon: Brain, label: "AI Tutor", shortcut: "⌘I" },
 ];
+
+const CONTEST_SIDEBAR_TABS = SIDEBAR_TABS.filter((t) =>
+  ["description", "samples", "submissions", "notes"].includes(t.id),
+);
 
 export default function ProblemWorkspace({ params, embedded = false }: { params: Promise<{ id: string }>; embedded?: boolean }) {
   const unwrappedParams = use(params);
@@ -96,6 +102,11 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
   
   // Tab State
   const [activeSidebarTab, setActiveSidebarTab] = useState("description");
+  const visibleTabs = useMemo(() => (embedded ? CONTEST_SIDEBAR_TABS : SIDEBAR_TABS), [embedded]);
+  const currentTab = useMemo(
+    () => (embedded && !CONTEST_SIDEBAR_TABS.some((t) => t.id === activeSidebarTab) ? "description" : activeSidebarTab),
+    [embedded, activeSidebarTab],
+  );
   
   // Editor State
   const executionRuntimes = useExecutionRuntimes();
@@ -122,6 +133,8 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const activeExecutionIdRef = useRef<string | null>(null);
+  const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
 
   // Notes State
   const [noteContent, setNoteContent] = useState("");
@@ -321,7 +334,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
 
   const getTestCases = () => testCases;
 
-  const executeCode = async () => {
+  const executeCode = async (executionId: string) => {
     const apiTestCases = getTestCases().map((tc: any) => ({
       id: tc.id,
       input: tc.input,
@@ -334,6 +347,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
     const response = await runAPI.run({
       code,
       language,
+      executionId,
       testCases: apiTestCases,
       config: {
         timeLimit: problem?.config?.timeLimit,
@@ -346,21 +360,35 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
     if (data.status === "queued" && data.jobId) {
       const deadline = Date.now() + 60_000;
       while (Date.now() < deadline) {
+        if (activeExecutionIdRef.current !== executionId) {
+          return null;
+        }
         await new Promise((resolve) => window.setTimeout(resolve, 400));
+        if (activeExecutionIdRef.current !== executionId) {
+          return null;
+        }
         const jobResponse = await runAPI.getJob(data.jobId);
         data = jobResponse.data;
         if (!["waiting", "active", "delayed", "prioritized", "queued"].includes(data.status)) {
           break;
         }
       }
+      if (activeExecutionIdRef.current !== executionId) {
+        return null;
+      }
       if (["waiting", "active", "delayed", "prioritized", "queued"].includes(data.status)) {
         throw new Error("Execution is taking longer than expected. Please try again.");
       }
     }
 
+    if (activeExecutionIdRef.current !== executionId) {
+      return null;
+    }
+
     let resultState: RunResult;
     if (!data.success) {
       resultState = {
+        executionId,
         status: (data.status as SubmissionStatus) || "error",
         results: data.results || [],
         runtime: data.runtime || 0,
@@ -376,6 +404,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
         }
       }
       resultState = {
+        executionId,
         status: data.status as SubmissionStatus,
         results: data.results || [],
         runtime: data.runtime || 0,
@@ -393,16 +422,25 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
       setShowLoginModal(true);
       return;
     }
+    const executionId = crypto.randomUUID();
+    activeExecutionIdRef.current = executionId;
+    setActiveExecutionId(executionId);
     setIsRunning(true);
-    setRunResult(null);
+    setRunResult(null); // Explicitly clear previous result to prevent stale output
     try {
-      const { resultState } = await executeCode();
-      setRunResult(resultState);
+      const result = await executeCode(executionId);
+      if (!result || activeExecutionIdRef.current !== executionId) {
+        // Newer execution took precedence; ignore stale result
+        return;
+      }
+      setRunResult(result.resultState);
       setActiveResultCase(0);
       setActiveBottomTab("console");
     } catch (err: any) {
+      if (activeExecutionIdRef.current !== executionId) return;
       if (err.response?.status === 401 || err.response?.status === 403) {
         setRunResult({
+          executionId,
           status: "error",
           results: [],
           runtime: 0,
@@ -413,6 +451,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
         setShowLoginModal(true);
       } else {
         setRunResult({
+          executionId,
           status: "error",
           results: [],
           runtime: 0,
@@ -423,7 +462,9 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
       }
       setActiveBottomTab("console");
     } finally {
-      setIsRunning(false);
+      if (activeExecutionIdRef.current === executionId) {
+        setIsRunning(false);
+      }
     }
   }, [code, language, problem]);
 
@@ -476,8 +517,12 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
           totalCount: finalData.totalTestCases || 0,
         });
       } else {
-        const { resultState } = await executeCode();
-        setRunResult(resultState);
+        const executionId = crypto.randomUUID();
+        activeExecutionIdRef.current = executionId;
+        const res = await executeCode(executionId);
+        if (res && activeExecutionIdRef.current === executionId) {
+          setRunResult(res.resultState);
+        }
       }
       setActiveResultCase(0);
       setActiveBottomTab("console");
@@ -568,6 +613,25 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
         <p className="text-muted-foreground text-sm">The problem you're looking for doesn't exist or has been removed.</p>
         <Link href="/problems"><Button variant="outline" className="mt-2"><ArrowLeft className="w-4 h-4 mr-2" />Back to Problems</Button></Link>
       </div>
+    );
+  }
+
+  if (isContestMcq(problem)) {
+    return (
+      <ContestMCQWorkspace
+        problem={{
+          id: problem.id || problem._id,
+          title: problem.title,
+          slug: problem.slug,
+          questionType: problem.questionType,
+          options: problem.options,
+          question: problem.statement?.description || problem.description || problem.question,
+          problemStatement: problem.statement?.description || problem.description,
+          difficulty: problem.difficulty,
+          codeSnippet: problem.codeSnippet,
+        }}
+        embedded={embedded}
+      />
     );
   }
 
@@ -704,13 +768,13 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
            ═══════════════════════════════════════════════════════════════════════ */}
         <div className="w-12 border-r border-[#1F2937] bg-[#0A0A0A] flex flex-col items-center py-3 gap-1 z-10 shrink-0">
           
-          {SIDEBAR_TABS.map(tab => (
+          {visibleTabs.map(tab => (
             <SidebarIcon
               key={tab.id}
               icon={tab.icon}
               label={tab.label}
               shortcut={tab.shortcut}
-              active={activeSidebarTab === tab.id}
+              active={currentTab === tab.id}
               onClick={() => setActiveSidebarTab(tab.id)}
             />
           ))}
@@ -732,12 +796,12 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
               <div className="px-3.5 py-2 border-b border-border bg-muted/50 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
                   {(() => {
-                    const tab = SIDEBAR_TABS.find(t => t.id === activeSidebarTab);
+                    const tab = visibleTabs.find(t => t.id === currentTab) || visibleTabs[0];
                     const TabIcon = tab?.icon || FileText;
                     return <TabIcon className="w-3.5 h-3.5 text-primary" />;
                   })()}
                   <span className="text-xs font-bold text-foreground capitalize">
-                    {activeSidebarTab.replace('_', ' ')}
+                    {currentTab.replace('_', ' ')}
                   </span>
                 </div>
               </div>
@@ -746,7 +810,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <AnimatePresence mode="wait">
                   <motion.div
-                    key={activeSidebarTab}
+                    key={currentTab}
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 8 }}
@@ -754,7 +818,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                     className="h-full"
                   >
                     {/* ──────────── DESCRIPTION TAB ──────────── */}
-                    {activeSidebarTab === "description" && (
+                    {currentTab === "description" && (
                       <div className="p-5">
                         {/* Problem Metadata Bar */}
                         <div className="flex flex-wrap gap-2 mb-5">
@@ -848,7 +912,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                     )}
 
                     {/* ──────────── SAMPLES TAB ──────────── */}
-                    {activeSidebarTab === "samples" && (
+                    {currentTab === "samples" && (
                       <div className="p-5">
                         <h3 className="text-xs font-bold text-foreground uppercase tracking-wider mb-3">
                           Sample Test Cases
@@ -867,7 +931,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                     )}
 
                     {/* ──────────── EDITORIAL TAB ──────────── */}
-                    {activeSidebarTab === "editorial" && (
+                    {!embedded && currentTab === "editorial" && (
                       <div className="p-5">
                         {problem.editorial ? (
                           <div className="prose dark:prose-invert prose-sm max-w-none text-foreground/80 text-[15px] leading-[1.6]
@@ -887,7 +951,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                       </div>
                     )}
                     {/* ──────────── SUBMISSIONS TAB ──────────── */}
-                    {activeSidebarTab === "submissions" && (
+                    {currentTab === "submissions" && (
                       <div className="p-4">
                         {submissionsLoading ? (
                           <div className="flex items-center justify-center py-12">
@@ -928,7 +992,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                     )}
 
                     {/* ──────────── HINTS TAB ──────────── */}
-                    {activeSidebarTab === "hints" && (
+                    {!embedded && currentTab === "hints" && (
                       <div className="p-5">
                         {problem.hints?.length > 0 ? (
                           <div className="space-y-3">
@@ -980,7 +1044,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                     )}
 
                     {/* ──────────── NOTES TAB ──────────── */}
-                    {activeSidebarTab === "notes" && (
+                    {currentTab === "notes" && (
                       <div className="p-4 flex flex-col h-full">
                         <textarea
                           value={noteContent}
@@ -999,7 +1063,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                     )}
 
                     {/* ──────────── DISCUSSION TAB ──────────── */}
-                    {activeSidebarTab === "discussion" && (
+                    {!embedded && currentTab === "discussion" && (
                       <div className="flex flex-col h-full bg-card relative">
                         {discussionLoading ? (
                           <div className="flex items-center justify-center py-12">
@@ -1200,7 +1264,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                     )}
 
                     {/* ──────────── AI TUTOR TAB ──────────── */}
-                    {activeSidebarTab === "ai_tutor" && (
+                    {!embedded && currentTab === "ai_tutor" && (
                       <div className="p-5">
                         <div className="rounded-xl border border-primary/30 bg-secondary p-5 shadow-sm">
                           <div className="flex items-center gap-2.5 mb-3">
@@ -1230,33 +1294,35 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
               </div>
 
               {/* Sticky Ask Me Anything Assistant Bar */}
-              <div className="p-3 border-t border-border bg-card/95 backdrop-blur-sm shrink-0">
-                <form 
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!askQuery.trim()) return;
-                    setActiveSidebarTab("ai_tutor");
-                  }}
-                  className="flex items-center gap-2 bg-secondary border border-white/[0.15] rounded-xl px-3 py-1.5 focus-within:border-[#111111]/70 focus-within:ring-1 focus-within:ring-[#111111]/40 transition-all"
-                >
-                  <Bot className="w-4 h-4 text-muted-foreground shrink-0" />
-                  <input
-                    type="text"
-                    value={askQuery}
-                    onChange={(e) => setAskQuery(e.target.value)}
-                    placeholder="Ask me anything about this lesson..."
-                    className="bg-transparent text-xs text-foreground/90 placeholder:text-muted-foreground outline-none flex-1 min-w-0"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!askQuery.trim()}
-                    className="p-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:hover:bg-primary text-white transition-all shrink-0"
-                    title="Ask AI Tutor"
+              {!embedded && (
+                <div className="p-3 border-t border-border bg-card/95 backdrop-blur-sm shrink-0">
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!askQuery.trim()) return;
+                      setActiveSidebarTab("ai_tutor");
+                    }}
+                    className="flex items-center gap-2 bg-secondary border border-white/[0.15] rounded-xl px-3 py-1.5 focus-within:border-[#111111]/70 focus-within:ring-1 focus-within:ring-[#111111]/40 transition-all"
                   >
-                    <SendHorizontal className="w-3.5 h-3.5" />
-                  </button>
-                </form>
-              </div>
+                    <Bot className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <input
+                      type="text"
+                      value={askQuery}
+                      onChange={(e) => setAskQuery(e.target.value)}
+                      placeholder="Ask me anything about this lesson..."
+                      className="bg-transparent text-xs text-foreground/90 placeholder:text-muted-foreground outline-none flex-1 min-w-0"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!askQuery.trim()}
+                      className="p-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:hover:bg-primary text-white transition-all shrink-0"
+                      title="Ask AI Tutor"
+                    >
+                      <SendHorizontal className="w-3.5 h-3.5" />
+                    </button>
+                  </form>
+                </div>
+              )}
             </Panel>
 
             <PanelResizeHandle className="w-1.5 rounded-full bg-accent hover:bg-indigo-500/50 transition-colors cursor-col-resize" />

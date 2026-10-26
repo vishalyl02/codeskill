@@ -18,8 +18,11 @@ export function Footer() {
   if (isHidden) return null;
 
   return (
-    <div className="w-full bg-background mt-auto">
-      <CodeSkillFooterAnimation brandName="CodeSkill" />
+    <div className="w-full bg-background mt-auto print-hidden">
+      <CodeSkillFooterAnimation
+        brandName="CodeSkill"
+        showGiantText={pathname === "/"}
+      />
     </div>
   );
 }

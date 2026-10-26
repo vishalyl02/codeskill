@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="wandGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="50%" stop-color="#ec4899" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="54" fill="#0d0d14" stroke="url(#wandGrad)" stroke-width="3" />
+  <circle cx="60" cy="60" r="46" fill="url(#wandGrad)" fill-opacity="0.12" />
+  <!-- Magic Wand & Starburst -->
+  <line x1="36" y1="84" x2="68" y2="52" stroke="#e2e8f0" stroke-width="5" stroke-linecap="round" />
+  <line x1="68" y1="52" x2="78" y2="42" stroke="#f59e0b" stroke-width="6" stroke-linecap="round" />
+  <!-- Sparkle stars -->
+  <path d="M 82 28 L 84 34 L 90 36 L 84 38 L 82 44 L 80 38 L 74 36 L 80 34 Z" fill="#fbbf24" />
+  <path d="M 52 26 L 53 30 L 57 31 L 53 32 L 52 36 L 51 32 L 47 31 L 51 30 Z" fill="#f472b6" />
+  <path d="M 94 58 L 95 61 L 98 62 L 95 63 L 94 66 L 93 63 L 90 62 L 93 61 Z" fill="#38bdf8" />
+  <circle cx="82" cy="46" r="3" fill="#ffffff" />
+</svg>

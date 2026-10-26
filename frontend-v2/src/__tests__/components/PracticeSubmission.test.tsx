@@ -45,6 +45,8 @@ jest.mock("@/config/api", () => ({
 }));
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(runAPI.run).mockReset();
+  jest.mocked(runAPI.getJob).mockReset();
   jest.mocked(useExecutionRuntimes).mockReturnValue([]);
   localStorage.clear();
   localStorage.setItem("codeskill_token", "local-test-token");
@@ -125,6 +127,7 @@ it("falls back to public test cases when no samples are authored", async () => {
     cases: [
       { input: "VISIBLE", output: "VISIBLE", isHidden: false },
       { input: "HIDDEN-CASE", output: "HIDDEN-CASE", isHidden: true },
+      { input: "HIDDEN-STRING-CASE", output: "HIDDEN-STRING-CASE", isHidden: "true" },
     ],
   };
   jest.mocked(problemsAPI.getBySlug).mockResolvedValue(response);
@@ -133,6 +136,7 @@ it("falls back to public test cases when no samples are authored", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Samples" }));
   expect((await screen.findAllByText("VISIBLE")).length).toBeGreaterThan(0);
   expect(screen.queryByText("HIDDEN-CASE")).not.toBeInTheDocument();
+  expect(screen.queryByText("HIDDEN-STRING-CASE")).not.toBeInTheDocument();
 });
 
 it("restores the candidate's saved language preference over the author default", async () => {
@@ -309,7 +313,7 @@ it("practice Run checks samples and displays a run result without creating a sub
   fireEvent.click(
     await screen.findByRole("button", { name: "Run", exact: true }),
   );
-  await screen.findByText("Run successful");
+  await screen.findByText("Test cases passed");
   expect(screen.queryByTestId("practice-confetti")).not.toBeInTheDocument();
   await waitFor(() =>
     expect(runAPI.run).toHaveBeenCalledWith(
@@ -318,6 +322,91 @@ it("practice Run checks samples and displays a run result without creating a sub
       }),
     ),
   );
+  expect(submissionAPI.submitAndWait).not.toHaveBeenCalled();
+  expect(screen.queryByText("Custom test cases passed")).not.toBeInTheDocument();
+});
+
+it("retains separate sample and custom results after one Run without submitting custom verdicts", async () => {
+  jest.mocked(runAPI.run).mockImplementation(async (request: any) => ({
+    data: {
+      success: true, status: "accepted", passedCount: request.testCases.length,
+      totalCount: request.testCases.length,
+      results: request.testCases.map((test: any) => ({ id: test.id, passed: true, output: test.expected, expected: test.expected })),
+    },
+  }) as any);
+  render(<Page params={Promise.resolve({ id: "feedback" })} />);
+  fireEvent.click(await screen.findByRole("button", { name: /^Custom/ }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Custom test 1 input" }), { target: { value: "MY INPUT" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Custom test 1 expected output" }), { target: { value: "MY OUTPUT" } });
+  fireEvent.click(screen.getByRole("button", { name: "Run", exact: true }));
+  expect(await screen.findByText("Custom test cases passed")).toBeInTheDocument();
+  expect(runAPI.run).toHaveBeenCalledTimes(2);
+  expect(runAPI.run).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    testCases: [{ id: 1, input: "PUBLIC", expected: "PUBLIC" }], config: expect.objectContaining({ customInput: false }),
+  }));
+  expect(runAPI.run).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    testCases: [{ id: 1, input: "MY INPUT", expected: "MY OUTPUT" }], config: expect.objectContaining({ customInput: true }),
+  }));
+  fireEvent.click(screen.getByRole("button", { name: /^Samples \d/ }));
+  expect(await screen.findByText("Test cases passed")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /^Custom/ }));
+  expect(await screen.findByText("Custom test cases passed")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Results", exact: true }));
+  expect(await screen.findByRole("region", { name: "Run result" })).toBeInTheDocument();
+  expect(runAPI.run).toHaveBeenCalledTimes(2);
+  expect(submissionAPI.submitAndWait).not.toHaveBeenCalled();
+});
+
+it("compares custom expectations in the UI while leaving the final verdict to Submit", async () => {
+  jest.mocked(runAPI.run).mockImplementation(async (request: any) => ({ data: {
+    success: true, status: "accepted", passedCount: request.testCases.length, totalCount: request.testCases.length,
+    results: request.testCases.map((test: any) => ({ id: test.id, status: "accepted", passed: true, output: request.config.customInput ? "ACTUAL" : test.expected })),
+  } }) as any);
+  jest.mocked(submissionAPI.submitAndWait).mockResolvedValue({ status: "accepted", results: [] } as any);
+  render(<Page params={Promise.resolve({ id: "feedback" })} />);
+  fireEvent.click(await screen.findByRole("button", { name: /^Custom/ }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Custom test 1 input" }), { target: { value: "MY INPUT" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Custom test 1 expected output" }), { target: { value: "EXPECTED" } });
+  fireEvent.click(screen.getByRole("button", { name: "Run", exact: true }));
+  expect(await screen.findByText("Custom tests need attention")).toBeInTheDocument();
+  expect(screen.getByText("Output differs")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Results", exact: true }));
+  expect(await screen.findByRole("region", { name: "Run result" })).toHaveTextContent("0 / 1");
+  fireEvent.click(screen.getByRole("button", { name: "Submit", exact: true }));
+  await waitFor(() => expect(submissionAPI.submitAndWait).toHaveBeenCalledWith({ problemId: "problem-1", language: "javascript", code: "console.log(0)" }, expect.any(Function)));
+  expect(await screen.findByRole("region", { name: "Submission result" })).toHaveTextContent("Accepted");
+});
+
+it.each([
+  ["c", "#include <stdio.h>\nint solve(void) { return 1; }\nint main(void) { printf(\"%d\", solve()); }\n", "int main"],
+  ["cpp", "#include <iostream>\nint solve() { return 1; }\nint main() { std::cout << solve(); }\n", "int main"],
+  ["java", "public class Main {\n  static int solve() { return 1; }\n  public static void main(String[] args) { System.out.println(solve()); }\n}\n", "public static void main"],
+  ["python", "def solve():\n    return 1\n\nif __name__ == '__main__':\n    print(solve())\n", "if __name__"],
+])("preserves the hidden %s driver when editing, running and submitting", async (language, source, hiddenSignature) => {
+  const response = await jest.mocked(problemsAPI.getBySlug)("feedback");
+  response.data.data.config = { supportedLanguages: [language], starterCode: { [language]: source }, timeLimit: 2000, memoryLimit: 256 };
+  jest.mocked(problemsAPI.getBySlug).mockResolvedValue(response);
+  jest.mocked(runAPI.run).mockResolvedValue({ data: { success: true, status: "accepted", results: [{ id: 1, passed: true, output: "PUBLIC" }] } } as any);
+  jest.mocked(submissionAPI.submitAndWait).mockResolvedValue({ status: "accepted", results: [] } as any);
+  render(<Page params={Promise.resolve({ id: "feedback" })} />);
+  const editor = await screen.findByRole("textbox", { name: "Practice code editor" });
+  expect((editor as HTMLTextAreaElement).value).not.toContain(hiddenSignature);
+  fireEvent.change(editor, { target: { value: (editor as HTMLTextAreaElement).value.replace("return 1", "return 2") } });
+  const fullSource = source.replace("return 1", "return 2");
+  fireEvent.click(screen.getByRole("button", { name: "Run", exact: true }));
+  await screen.findByText("Test cases passed");
+  expect(runAPI.run).toHaveBeenCalledWith(expect.objectContaining({ code: fullSource, language, config: expect.objectContaining({ timeLimit: 2000, memoryLimit: 256, customInput: false }) }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit", exact: true }));
+  await waitFor(() => expect(submissionAPI.submitAndWait).toHaveBeenCalledWith({ problemId: "problem-1", code: fullSource, language }, expect.any(Function)));
+});
+
+it("shows compiler errors without presenting a passing-test badge", async () => {
+  jest.mocked(runAPI.run).mockResolvedValue({ data: { success: false, status: "compile_error", results: [{ id: 1, passed: false, status: "compile_error", error: "Compiler diagnostic" }] } } as any);
+  render(<Page params={Promise.resolve({ id: "feedback" })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Run", exact: true }));
+  expect(await screen.findByText("Compiler diagnostic")).toBeInTheDocument();
+  expect(screen.getByText("Tests need attention")).toBeInTheDocument();
+  expect(screen.queryByText("Test cases passed")).not.toBeInTheDocument();
   expect(submissionAPI.submitAndWait).not.toHaveBeenCalled();
 });
 

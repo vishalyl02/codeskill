@@ -6,13 +6,21 @@ import { ContestsService } from './contests.service';
 import { Contest } from '../database/entities/contest.entity';
 import { ContestAttempt } from '../database/entities/contest-attempt.entity';
 import { ContestReattemptGrant } from '../database/entities/contest-reattempt-grant.entity';
+import { Question } from '../database/entities/question.entity';
+import { ProblemMetadata } from '../database/entities/problem-metadata.entity';
 import { ProblemsModule } from '../problems/problems.module';
 
 @Module({
   imports: [
     SubmissionShardingModule,
     ProblemsModule,
-    TypeOrmModule.forFeature([Contest, ContestAttempt, ContestReattemptGrant]),
+    TypeOrmModule.forFeature([
+      Contest,
+      ContestAttempt,
+      ContestReattemptGrant,
+      Question,
+      ProblemMetadata,
+    ]),
   ],
   controllers: [ContestsController],
   providers: [ContestsService],

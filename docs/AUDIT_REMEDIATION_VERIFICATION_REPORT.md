@@ -29,7 +29,7 @@ A comprehensive, evidence-based audit was executed across the CodeSkill Assessme
 - **Files Inspected:** `backend-nestjs/src/users/users.service.ts`, `backend-nestjs/src/users/users.controller.ts`, `frontend-v2/src/app/u/[username]/page.tsx`.
 - **Evidence of Actual Behavior:** `UsersService.getPublicProfile` explicitly projects only public-safe fields: `_id`, `id`, `name`, `username`, `avatar`, `bio`, curated `profile` (`institution`, `role`, `preferredLanguage`), public `stats` (`xp`, `totalSolved`, `currentStreak`, `totalSubmissions`), `solvedProblems`, `solvedProblemsDetails`, and `createdAt`. Entity spreading is completely eliminated.
 - **Tests Executed:** `npx jest src/users/users.audit.spec.ts` (PASS). Asserts that `email`, `password`, `salt`, `role`, `isAdmin`, and private metadata are absent.
-- **Code Changes:** Updated [users.service.ts](file:///Users/mustakimshaikh/Desktop/CodeSkill_17/codeskill/backend-nestjs/src/users/users.service.ts).
+- **Code Changes:** Updated [`backend-nestjs/src/users/users.service.ts`](file:///Users/venkateshk22/Documents/codeskill/backend-nestjs/src/users/users.service.ts).
 - **Final Status:** **VERIFIED FIXED**
 - **Remaining Limitations:** None at application level.
 
@@ -40,7 +40,7 @@ A comprehensive, evidence-based audit was executed across the CodeSkill Assessme
 - **Files Inspected:** `backend-nestjs/src/exam-security/exam-security.controller.ts`, `backend-nestjs/src/exam-security/exam-security.service.ts`.
 - **Evidence of Actual Behavior:** Endpoints `initSession`, `heartbeat`, and `reportViolation` consistently extract `@CurrentUser('id') userId: string`. `ExamSecurityService` validates `session.candidateId === candidateId`, preventing cross-candidate access.
 - **Tests Executed:** `npx jest src/exam-security/exam-security.controller.spec.ts` (PASS), `npx jest src/exam-security/exam-security.service.spec.ts` (PASS).
-- **Code Changes:** Updated [exam-security.controller.ts](file:///Users/mustakimshaikh/Desktop/CodeSkill_17/codeskill/backend-nestjs/src/exam-security/exam-security.controller.ts).
+- **Code Changes:** Updated [`backend-nestjs/src/exam-security/exam-security.controller.ts`](file:///Users/venkateshk22/Documents/codeskill/backend-nestjs/src/exam-security/exam-security.controller.ts).
 - **Final Status:** **VERIFIED FIXED**
 - **Remaining Limitations:** None. Session ownership is strictly enforced.
 
@@ -67,7 +67,7 @@ A comprehensive, evidence-based audit was executed across the CodeSkill Assessme
 - **Files Inspected:** `backend-nestjs/src/questions/questions.controller.ts`, `backend-nestjs/src/common/guards/admin.guard.ts`.
 - **Evidence of Actual Behavior:** Routes `@Put(':id/approve')` and `@Put(':id/reject')` are protected with `@UseGuards(AdminGuard)`. Callers holding the `teacher` or `instructor` role receive HTTP 403 Forbidden.
 - **Tests Executed:** `npx jest src/common/guards/admin.guard.spec.ts` (PASS), `npx jest src/common/guards/assessment-author.guard.spec.ts` (PASS).
-- **Code Changes:** Updated [questions.controller.ts](file:///Users/mustakimshaikh/Desktop/CodeSkill_17/codeskill/backend-nestjs/src/questions/questions.controller.ts).
+- **Code Changes:** Updated [`backend-nestjs/src/questions/questions.controller.ts`](file:///Users/venkateshk22/Documents/codeskill/backend-nestjs/src/questions/questions.controller.ts).
 - **Final Status:** **VERIFIED FIXED**
 - **Remaining Limitations:** None. Only platform administrators can publish questions.
 
@@ -97,7 +97,7 @@ A comprehensive, evidence-based audit was executed across the CodeSkill Assessme
   ```
   In production, `/api/docs` returns HTTP 404 unless `SWAGGER_ENABLED=true` is explicitly provided.
 - **Tests Executed:** Verified via configuration test and server boot log analysis.
-- **Code Changes:** Updated [main.ts](file:///Users/mustakimshaikh/Desktop/CodeSkill_17/codeskill/backend-nestjs/src/main.ts).
+- **Code Changes:** Updated [`backend-nestjs/src/main.ts`](file:///Users/venkateshk22/Documents/codeskill/backend-nestjs/src/main.ts).
 - **Final Status:** **VERIFIED FIXED**
 - **Remaining Limitations:** None. Explicit opt-in required in production.
 
@@ -111,7 +111,7 @@ A comprehensive, evidence-based audit was executed across the CodeSkill Assessme
   2. In `getSubmissionsByUser`, non-admins are restricted to their own ID (`effectiveUserId = isAdmin ? targetUserId : currentUserId`).
   3. In `getSubmissionById` and `getSubmissionResult`, non-admins attempting to access another student's submission receive HTTP 403 Forbidden.
 - **Tests Executed:** `npx jest src/submissions/submissions-routes.spec.ts` (PASS), `npx jest src/submissions/submissions.practice.spec.ts` (PASS).
-- **Code Changes:** Updated [submissions.controller.ts](file:///Users/mustakimshaikh/Desktop/CodeSkill_17/codeskill/backend-nestjs/src/submissions/submissions.controller.ts).
+- **Code Changes:** Updated [`backend-nestjs/src/submissions/submissions.controller.ts`](file:///Users/venkateshk22/Documents/codeskill/backend-nestjs/src/submissions/submissions.controller.ts).
 - **Final Status:** **VERIFIED FIXED**
 - **Remaining Limitations:** None. Student submission isolation is enforced server-side.
 

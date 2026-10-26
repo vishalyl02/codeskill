@@ -160,18 +160,18 @@ Managed via `ecosystem.config.js`:
   - WebSocket gateway (`@WebSocketGateway`) backed by Redis IO Adapter for cross-process broadcast.
 - **Judge Worker (`PROCESS_ROLE=judge`)**:
   - Fork mode (`JUDGE_WORKER_INSTANCES >= 1`).
-  - No HTTP port binding; listens to BullMQ queues (`judge-queue`, `credential-email`).
+  - No HTTP port binding; listens to BullMQ queues (`submissions`, `credential-email`).
   - Sandboxed execution adapter using local Docker / Piston runner with Judge0 failover.
 
 ### 3.4 Data & Queue Tier
 - **Primary PostgreSQL 15**:
   - Database: `codeskill_pg`.
-  - Stores relational entities: `users`, `assessments`, `contests`, `questions`, `problem_metadata`, `audit_logs`, `assessment_attempts`.
+  - Stores relational entities (50 domain entities across `users`, `assessments`, `contests`, `questions`, `problem_metadata`, `audit_logs`, `assessment_attempts`, `bug_reports`, and `learning_*` curriculum/certification tables).
 - **Submission Shards**:
   - Horizontally partitioned PostgreSQL instances for high-throughput contest and assessment submissions.
   - Eliminates table lock contention during large exams with thousands of concurrent submissions.
 - **Redis 7 Cluster**:
-  - Queue broker for BullMQ (`judge-queue`, `credential-email`).
+  - Queue broker for BullMQ (`submissions`, `credential-email`).
   - Socket.IO Pub/Sub adapter for real-time contest leaderboards, student monitoring, and code run progress.
   - Temporary cache, OTP rate-limiting counters, and session revocation store.
 
@@ -187,7 +187,7 @@ Managed via `ecosystem.config.js`:
 ### Flow A: Code Submission & Judge Evaluation
 1. Student clicks **Submit Code** in Monaco Editor.
 2. Next.js dispatches `POST /api/submissions`.
-3. NestJS API persists pending submission record and pushes job to BullMQ `judge-queue` via Redis.
+3. NestJS API persists pending submission record and pushes job to BullMQ `submissions` queue via Redis.
 4. Judge Worker dequeues job, prepares public & hidden test cases, and dispatches to Piston Sandbox.
 5. Sandbox executes code in isolated cgroup; returns stdout, stderr, execution time, and memory.
 6. Judge Worker parses output against expected test cases, computes verdict (`ACCEPTED`, `WRONG_ANSWER`, `TLE`, `MLE`), and writes verdict to database.

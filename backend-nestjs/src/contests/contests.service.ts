@@ -15,6 +15,21 @@ import { Contest } from '../database/entities/contest.entity';
 import { ContestAttempt } from '../database/entities/contest-attempt.entity';
 import { SubmissionStore } from '../database/sharding/submission-store';
 import { ContestReattemptGrant } from '../database/entities/contest-reattempt-grant.entity';
+import { Question } from '../database/entities/question.entity';
+import { ProblemMetadata } from '../database/entities/problem-metadata.entity';
+
+export interface ContestProblemSummary {
+  id: string;
+  title: string;
+  slug: string;
+  questionType: string;
+  options?: string[];
+  question?: string;
+  problemStatement?: string;
+  description?: string;
+  difficulty?: string;
+  codeSnippet?: string;
+}
 
 @Injectable()
 export class ContestsService {
@@ -29,6 +44,12 @@ export class ContestsService {
     @Optional()
     @InjectRepository(ContestReattemptGrant)
     private readonly reattemptGrantRepo?: Repository<ContestReattemptGrant>,
+    @Optional()
+    @InjectRepository(Question)
+    private readonly questionRepo?: Repository<Question>,
+    @Optional()
+    @InjectRepository(ProblemMetadata)
+    private readonly problemMetadataRepo?: Repository<ProblemMetadata>,
   ) {}
 
   async getContests() {
@@ -316,13 +337,108 @@ export class ContestsService {
       throw new BadRequestException(
         'Contest is outside its participation window',
       );
-    const problems = await Promise.all(
-      (contest.problems || []).map(async (problemId) => {
-        const problem =
-          await this.problemsService.getExecutionProblem(problemId);
-        return { id: problem.id, title: problem.title, slug: problem.slug };
-      }),
-    );
+    const problems = (
+      await Promise.all(
+        (contest.problems || []).map(
+          async (problemId): Promise<ContestProblemSummary | null> => {
+            try {
+              const problem =
+                await this.problemsService.getExecutionProblem(problemId);
+              return {
+                id: problem.id,
+                title: problem.title,
+                slug: problem.slug,
+                questionType: 'coding',
+              };
+            } catch {
+              // Execution problem lookup failed (e.g. MCQ or contestOnly non-coding)
+            }
+
+            const isUuid =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                problemId,
+              );
+
+            try {
+              const questionRepo =
+                this.questionRepo ||
+                this.contestRepo.manager?.getRepository(Question);
+              if (questionRepo) {
+                const question = await questionRepo.findOne({
+                  where: isUuid
+                    ? [{ id: problemId }, { mongoId: problemId }]
+                    : { mongoId: problemId },
+                });
+                if (question) {
+                  return {
+                    id: question.id,
+                    title: question.title?.trim() || question.question,
+                    slug: question.slug?.trim() || `question-${question.id}`,
+                    questionType: question.questionType || 'single_choice',
+                    options: question.options || [],
+                    question: question.question,
+                    problemStatement: question.problemStatement,
+                    description: question.description,
+                    difficulty: question.difficulty,
+                    codeSnippet: question.codeSnippet,
+                  };
+                }
+              }
+            } catch {
+              // Ignore question repo lookup failure
+            }
+
+            try {
+              const metadataRepo =
+                this.problemMetadataRepo ||
+                this.contestRepo.manager?.getRepository(ProblemMetadata);
+              if (metadataRepo && isUuid) {
+                const meta = await metadataRepo.findOne({
+                  where: { id: problemId },
+                });
+                if (meta) {
+                  return {
+                    id: meta.id,
+                    title: meta.title,
+                    slug: meta.slug || `problem-${meta.id}`,
+                    questionType: 'coding',
+                  };
+                }
+              }
+            } catch {
+              // Ignore metadata repo lookup failure
+            }
+
+            try {
+              const res = await this.problemsService.getProblemBySlug(problemId);
+              if (res?.data?.id) {
+                return {
+                  id: res.data.id,
+                  title: res.data.title,
+                  slug: res.data.slug,
+                  questionType: (res.data as any).questionType || 'coding',
+                  options: (res.data as any).options || [],
+                  question:
+                    (res.data as any).statement?.description || res.data.title,
+                  codeSnippet: (res.data as any).codeSnippet,
+                };
+              }
+            } catch {
+              // Ignore fallback failure
+            }
+
+            this.logger.warn(
+              `Contest ${contest.id} problem "${problemId}" could not be loaded`,
+            );
+            return null;
+          },
+        ),
+      )
+    ).filter((p): p is ContestProblemSummary => p !== null);
+
+    if (problems.length === 0 && (contest.problems || []).length > 0) {
+      throw new NotFoundException('Problem not found');
+    }
 
     // Create first attempt or ignore if row exists
     await this.attemptRepo

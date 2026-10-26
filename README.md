@@ -13,7 +13,7 @@
 [![Docker](https://img.shields.io/badge/Containers-Docker%20Sandbox-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![AWS](https://img.shields.io/badge/Cloud-AWS%20(ALB%20%7C%20ASG%20%7C%20RDS%20%7C%20S3%20%7C%20SES)-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)](https://aws.amazon.com/)
 [![Monaco Editor](https://img.shields.io/badge/IDE-Monaco%20Editor-1E1E1E?style=for-the-badge&logo=visual-studio-code&logoColor=007ACC)](https://microsoft.github.io/monaco-editor/)
-[![Tests](https://img.shields.io/badge/Test%20Suite-98%20Suites%20%7C%20807%20Passing-brightgreen?style=for-the-badge&logo=jest&logoColor=white)](https://jestjs.io/)
+[![Tests](https://img.shields.io/badge/Test%20Suites-81%20Backend%20%7C%2064%20Frontend-brightgreen?style=for-the-badge&logo=jest&logoColor=white)](https://jestjs.io/)
 
 <br/>
 
@@ -53,6 +53,8 @@
 | **📚 Interactive Question Bank Studio** | Monaco Editor + Markdown + KaTeX Math Rendering | Multi-topic categorization, difficulty weighting, LeetCode-style function signature wrapping, custom judge test cases, and approval review workflows. |
 | **🏢 Campus & Company Recruitment Portals** | Multi-Tenant Organization Management | Dedicated portals for university batch enrollment, company job postings, applicant tracking, and candidate assessment review with React PDF scorecard export. |
 | **🐾 Practice Pet & AI Tutor Mascot** | Hugging Face Transformers + Web Worker + DeepSeek/OpenRouter | In-browser client speech synthesis worker for gamified feedback, contextual practice hints using public problem constraints, XP progression, and global leaderboards. |
+| **🎓 Learning Paths & Certification Engine** | NestJS LearningModule + Next.js Reader + React PDF | Structured curriculum paths without video dependencies, interactive reading with code examples, embedded Monaco exercises, automated XP/badge gamification, and verifiable credentials with public verification portal (`/verify/[credentialId]`). |
+| **🐛 Bug Reporting & Issue Tracking Studio** | TypeORM + Multer Memory Storage + AWS S3 Attachments | Admin issue triage studio supporting screenshot evidence attachments, severity prioritization, status lifecycles (`new` ↔ `fixed`), threaded comments, and audit activity logging. |
 
 ---
 
@@ -141,7 +143,7 @@ CodeSkill is architected into five distinct operational tiers:
 
 ### 1. Database Model & Entity-Relationship Diagram (ERD)
 
-CodeSkill defines **29 domain entities** managed through TypeORM on PostgreSQL with UUID primary keys:
+CodeSkill defines **50 domain entities** managed through TypeORM on PostgreSQL with UUID primary keys (34 core platform entities and 16 learning/certification entities):
 
 ```mermaid
 erDiagram
@@ -488,6 +490,17 @@ The backend exposes an authenticated REST API rooted at `/api` with OpenAPI / Sw
 │ 🏢 /api/company   │ POST /, GET /my-companies, GET /jobs, POST /jobs,       │
 │    & /api/campus  │ GET  /team, GET /campus/batches, POST /campus/batches   │
 ├───────────────────┼─────────────────────────────────────────────────────────┤
+│ 🎓 /api/learning  │ GET  /paths, GET /paths/:slug, POST /paths/:id/enroll,  │
+│    & /certificates│ GET  /courses/:id, GET /lessons/:id,                    │
+│                   │ POST /lessons/:id/complete, POST /exercises/:id/submit, │
+│                   │ GET  /me/progress, GET /me/achievements,                │
+│                   │ GET  /me/certificates, POST /paths/:id/certify,         │
+│                   │ GET  /certificates/verify/:credentialId (Public)        │
+├───────────────────┼─────────────────────────────────────────────────────────┤
+│ 🐛 /api/admin/bugs│ GET  /admin/bugs, POST /admin/bugs, GET /:id,           │
+│                   │ PUT  /:id, PUT /:id/assign, PUT /:id/status,            │
+│                   │ POST /:id/images                                        │
+├───────────────────┼─────────────────────────────────────────────────────────┤
 │ 🏥 /api/health    │ GET  /health/live, GET /health/ready, GET /health/startup│
 └───────────────────┴─────────────────────────────────────────────────────────┘
 ```
@@ -574,10 +587,10 @@ Access the interactive Swagger API documentation at **`http://localhost:5001/api
 CodeSkill maintains extensive test coverage across unit, security, integration, and load testing layers:
 
 ```bash
-# Run all NestJS backend test suites (56 suites, 510 tests):
+# Run all NestJS backend test suites (81 spec files):
 npm test --prefix backend-nestjs -- --runInBand
 
-# Run all Next.js frontend test suites (42 suites, 297 tests):
+# Run all Next.js frontend test suites (64 test files):
 npm test --prefix frontend-v2 -- --runInBand
 
 # Run single backend test file:
@@ -598,7 +611,7 @@ The repository includes automated stress tests simulating examination cohorts ta
 
 ```bash
 # Execute load test against target assessment (e.g. exam-9227):
-k6 run k6_verified_100_students.js
+k6 run scripts/k6/codeskill-100-students-assessment.js
 ```
 
 **Observed SLA Metrics Under 100 Concurrent Virtual Users:**

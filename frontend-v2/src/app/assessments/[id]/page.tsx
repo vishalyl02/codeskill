@@ -126,10 +126,13 @@ export default function AssessmentBriefingPage({
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Camera and microphone access is not supported in this browser.");
       }
+      const systemDefaultCamera = assessment?.proctoring?.cameraSelectionPolicy === 'system_default';
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: deviceId
-          ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
-          : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        video: systemDefaultCamera
+          ? true
+          : deviceId
+            ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
+            : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
         audio: true,
       });
       if (requestId !== cameraRequestIdRef.current) {
@@ -140,12 +143,13 @@ export default function AssessmentBriefingPage({
       cameraStreamRef.current = stream;
       setCameraStream(stream);
       const [devices, settings] = await Promise.all([
-        navigator.mediaDevices.enumerateDevices(),
+        systemDefaultCamera ? Promise.resolve([] as MediaDeviceInfo[]) : navigator.mediaDevices.enumerateDevices(),
         Promise.resolve(stream.getVideoTracks()[0]?.getSettings()),
       ]);
       const cameras = devices.filter((device) => device.kind === "videoinput");
       setCameraDevices(cameras);
       setSelectedCamera(settings?.deviceId || deviceId || cameras[0]?.deviceId || "");
+      if (!systemDefaultCamera && settings?.deviceId) setPreferredAssessmentCamera(id, settings.deviceId);
     } catch (error) {
       if (requestId !== cameraRequestIdRef.current) return;
       setCameraStream(cameraStreamRef.current);
@@ -523,7 +527,7 @@ export default function AssessmentBriefingPage({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 id="assessment-media-heading" className="text-sm font-bold text-foreground">Camera &amp; microphone check</h3>
-                <p className="mt-1 text-xs text-muted-foreground">Choose your camera and confirm your devices before entering the secure assessment.</p>
+                <p className="mt-1 text-xs text-muted-foreground">{assessment.proctoring?.cameraSelectionPolicy === 'system_default' ? "Your browser's default camera and microphone will be used for the secure assessment." : 'Choose your camera and confirm your devices before entering the secure assessment.'}</p>
               </div>
               {cameraStream ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> Devices ready</span> : <span className="text-xs text-muted-foreground">Camera access required</span>}
             </div>
@@ -533,7 +537,7 @@ export default function AssessmentBriefingPage({
                 {!cameraStream && <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300"><ShieldAlert className="h-8 w-8 text-slate-400" /><span className="text-xs">Camera preview will appear here</span></div>}
               </div>
               <div className="space-y-3">
-                {cameraDevices.length > 0 && <label className="block space-y-1.5 text-xs font-medium text-foreground">Choose camera
+                {assessment.proctoring?.cameraSelectionPolicy !== 'system_default' && cameraDevices.length > 0 && <label className="block space-y-1.5 text-xs font-medium text-foreground">Choose camera
                   <select aria-label="Choose camera" value={selectedCamera} disabled={isCheckingMedia} onChange={(event) => { clearAssessmentFaceReference(id); setSelfieCaptured(false); setSelfiePreview(null); setSelfieError(null); setSelectedCamera(event.target.value); void enableCamera(event.target.value); }} className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm">
                     {cameraDevices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
                   </select>

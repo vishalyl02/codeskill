@@ -2,7 +2,7 @@
 
 Implementation authorized 12 October 2026. This tracker preserves AUD-001 through AUD-025 and the additional NEW findings. Production remains NO-GO until release gates have independent evidence.
 
-The detailed reviewed design is the [reconciled roadmap](/Users/mdshadabazamansari/.codex/visualizations/2026/10/12/01a12efc-81af-7a20-861f-d22f3fcda7c9/codeskill-production-remediation-plan-v2.md). Its original audit severities, implementation instructions, dependencies, tests and rollback rules remain authoritative. No production deployment, credential rotation or database migration is performed by this initial batch.
+The detailed reviewed design follows the verified remediation roadmap and architectural specifications. Its original audit severities, implementation instructions, dependencies, tests and rollback rules remain authoritative. No production deployment, credential rotation or database migration is performed by this initial batch.
 
 ## Delivery sequence
 

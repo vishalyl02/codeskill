@@ -43,7 +43,7 @@ Key environment variables:
 # Start development server with Webpack (Port 3000)
 npm run dev
 
-# Run full frontend test suite (42 suites, 297 tests):
+# Run full frontend test suite (64 test files):
 npm test -- --runInBand
 
 # Run single component test:
@@ -65,5 +65,10 @@ npm run build
 - `/assessments/[id]/take`: Proctored student examination workspace with camera feed and security hooks.
 - `/contests/[id]/attempt`: Live contest workspace with ACM-ICPC penalty scoring and Socket.IO feeds.
 - `/contests/leaderboard`: Real-time public and contest leaderboards.
-- `/admin/*`: Administrator and faculty studios for questions, assessments, student onboarding, and cohort analytics.
+- `/learning`: Catalog of guided learning paths with search and difficulty filters.
+- `/learning/[pathSlug]`: Path syllabus, curriculum tree, and enrollment.
+- `/learning/[pathSlug]/[courseSlug]`: Reading module with interactive Monaco code exercises and quizzes.
+- `/verify/[credentialId]`: Public digital certificate verification portal.
+- `/skill-development`: Skill development overview with 3D team helix.
+- `/admin/*`: Administrator and faculty studios for questions, assessments, student onboarding, cohort analytics, and learning paths (`/admin/learning`).
 - `/health/ready`: Liveness and readiness probe consumed by AWS Application Load Balancers.

@@ -218,6 +218,17 @@ describe('Admin contest editing', () => {
     }
   });
 
+  it('accepts published ProblemMetadata coding problems when creating a coding contest', async () => {
+    const problemModel = {
+      findBy: jest.fn().mockResolvedValue([
+        { id: 'pm1', title: 'Two Sum', slug: 'two-sum', visibility: 'Published' },
+      ]),
+    };
+    (service as any).problemModel = problemModel;
+    await service.createContest({ ...payload, slug: 'practice-coding-contest', contestFormat: 'coding', problems: ['pm1'] });
+    expect(repo.create).toHaveBeenLastCalledWith(expect.objectContaining({ contestFormat: 'coding', problems: ['pm1'] }));
+  });
+
   it.each([
     ['draft', { status: 'draft', metadata: { visibility: 'Draft', contestOnly: true } }],
     ['not contest-only', { metadata: { visibility: 'Published', contestOnly: false } }],

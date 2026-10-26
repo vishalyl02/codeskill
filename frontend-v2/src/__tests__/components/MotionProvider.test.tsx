@@ -18,7 +18,7 @@ describe("MotionProvider & motion utilities", () => {
 
   it("renders lightweight m elements inside MotionProvider with LazyMotion", () => {
     render(
-      <MotionProvider reducedMotion="always">
+      <MotionProvider>
         <m.button data-testid="motion-button">
           Accessible Button
         </m.button>

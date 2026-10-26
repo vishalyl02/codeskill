@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="osBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="50%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+    <filter id="osGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <circle cx="60" cy="60" r="54" fill="#091211" stroke="url(#osBg)" stroke-width="3" />
+  <circle cx="60" cy="60" r="46" fill="url(#osBg)" fill-opacity="0.12" />
+
+  <!-- Kernel Gear Teeth Rim -->
+  <g stroke="url(#osBg)" stroke-width="3" stroke-linecap="round">
+    <line x1="60" y1="28" x2="60" y2="34" />
+    <line x1="60" y1="86" x2="60" y2="92" />
+    <line x1="28" y1="60" x2="34" y2="60" />
+    <line x1="86" y1="60" x2="92" y2="60" />
+    <line x1="37" y1="37" x2="42" y2="42" />
+    <line x1="78" y1="78" x2="83" y2="83" />
+    <line x1="83" y1="37" x2="78" y2="42" />
+    <line x1="42" y1="78" x2="37" y2="83" />
+  </g>
+
+  <!-- Process Virtual Memory Paging Ring -->
+  <circle cx="60" cy="60" r="24" fill="#0d1b18" stroke="#34d399" stroke-width="2.5" />
+  
+  <!-- Terminal Prompt Terminal Shell Prompt >_ -->
+  <path d="M51 54 l7 6 l-7 6" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+  <line x1="62" y1="66" x2="70" y2="66" stroke="#fbbf24" stroke-width="2.5" stroke-linecap="round" filter="url(#osGlow)" />
+</svg>

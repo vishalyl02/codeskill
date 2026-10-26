@@ -79,6 +79,7 @@ interface Question {
 
 interface AssessmentProctoring {
   mode?: 'fully_proctored' | 'partial_proctored' | 'non_proctored';
+  cameraSelectionPolicy?: 'system_default' | 'student_select';
   violationPenaltyMarks?: number;
   useCamera?: boolean;
   enforceFullscreen?: boolean;
@@ -135,6 +136,18 @@ export default function TakeAssessmentPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submissionRequestedRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!submitError) return;
+    const timer = window.setTimeout(() => {
+      setSubmitError(null);
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [submitError]);
+
+  useEffect(() => {
+    setSubmitError(null);
+  }, [currentIndex]);
   const [isAutoSubmitting, setIsAutoSubmitting] = useState(false);
   const [assessmentTitle, setAssessmentTitle] = useState("Proctored Assessment");
   const [assessmentCode, setAssessmentCode] = useState("");
@@ -267,7 +280,7 @@ export default function TakeAssessmentPage({
           selectedAnswer: r ? r.selectedAnswer : -1,
           selectedAnswers: r?.selectedAnswers ?? (r && r.selectedAnswer >= 0 ? [r.selectedAnswer] : []),
           code: r?.code || "",
-          language: r?.language || "python",
+          language: r?.language || q.language || q.supportedLanguages?.[0] || "python",
           testCasesPassed: r?.testCasesPassed || 0,
           totalTestCases: r?.totalTestCases || 0,
           status: r ? r.status : "unvisited",
@@ -301,16 +314,20 @@ export default function TakeAssessmentPage({
         : await studentAssessmentsAPI.startAttempt(id);
       const data = res.data;
       setQuestions(data.questions || []);
-      setDurationMinutes(data.durationMinutes || 45);
+      const resolvedDurationMinutes = data.durationMinutes !== undefined && data.durationMinutes > 0
+        ? data.durationMinutes
+        : 0.5; // 30-second standardized default when duration is missing
+      setDurationMinutes(resolvedDurationMinutes);
       if (data.code) setAssessmentCode(data.code);
       if (data.title) setAssessmentTitle(data.title);
 
       const start = new Date(data.startedAt || new Date());
       setStartedAt(start);
 
+      const fallbackMs = resolvedDurationMinutes * 60_000;
       const deadline = data.attemptExpiresAt
         ? new Date(data.attemptExpiresAt).getTime()
-        : start.getTime() + (data.durationMinutes || 45) * 60_000;
+        : start.getTime() + fallbackMs;
       setAttemptDeadlineAt(deadline);
       setTimeLeftSeconds(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
 
@@ -381,6 +398,7 @@ export default function TakeAssessmentPage({
     stopCamera,
   } = useAssessmentMedia(
     id, proctoring?.useCamera !== false && loadedAssessmentId === id && questions.length > 0 && !isLoading && timeLeftSeconds > 0, recordViolation,
+    proctoring?.cameraSelectionPolicy || 'student_select',
   );
 
   // 3. Submit Attempt Handler
@@ -399,7 +417,7 @@ export default function TakeAssessmentPage({
           selectedAnswer: r ? r.selectedAnswer : -1,
           selectedAnswers: r?.selectedAnswers ?? (r && r.selectedAnswer >= 0 ? [r.selectedAnswer] : []),
           code: r?.code || "",
-          language: r?.language || "python",
+          language: r?.language || q.language || q.supportedLanguages?.[0] || "python",
           testCasesPassed: r?.testCasesPassed || 0,
           totalTestCases: r?.totalTestCases || 0,
           status: r ? r.status : "skipped",
@@ -433,6 +451,8 @@ export default function TakeAssessmentPage({
         }
         if (lastError) throw lastError;
       } catch (err: any) {
+        submissionRequestedRef.current = false;
+        submitStartedRef.current = false;
         const responseMessage = err?.response?.data?.message;
         const message = Array.isArray(responseMessage) ? responseMessage.join(" ") : responseMessage;
         setSubmitError(message || "We could not confirm your submission. Your saved answers are still here; please retry submission.");
@@ -634,11 +654,22 @@ export default function TakeAssessmentPage({
     return () => clearInterval(timer);
   }, [attemptDeadlineAt, isLoading, isSubmitting]);
 
+  const hasAutoSubmittedRef = useRef(false);
+
   useEffect(() => {
-    if (!isLoading && !isSubmitting && loadedAssessmentId === id && timeLeftSeconds <= 0) {
-      void submitExam(true);
+    if (
+      !isLoading &&
+      !isSubmitting &&
+      loadedAssessmentId === id &&
+      attemptDeadlineAt !== null &&
+      timeLeftSeconds <= 0
+    ) {
+      if (!hasAutoSubmittedRef.current) {
+        hasAutoSubmittedRef.current = true;
+        void submitExam(true);
+      }
     }
-  }, [id, isLoading, isSubmitting, loadedAssessmentId, submitExam, timeLeftSeconds]);
+  }, [id, isLoading, isSubmitting, loadedAssessmentId, submitExam, timeLeftSeconds, attemptDeadlineAt]);
 
   // 5. Autosave Progress Interval (Every 15 Seconds)
   useEffect(() => {
@@ -652,7 +683,7 @@ export default function TakeAssessmentPage({
           selectedAnswer: r ? r.selectedAnswer : -1,
           selectedAnswers: r?.selectedAnswers ?? (r && r.selectedAnswer >= 0 ? [r.selectedAnswer] : []),
           code: r?.code || "",
-          language: r?.language || "python",
+          language: r?.language || q.language || q.supportedLanguages?.[0] || "python",
           testCasesPassed: r?.testCasesPassed || 0,
           totalTestCases: r?.totalTestCases || 0,
           status: r ? r.status : "unvisited",
@@ -829,7 +860,7 @@ export default function TakeAssessmentPage({
         selectedAnswer: r ? r.selectedAnswer : -1,
         selectedAnswers: r?.selectedAnswers ?? (r && r.selectedAnswer >= 0 ? [r.selectedAnswer] : []),
         code: r?.code || "",
-        language: r?.language || "python",
+        language: r?.language || q.language || q.supportedLanguages?.[0] || "python",
         testCasesPassed: r?.testCasesPassed || 0,
         totalTestCases: r?.totalTestCases || 0,
         status: r ? r.status : "unvisited",
@@ -1072,10 +1103,36 @@ export default function TakeAssessmentPage({
 
       {/* Warning Toast Floating Notification */}
       {submitError && (
-        <div role="alert" className="fixed top-20 left-1/2 z-[60] w-[min(92vw,44rem)] -translate-x-1/2 rounded-xl border border-rose-300 bg-card p-4 text-sm text-foreground shadow-xl">
+        <div
+          role="alert"
+          className="fixed bottom-8 left-1/2 z-[60] w-[min(92vw,38rem)] -translate-x-1/2 rounded-2xl border border-rose-300/80 bg-card/95 backdrop-blur-md p-4 text-sm text-foreground shadow-2xl animate-in slide-in-from-bottom-3 fade-in duration-200"
+        >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="min-w-0 flex-1">{submitError}</p>
-            <button type="button" onClick={() => { submissionRequestedRef.current = false; submitStartedRef.current = false; void submitExam(isAutoSubmitting); }} className="rounded-lg bg-primary px-4 py-2 font-semibold text-primary-foreground">Retry submission</button>
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0" />
+              <p className="min-w-0 flex-1 text-xs sm:text-sm font-medium">{submitError}</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  submissionRequestedRef.current = false;
+                  submitStartedRef.current = false;
+                  void submitExam(isAutoSubmitting);
+                }}
+                className="rounded-lg bg-primary hover:bg-primary/90 px-3.5 py-1.5 text-xs font-semibold text-primary-foreground transition-colors shadow-xs"
+              >
+                Retry submission
+              </button>
+              <button
+                type="button"
+                aria-label="Dismiss alert"
+                onClick={() => setSubmitError(null)}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}

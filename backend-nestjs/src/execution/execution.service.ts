@@ -451,34 +451,41 @@ export class ExecutionService {
     }));
 
     if (this.provider !== 'legacy') {
-      if (config.hasCustomChecker) throw new PistonUnavailableError();
-      const prepared = getLanguageAdapter(language)!.prepare(
-        code,
-        functionMode ? 'function' : 'standard',
-        config.functionSignature,
-      );
-      // Piston isolates every test in a new job, including its compilation stage.
-      // Bound the fan-out per submission so one submission cannot monopolise the
-      // global semaphore; every test case still flows through the semaphore + breaker.
-      const route = { fallback: false };
-      const slots = (provider?: Judge0Service | PistonService) =>
-        Math.min(
-          provider?.config.testCaseConcurrency || 2,
-          provider?.config.concurrency || Infinity,
-          provider?.config.globalConcurrency || Infinity,
+      try {
+        if (config.hasCustomChecker) throw new PistonUnavailableError();
+        const adapter = getLanguageAdapter(language);
+        if (adapter) {
+          const prepared = adapter.prepare(
+            code,
+            functionMode ? 'function' : 'standard',
+            config.functionSignature,
+          );
+          const route = { fallback: false };
+          const slots = (provider?: Judge0Service | PistonService) =>
+            Math.min(
+              provider?.config.testCaseConcurrency || 2,
+              provider?.config.concurrency || Infinity,
+              provider?.config.globalConcurrency || Infinity,
+            );
+          const concurrency =
+            this.provider === 'judge0'
+              ? Math.min(slots(this.judge0), slots(this.piston))
+              : slots(this.piston);
+          return await this.runTestCasesConcurrently(
+            normalizedTestCases,
+            concurrency,
+            (tc) => this.executeRemoteTestCase(language, prepared, tc, config, route),
+            true,
+          );
+        }
+      } catch (err: any) {
+        if (!config?.allowLocalFallback) {
+          throw err;
+        }
+        this.logger.warn(
+          `Remote execution provider (${this.provider}) unavailable (${err?.message}). Falling back to local execution.`,
         );
-      // A submission must fit the fallback too. Otherwise its own parallel
-      // tests can exhaust a smaller fallback and restart the entire job forever.
-      const concurrency =
-        this.provider === 'judge0'
-          ? Math.min(slots(this.judge0), slots(this.piston))
-          : slots(this.piston);
-      return this.runTestCasesConcurrently(
-        normalizedTestCases,
-        concurrency,
-        (tc) => this.executeRemoteTestCase(language, prepared, tc, config, route),
-        true,
-      );
+      }
     }
 
     // For compiled languages, compile once and run against all test cases

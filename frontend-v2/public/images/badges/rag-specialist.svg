@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="ragBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="50%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+    <filter id="ragGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3.5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <circle cx="60" cy="60" r="54" fill="#0b1319" stroke="url(#ragBg)" stroke-width="3" />
+  <circle cx="60" cy="60" r="46" fill="url(#ragBg)" fill-opacity="0.12" />
+  <!-- Vector Database Grid & Search Radar -->
+  <path d="M38 42 L82 42 L82 78 L38 78 Z" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6" />
+  <path d="M48 35 L92 35 L92 71 L48 71 Z" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.4" />
+  <!-- Vector Search Point Cloud -->
+  <circle cx="50" cy="52" r="3" fill="#38bdf8" />
+  <circle cx="70" cy="48" r="3" fill="#38bdf8" />
+  <circle cx="64" cy="68" r="3" fill="#38bdf8" />
+  <circle cx="45" cy="70" r="3" fill="#38bdf8" />
+  <!-- Query Vector Beam & Target Match -->
+  <line x1="30" y1="85" x2="60" y2="58" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" />
+  <circle cx="60" cy="58" r="6" fill="#10b981" filter="url(#ragGlow)" />
+  <circle cx="60" cy="58" r="2.5" fill="#ffffff" />
+  <circle cx="30" cy="85" r="4" fill="#38bdf8" />
+</svg>

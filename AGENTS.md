@@ -10,7 +10,7 @@
 - Honor nested `frontend-v2/AGENTS.md` for frontend edits; it requires relevant installed Next.js guides before coding. During an explicitly read-only review that excludes dependencies, do not inspect `node_modules`.
 
 ## Exact commands
-- CI uses Node 20 (`.github/workflows/piston-validation.yml`); actual supported patch versions must be checked against installed packages when implementation is authorized.
+- CI uses Node 22 (`.github/workflows/piston-validation.yml` and `.github/workflows/deploy.yml`); actual supported patch versions must be checked against installed packages when implementation is authorized.
 - Install (writes dependencies): `(cd backend-nestjs && npm ci --legacy-peer-deps)` and `(cd frontend-v2 && npm ci --legacy-peer-deps)`.
 - Backend build/compile: `npm run build --prefix backend-nestjs` (cleans `dist`, invokes `tsc -p tsconfig.build.json`).
 - Frontend build: `npm run build --prefix frontend-v2` (cleans `.next`, invokes `next build --webpack`).
@@ -21,8 +21,8 @@
 - Backend lint without fixes: `(cd backend-nestjs && npx --no-install eslint "{src,apps,libs,test}/**/*.ts")`.
 - Frontend lint: `npm run lint --prefix frontend-v2`.
 - Backend `npm run lint` includes `--fix`; `npm run format` includes `--write`. Never use them in read-only tasks (`backend-nestjs/package.json`).
-- Full backend unit suite: `npm test --prefix backend-nestjs -- --runInBand`.
-- Full frontend unit suite: `npm test --prefix frontend-v2 -- --runInBand`.
+- Full backend unit suite: `npm test --prefix backend-nestjs -- --runInBand` (81 spec files).
+- Full frontend unit suite: `npm test --prefix frontend-v2 -- --runInBand` (64 test files).
 - One backend file: `(cd backend-nestjs && npm test -- --runInBand --runTestsByPath src/auth/token.service.spec.ts)`.
 - One frontend file: `(cd frontend-v2 && npm test -- --runInBand --runTestsByPath src/lib/await-execution.test.ts)`.
 - One named test: append `-t 'exact test name'` to the corresponding isolated-file command.
@@ -42,7 +42,7 @@
 - Do not run deployment, seed, migration, admin bootstrap, cleanup, load tests, or Terraform apply as incidental verification.
 
 ## Codebase map
-- New REST endpoints: `backend-nestjs/src/<domain>/<domain>.controller.ts`; register providers/controllers in the matching `.module.ts` and new modules in `src/app.module.ts`.
+- New REST endpoints: `backend-nestjs/src/<domain>/<domain>.controller.ts`; register providers/controllers in the matching `.module.ts` and new modules in `src/app.module.ts`. Learning module routes are organized under `backend-nestjs/src/learning/controllers/` and bugs under `src/bugs/`.
 - Business logic: matching `.service.ts`; admin cross-domain logic is `backend-nestjs/src/admin/admin.service.ts` with controllers in `src/admin/controllers/`.
 - Request DTOs: domain `dto/`; use runtime class-validator decorators, not just TypeScript interfaces.
 - Entities: `backend-nestjs/src/database/entities/`; register in `database.module.ts` and relevant `TypeOrmModule.forFeature` imports.
@@ -90,11 +90,11 @@
 - `INTERNAL_BACKEND_URL` is consumed both as Axios base and whole rewrite destination; check wildcard/path semantics in `frontend-v2/next.config.ts` before overriding.
 - SES uses `AWS_SES_SENDER` (not only `AWS_SES_EMAIL`); S3 requires `AWS_S3_BUCKET_NAME`; use AWS credential chain/managed environment. AI keys are optional (`src/pet/pet.service.ts`).
 - Shards: same `SUBMISSION_SHARDS`/bucket map on all API/judge processes; remote shards require verified TLS. Never disable sharding to roll back after cutover.
-- Schema runner: `(cd backend-nestjs && NODE_ENV=production node dist/database/run-practice-submission-source.js)` now loads dotenv AND applies auth/partition/contest migrations. It is not merely a source-column patch.
+- Schema runner: `(cd backend-nestjs && NODE_ENV=production node dist/database/run-practice-submission-source.js)` loads dotenv via `dotenv.config()` and applies auth tokens, declarative partitioning, contest security, assessment targeting/proctoring captures/modes/resume limits, bug reports, learning module, and problem default language migrations under a transactional PostgreSQL advisory lock (`pg_advisory_xact_lock`). It is not merely a source-column patch.
 - Shard cutover: `(cd backend-nestjs && npm run db:shards:migrate -- --apply --writers-stopped)` only after backup and stopping/draining ALL writers; verify with `npm run db:shards:verify` in that package.
 - Read `backend-nestjs/docs/submission-sharding.md` before cutover. Primary-only `scripts/backup.sh` does not back up shards.
 - Known fragile paths: assessment grading duplicate-response handling; contest completion bypasses shards; editor sample verdict differs from final saved verdict; separate worker gateway emits lack a server. See `ARCHITECTURE.md` before touching these flows.
-- Frontend refresh/logout is not wired to backend token rotation/revocation; anti-cheat socket lacks the gateway's required handshake token. Do not assume these flows are complete.
+- Frontend refresh and logout are wired to backend token rotation and revocation via `/auth/refresh` and `/auth/logout`; anti-cheat socket transmits the authenticated bearer token in `auth.token` and `extraHeaders`.
 
 ## Do-not-touch zones and side effects
 - Never hand-edit dependency/generated outputs: `node_modules/`, `nodemodules/`, `dist/`, `build/`, `target/`, `.next/`, coverage, `*.tsbuildinfo`, generated `next-env.d.ts`.

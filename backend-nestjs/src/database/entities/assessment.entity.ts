@@ -136,6 +136,7 @@ export class Assessment {
   @Column({ type: 'jsonb', default: {} })
   proctoring: {
     mode?: 'fully_proctored' | 'partial_proctored' | 'non_proctored';
+    cameraSelectionPolicy?: 'system_default' | 'student_select';
     violationPenaltyMarks?: number;
     useCamera?: boolean;
     enforceFullscreen?: boolean;

@@ -544,17 +544,44 @@ export class AdminService {
     const questions = await this.questionModel.findBy({ id: In(data.problems) });
     const questionsById = new Map(questions.map((question) => [question.id, question]));
     const existingIds = new Set(existingProblemIds);
+    const problems = typeof this.problemModel?.findBy === 'function'
+      ? await this.problemModel.findBy({ id: In(data.problems) })
+      : [];
+    const problemsById = new Map(problems.map((p) => [p.id, p]));
+
     for (const id of data.problems) {
       const question = questionsById.get(id);
-      if (!question && existingIds.has(id) && data.contestFormat === 'coding') {
-        continue;
-      }
-      if (!question || !isContestEligibleQuestion(question)) {
+      const problem = problemsById.get(id);
+      if (!question && !problem) {
+        if (existingIds.has(id) && data.contestFormat === 'coding') {
+          continue;
+        }
         throw new BadRequestException(
           'Contest problems must be published Contest Only questions',
         );
       }
-      const type = questionFormat(question.questionType);
+      if (problem) {
+        if (data.contestFormat === 'mcq') {
+          throw new BadRequestException(
+            'Contest contains a question incompatible with its format',
+          );
+        }
+        if (
+          problem.visibility &&
+          !['published', 'public'].includes(String(problem.visibility).toLowerCase())
+        ) {
+          throw new BadRequestException(
+            'Contest problems must be published Contest Only questions',
+          );
+        }
+        continue;
+      }
+      if (!isContestEligibleQuestion(question!)) {
+        throw new BadRequestException(
+          'Contest problems must be published Contest Only questions',
+        );
+      }
+      const type = questionFormat(question!.questionType);
       if (!type) {
         throw new BadRequestException('Unsupported question type for contests');
       }
@@ -988,8 +1015,40 @@ export class AdminService {
       }
       qb.orderBy('q.createdAt', 'DESC').skip(skip).take(limit);
       const [questions, total] = await qb.getManyAndCount();
-      return {
-        problems: questions
+
+      let metadataProblems: Array<{
+        _id: string;
+        id: string;
+        title: string;
+        slug: string;
+        difficulty: string;
+        questionType: string;
+      }> = [];
+      if (typeof this.problemModel?.createQueryBuilder === 'function') {
+        const pqb = this.problemModel
+          .createQueryBuilder('p')
+          .where("lower(btrim(p.visibility)) IN (:...vis)", {
+            vis: ['published', 'public'],
+          });
+        if (search && search.trim()) {
+          pqb.andWhere(
+            "(p.title ILIKE :s OR coalesce(p.slug, '') ILIKE :s)",
+            { s: `%${search.trim()}%` },
+          );
+        }
+        const pList = await pqb.orderBy('p.createdAt', 'DESC').take(limit).getMany();
+        metadataProblems = pList.map((p) => ({
+          _id: p.id,
+          id: p.id,
+          title: p.title?.trim() || p.slug,
+          slug: p.slug || `problem-${p.id}`,
+          difficulty: p.difficulty || 'medium',
+          questionType: 'coding',
+        }));
+      }
+
+      const combined = [
+        ...questions
           .filter((question) => !!questionFormat(question.questionType))
           .map((question) => ({
             _id: question.id,
@@ -999,9 +1058,14 @@ export class AdminService {
             difficulty: question.difficulty,
             questionType: question.questionType,
           })),
-        total,
+        ...metadataProblems,
+      ];
+
+      return {
+        problems: combined,
+        total: total + metadataProblems.length,
         page,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil((total + metadataProblems.length) / limit),
       };
     }
 

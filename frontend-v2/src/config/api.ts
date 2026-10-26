@@ -336,6 +336,8 @@ export interface ProblemStats {
 }
 
 export const submissionAPI = {
+  getProgress: (problemIds: string[], signal?: AbortSignal) =>
+    api.get<{ data: { problemId: string; status: 'solved' | 'attempted' }[] }>("/submissions/progress", { params: { problemIds: problemIds.join(',') }, signal }),
   submit: (data: any) =>
     api.post("/submissions", data),
   getSubmissions: (problemId: number | string) => api.get(`/submissions/problem/${problemId}`),
@@ -381,7 +383,7 @@ export interface ComplexityAnalysis {
 
 export const runAPI = {
   runtimes: () => api.get<Array<{ language: string; version?: string; enabled: boolean }>>("/execution/runtimes"),
-  run: (data: { code: string; language: string; testCases: any[]; config?: any }) =>
+  run: (data: { code: string; language: string; testCases: any[]; config?: any; executionId?: string }) =>
     api.post("/execution/run", data, { timeout: 60000 }),
   getJob: (jobId: string) => api.get(`/execution/jobs/${jobId}`, { timeout: 60000 }),
   analyzeComplexity: (data: { code: string; language: string }) =>
@@ -684,6 +686,79 @@ export const analyticsAPI = {
   getAssessmentLeaderboard: (assessmentId: string, params?: { page?: number; limit?: number }) =>
     api.get(`/admin/analytics/assessment/${assessmentId}/leaderboard`, { params }),
   getQuestionAnalytics: (assessmentId: string) => api.get(`/admin/analytics/assessment/${assessmentId}/questions`),
+};
+
+export const learningAPI = {
+  getPaths: (params?: { search?: string; difficulty?: string; tag?: string }) =>
+    api.get("/learning/paths", { params }),
+  getPathBySlug: (slug: string) => api.get(`/learning/paths/${slug}`),
+  enroll: (pathId: string) => api.post(`/learning/paths/${pathId}/enroll`),
+  getCourse: (courseId: string) => api.get(`/learning/courses/${courseId}`),
+  getLesson: (lessonId: string) => api.get(`/learning/lessons/${lessonId}`),
+  getLessonCompletionStatus: (lessonId: string) =>
+    api.get<{
+      lessonId: string;
+      canComplete: boolean;
+      reasons: string[];
+      criteria: {
+        timeSpent: number;
+        requiredTime: number;
+        timeRemaining: number;
+        timeMet: boolean;
+        quizMet: boolean;
+        codingMet: boolean;
+      };
+    }>(`/learning/lessons/${lessonId}/completion-status`),
+  trackTimeSpent: (lessonId: string, seconds: number) =>
+    api.post(`/learning/lessons/${lessonId}/time-spent`, { seconds }),
+  completeLesson: (lessonId: string, timeSpentSeconds?: number) =>
+    api.post(`/learning/lessons/${lessonId}/complete`, { timeSpentSeconds }),
+  submitExercise: (exerciseId: string, data: { code?: string; language?: string; selectedOption?: number; answers?: Record<string, number> }) =>
+    api.post(`/learning/exercises/${exerciseId}/submit`, data),
+  getMyProgress: () => api.get("/learning/me/progress"),
+  getMyAchievements: () => api.get("/learning/me/achievements"),
+  getMyCertificates: () => api.get("/learning/me/certificates"),
+  issueCertificate: (pathId: string) => api.post(`/learning/paths/${pathId}/certify`),
+  runPlayground: (data: { code: string; language: string; stdin?: string }) =>
+    api.post<{
+      success: boolean;
+      output: string;
+      error: string;
+      status: string;
+      durationMs: number;
+    }>("/learning/playground/run", data),
+};
+
+export const adminLearningAPI = {
+  getOverview: () => api.get("/admin/learning/overview"),
+  getPaths: () => api.get("/admin/learning/paths"),
+  createPath: (data: any) => api.post("/admin/learning/paths", data),
+  updatePath: (id: string, data: any) => api.patch(`/admin/learning/paths/${id}`, data),
+  publishPath: (id: string) => api.post(`/admin/learning/paths/${id}/publish`),
+  getPathDetails: (id: string) => api.get(`/admin/learning/paths/${id}`),
+  deletePath: (id: string) => api.delete(`/admin/learning/paths/${id}`),
+  getCourses: () => api.get("/admin/learning/courses"),
+  createCourse: (data: any) => api.post("/admin/learning/courses", data),
+  updateCourse: (id: string, data: any) => api.patch(`/admin/learning/courses/${id}`, data),
+  deleteCourse: (id: string) => api.delete(`/admin/learning/courses/${id}`),
+  createModule: (courseId: string, data: any) => api.post(`/admin/learning/courses/${courseId}/modules`, data),
+  updateModule: (moduleId: string, data: any) => api.patch(`/admin/learning/modules/${moduleId}`, data),
+  deleteModule: (moduleId: string) => api.delete(`/admin/learning/modules/${moduleId}`),
+  createLesson: (moduleId: string, data: any) => api.post(`/admin/learning/modules/${moduleId}/lessons`, data),
+  updateLesson: (id: string, data: any) => api.patch(`/admin/learning/lessons/${id}`, data),
+  deleteLesson: (id: string) => api.delete(`/admin/learning/lessons/${id}`),
+  createExercise: (lessonId: string, data: any) => api.post(`/admin/learning/lessons/${lessonId}/exercises`, data),
+  deleteExercise: (id: string) => api.delete(`/admin/learning/exercises/${id}`),
+  getBadges: () => api.get("/admin/learning/badges"),
+  createBadge: (data: any) => api.post("/admin/learning/badges", data),
+  getCertificates: () => api.get("/admin/learning/certificates"),
+  getTemplates: () => api.get("/admin/learning/certificate-templates"),
+  createTemplate: (data: any) => api.post("/admin/learning/certificate-templates", data),
+  revokeCertificate: (id: string, reason: string) => api.post(`/admin/learning/certificates/${id}/revoke`, { reason }),
+};
+
+export const certificateVerificationAPI = {
+  verify: (credentialId: string) => api.get(`/certificates/verify/${credentialId}`),
 };
 
 export default api;

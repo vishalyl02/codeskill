@@ -30,11 +30,14 @@ export class AdminProblemsController {
     @Query('search') search: string,
     @Query('contestEligible') contestEligible: string,
   ) {
+    const isContestEligible = contestEligible === 'true';
+    const parsedLimit = parseInt(limit, 10);
+    const effectiveLimit = parsedLimit > 0 ? parsedLimit : isContestEligible ? 1000 : 20;
     return this.adminService.getProblems(
       parseInt(page, 10) || 1,
-      parseInt(limit, 10) || 20,
+      effectiveLimit,
       search,
-      contestEligible === 'true',
+      isContestEligible,
     );
   }
 
