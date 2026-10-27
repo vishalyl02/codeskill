@@ -31,12 +31,15 @@ import {
   EyeOff,
   Layers,
   Send,
+  Lock,
+  LogIn,
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import { learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/context/ThemeContext";
+import { useAuth } from "@/context/AuthContext";
 
 interface LessonData {
   id: string;
@@ -583,6 +586,7 @@ export default function CourseWorkspacePage({
 }) {
   const { pathSlug, courseSlug } = use(params);
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -1148,11 +1152,39 @@ export default function CourseWorkspacePage({
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center pt-24 font-sans text-foreground">
         <Spinner className="w-8 h-8 text-primary animate-spin mb-3" />
         <p className="text-sm text-muted-foreground">Loading course workspace...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center pt-24 p-6 font-sans text-center max-w-md mx-auto">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-5 text-primary">
+          <Lock className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl font-bold tracking-tight mb-2">Sign in to Access Course</h2>
+        <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+          Interactive lessons, real-time code execution, and progress tracking require an authenticated CodeSkill account.
+        </p>
+        <Link
+          href={`/login?redirect=/learning/${pathSlug}/${courseSlug}`}
+          className="w-full inline-flex items-center justify-center gap-2 h-11 px-6 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm shadow-md transition-all hover:shadow-lg"
+        >
+          <LogIn className="w-4 h-4" />
+          <span>Log In to Continue</span>
+        </Link>
+        <Link
+          href={`/learning/${pathSlug}`}
+          className="mt-4 text-xs font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back to Learning Path</span>
+        </Link>
       </div>
     );
   }

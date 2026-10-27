@@ -18,7 +18,9 @@ import {
   Cpu,
   Terminal,
   Code2,
+  LogIn,
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
@@ -53,6 +55,7 @@ const CATEGORIES = [
 ];
 
 export default function LearningPathsCatalogPage() {
+  const { user } = useAuth();
   const [paths, setPaths] = useState<LearningPathItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -172,22 +175,58 @@ export default function LearningPathsCatalogPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Link
-              href="/learning/me/achievements"
-              className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-border bg-card hover:bg-muted text-sm font-medium text-foreground transition-colors shadow-sm"
-            >
-              <Trophy className="w-4 h-4 text-amber-500" />
-              <span>XP & Badges</span>
-            </Link>
-            <Link
-              href="/learning/me/certificates"
-              className="inline-flex items-center gap-2 h-10 px-4 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold transition-colors shadow-sm"
-            >
-              <Award className="w-4 h-4" />
-              <span>My Certificates</span>
-            </Link>
+            {user ? (
+              <>
+                <Link
+                  href="/learning/me/achievements"
+                  className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-border bg-card hover:bg-muted text-sm font-medium text-foreground transition-colors shadow-sm"
+                >
+                  <Trophy className="w-4 h-4 text-amber-500" />
+                  <span>XP & Badges</span>
+                </Link>
+                <Link
+                  href="/learning/me/certificates"
+                  className="inline-flex items-center gap-2 h-10 px-4 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold transition-colors shadow-sm"
+                >
+                  <Award className="w-4 h-4" />
+                  <span>My Certificates</span>
+                </Link>
+              </>
+            ) : (
+              <Link
+                href="/login?redirect=/learning"
+                className="inline-flex items-center gap-2 h-10 px-5 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-bold transition-all shadow-sm hover:shadow-md"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>Log In</span>
+              </Link>
+            )}
           </div>
         </div>
+
+        {/* Guest Callout Banner */}
+        {!user && (
+          <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">Sign in to track progress & claim certificates</h3>
+                <p className="text-xs text-muted-foreground">
+                  Enrolling in learning paths, solving live coding exercises, and earning badges requires an account.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/login?redirect=/learning"
+              className="shrink-0 inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-xs"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Log In to CodeSkill</span>
+            </Link>
+          </div>
+        )}
 
         {/* Search & Difficulty Filter Bar */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">

@@ -19,7 +19,9 @@ import {
   Code2,
   Check,
   Trophy,
+  LogIn,
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
@@ -74,6 +76,7 @@ export default function LearningPathDetailPage({
 }) {
   const { pathSlug } = use(params);
   const router = useRouter();
+  const { user } = useAuth();
   const [path, setPath] = useState<PathDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
@@ -111,6 +114,10 @@ export default function LearningPathDetailPage({
   };
 
   const handleEnroll = async () => {
+    if (!user) {
+      router.push(`/login?redirect=/learning/${pathSlug}`);
+      return;
+    }
     if (!path) return;
     try {
       setEnrolling(true);
@@ -283,7 +290,7 @@ export default function LearningPathDetailPage({
                     </Link>
                   )}
                 </div>
-              ) : (
+              ) : user ? (
                 <div>
                   <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-4">
                     <ShieldCheck className="w-4 h-4" />
@@ -297,6 +304,20 @@ export default function LearningPathDetailPage({
                     <span>{enrolling ? "Enrolling..." : "Enroll in Learning Path"}</span>
                     <ArrowRight className="w-4 h-4" />
                   </Button>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-4">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Includes Verifiable Certificate</span>
+                  </div>
+                  <Link
+                    href={`/login?redirect=/learning/${path.slug}`}
+                    className="w-full py-2.5 px-4 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all hover:shadow-md"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Log in to Enroll</span>
+                  </Link>
                 </div>
               )}
             </div>
@@ -374,12 +395,23 @@ export default function LearningPathDetailPage({
                           </span>
                         )}
 
-                        <Link
-                          href={`/learning/${path.slug}/${course.slug}`}
-                          className="px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-xs font-semibold text-primary-foreground shadow-sm transition-colors"
-                        >
-                          Start Course
-                        </Link>
+                        {!user ? (
+                          <Link
+                            href={`/login?redirect=/learning/${path.slug}/${course.slug}`}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-xs font-semibold text-primary-foreground shadow-sm transition-colors"
+                          >
+                            <LogIn className="w-3.5 h-3.5" />
+                            <span>Log In to Start</span>
+                          </Link>
+                        ) : (
+                          <Link
+                            href={`/learning/${path.slug}/${course.slug}`}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-xs font-semibold text-primary-foreground shadow-sm transition-colors"
+                          >
+                            <span>Start Course</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </Link>
+                        )}
 
                         <button
                           onClick={() => toggleCourseExpand(course.id)}
