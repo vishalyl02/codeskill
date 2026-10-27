@@ -130,9 +130,20 @@ export default function AppLoginPage() {
       const isTeacher = Boolean(res?.user?.isTeacher) || ["teacher", "faculty", "instructor"].includes(accountRole);
       const isAdmin = Boolean(res?.user?.isAdmin) || accountRole === "admin" || accountRole === "superadmin";
 
+      const redirectParam =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("redirect")
+          : null;
+      const safeRedirect =
+        redirectParam && redirectParam.startsWith("/") && !redirectParam.startsWith("//")
+          ? redirectParam
+          : null;
+
       if (res?.user?.forcePasswordChange) {
         forceForm.setValue("currentPassword", data.password);
         setShowForcePasswordModal(true);
+      } else if (safeRedirect) {
+        window.location.href = safeRedirect;
       } else if (isAdmin) {
         window.location.href = "/admin/dashboard";
       } else if (isTeacher) {
