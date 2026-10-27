@@ -108,6 +108,9 @@ export class User {
     institution?: string;
     role?: string;
     preferredLanguage?: string;
+    githubUrl?: string;
+    githubUsername?: string;
+    githubAvatarUrl?: string;
     theme?: string;
     fontSize?: number;
   };

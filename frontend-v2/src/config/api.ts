@@ -283,6 +283,10 @@ export const authAPI = {
   googleLogin: (token: string) => api.post("/auth/google", { token }),
   getMe: () => api.get("/auth/me"),
   updateProfile: (data: any) => api.put("/auth/profile", data),
+  startSocialAccountLink: (data: { provider: "github"; redirectUri: string }) =>
+    api.post("/auth/profile/social-link/start", data),
+  completeSocialAccountLink: (data: { provider: "github"; code: string; state: string; redirectUri: string }) =>
+    api.post("/auth/profile/social-link/complete", data),
   uploadAvatar: (formData: FormData) => api.post("/auth/avatar", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
