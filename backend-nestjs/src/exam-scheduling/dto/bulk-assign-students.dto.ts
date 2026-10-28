@@ -79,8 +79,9 @@ export class BulkAssignStudentsDto {
     description: 'Source mode for assigning students to eligibility pool',
   })
   @Transform(({ value, obj }) => value || obj?.selectionType)
+  @IsOptional()
   @IsEnum(['filter', 'manual', 'csv', 'saved_group'])
-  source: 'filter' | 'manual' | 'csv' | 'saved_group';
+  source?: 'filter' | 'manual' | 'csv' | 'saved_group';
 
   @ApiPropertyOptional({ enum: ['filter', 'manual', 'csv', 'saved_group'] })
   @IsOptional()

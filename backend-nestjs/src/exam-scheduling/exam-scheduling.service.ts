@@ -859,7 +859,7 @@ export class ExamSchedulingService {
     }
 
     let candidateStudents: User[] = [];
-    const source = dto.source || dto.selectionType || 'manual';
+    const source = dto.source || dto.selectionType || (dto.filterCriteria ? 'filter' : dto.savedGroupId ? 'saved_group' : 'manual');
     const idsOrUids = dto.studentIds || dto.studentUids || [];
 
     if (source === 'filter') {
@@ -869,9 +869,13 @@ export class ExamSchedulingService {
       if (idsOrUids.length === 0) {
         throw new BadRequestException('No student IDs or UIDs provided for assignment');
       }
+      const upperIds = idsOrUids.map((x) => String(x).trim().toUpperCase());
       candidateStudents = await this.userRepo
         .createQueryBuilder('u')
-        .where('u.id IN (:...ids) OR u.uid IN (:...ids)', { ids: idsOrUids })
+        .where('u.id IN (:...ids) OR u.uid IN (:...ids) OR UPPER(COALESCE(u.uid, \'\')) IN (:...upperIds)', {
+          ids: idsOrUids,
+          upperIds,
+        })
         .getMany();
     } else if (source === 'saved_group' && dto.savedGroupId) {
       const group = await this.savedGroupRepo.findOne({
