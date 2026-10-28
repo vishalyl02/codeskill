@@ -64,11 +64,41 @@ export interface AssessmentPerformanceReportProps {
   };
 }
 
+export function formatQuestionTitle(title?: string, maxLength: number = 72): string {
+  if (!title || typeof title !== 'string') return 'Assessment Question';
+
+  let text = title;
+  if (text.includes('```')) {
+    const parts = text.split('```');
+    const beforeCode = parts[0].trim();
+    if (beforeCode.length > 0) {
+      text = beforeCode;
+    } else {
+      const afterCode = parts.slice(2).join(' ').trim();
+      text = afterCode.length > 0 ? afterCode : (parts[1] || 'Code snippet evaluation').replace(/^[a-z]+\s+/i, '');
+    }
+  }
+
+  text = text.replace(/[*_`#~]/g, ' ');
+  text = text.replace(/\s+/g, ' ').trim();
+
+  if (!text) return 'Assessment Question';
+
+  if (text.length > maxLength) {
+    const sliced = text.substring(0, maxLength);
+    const lastSpace = sliced.lastIndexOf(' ');
+    const boundary = lastSpace > 35 ? lastSpace : maxLength;
+    return sliced.substring(0, boundary).trim() + '...';
+  }
+
+  return text;
+}
+
 const styles = StyleSheet.create({
   page: {
     paddingHorizontal: 28,
     paddingTop: 22,
-    paddingBottom: 50,
+    paddingBottom: 48,
     backgroundColor: "#FFFFFF",
     fontFamily: "Helvetica",
     color: BRAND_COLORS.navyDark,
@@ -821,10 +851,10 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
                 <Text style={[styles.tableHeaderCell, styles.qColPoints]}>Score</Text>
               </View>
 
-              {questions.map((q, idx) => {
-                const rawTitle = q.title || "Assessment Question";
-                const cleanTitle = rawTitle.replace(/\r?\n|\r/g, " ").replace(/\s+/g, " ").trim();
-                const displayTitle = cleanTitle.length > 75 ? `${cleanTitle.slice(0, 72)}...` : cleanTitle;
+{questions.map((q, idx) => {
+                const cleanTitle = formatQuestionTitle(q.title, 72);
+                const isEasy = q.difficulty.toLowerCase() === "easy";
+                const isMed = q.difficulty.toLowerCase() === "medium";
                 return (
                   <View
                     key={q.id || idx}
@@ -836,15 +866,15 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
                   >
                     <Text style={[styles.tableCell, styles.qColIndex, { color: BRAND_COLORS.slateMuted }]}>{idx + 1}</Text>
                     <Text style={[styles.tableCell, styles.qColTitle, { fontWeight: "bold", color: BRAND_COLORS.navyDark }]}>
-                      {displayTitle}
+                      {cleanTitle}
                     </Text>
                     <View style={styles.qColDiff}>
                       <Text
                         style={[
                           styles.diffBadge,
-                          q.difficulty.toLowerCase() === "easy"
+                          isEasy
                             ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
-                            : q.difficulty.toLowerCase() === "medium"
+                            : isMed
                             ? { backgroundColor: BRAND_COLORS.warningBg, color: BRAND_COLORS.warningAmber }
                             : { backgroundColor: BRAND_COLORS.dangerBg, color: BRAND_COLORS.dangerRed },
                         ]}

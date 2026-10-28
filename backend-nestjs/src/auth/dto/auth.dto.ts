@@ -4,6 +4,7 @@ import {
   MinLength,
   IsOptional,
   IsNotEmpty,
+  IsIn,
 } from 'class-validator';
 
 export class RegisterDto {
@@ -95,6 +96,25 @@ export class LinkedinAuthDto {
 
   @IsString()
   redirectUri: string;
+}
+
+export class StartSocialAccountLinkDto {
+  @IsIn(['github'])
+  provider: 'github';
+
+  @IsString()
+  @IsNotEmpty()
+  redirectUri: string;
+}
+
+export class CompleteSocialAccountLinkDto extends StartSocialAccountLinkDto {
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+
+  @IsString()
+  @IsNotEmpty()
+  state: string;
 }
 
 export class StudentLoginDto {

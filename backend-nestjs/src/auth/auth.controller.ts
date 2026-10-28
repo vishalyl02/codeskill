@@ -40,6 +40,8 @@ import {
   ForceChangePasswordDto,
   RefreshTokenDto,
   LogoutDto,
+  StartSocialAccountLinkDto,
+  CompleteSocialAccountLinkDto,
 } from './dto/auth.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -191,6 +193,29 @@ export class AuthController {
   @ApiOperation({ summary: 'Update user profile' })
   async updateProfile(@CurrentUser('id') userId: string, @Body() body: any) {
     const user = await this.authService.updateProfile(userId, body);
+    return { user };
+  }
+
+  @Post('profile/social-link/start')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Start linking a GitHub account' })
+  async startSocialAccountLink(
+    @CurrentUser('id') userId: string,
+    @Body() dto: StartSocialAccountLinkDto,
+  ) {
+    return this.authService.startSocialAccountLink(userId, dto);
+  }
+
+  @Post('profile/social-link/complete')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Complete linking a GitHub account' })
+  async completeSocialAccountLink(
+    @CurrentUser('id') userId: string,
+    @Body() dto: CompleteSocialAccountLinkDto,
+  ) {
+    const user = await this.authService.completeSocialAccountLink(userId, dto);
     return { user };
   }
 

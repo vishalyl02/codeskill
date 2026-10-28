@@ -2,7 +2,7 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Code2, ListChecks, CheckSquare2, ToggleLeft, Terminal, Layers, Clock, Award, ArrowRight, ShieldCheck, Search, RefreshCw, BarChart3, GraduationCap, LockKeyhole } from "lucide-react";
+import { Code2, ListChecks, CheckSquare2, ToggleLeft, Terminal, Layers, Clock, Award, ArrowRight, ShieldCheck, Search, RefreshCw, BarChart3, GraduationCap, LockKeyhole, Calendar } from "lucide-react";
 import { studentAssessmentsAPI } from "@/config/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -117,23 +117,45 @@ export default function StudentAssessmentsPage() {
               <h2 className="text-lg font-bold leading-snug break-words min-h-[3.25rem] line-clamp-2">{assessment.title}</h2>
               <p className="text-sm text-muted-foreground line-clamp-2 min-h-[2.5rem]">{assessment.description || "A technical assessment assigned to your account."}</p>
             </div>
-            <div className="min-h-[38px] flex items-center">
-              {assessment.startTime || assessment.endTime ? (
-                <div className="w-full text-[11px] text-muted-foreground flex items-center gap-1.5 bg-muted/40 p-2 rounded-lg border border-border/50">
-                  <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
-                  <span className="truncate">
-                    {assessment.startTime ? formatAssessmentDateTime(assessment.startTime, "MMM D, h:mm A") : "Immediate"}
-                    {" → "}
-                    {assessment.endTime ? formatAssessmentDateTime(assessment.endTime, "MMM D, h:mm A") : "Open"}
-                  </span>
+
+            {/* Batch Slot Information if Scheduled */}
+            {assessment.assignedSlot && (
+              <div className="text-[11px] bg-primary/5 text-primary border border-primary/20 p-2.5 rounded-xl flex items-center justify-between min-h-[38px]">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <div>
+                    <span className="font-bold">{assessment.assignedSlot.name || `Slot ${assessment.assignedSlot.slotCode}`}</span>
+                    <span className="text-muted-foreground ml-1.5 font-normal">
+                      {assessment.assignedSlot.date} &bull; {assessment.assignedSlot.startTime} - {assessment.assignedSlot.endTime}
+                    </span>
+                  </div>
                 </div>
-              ) : (
-                <div className="w-full text-[11px] text-muted-foreground/75 flex items-center gap-1.5 bg-muted/20 px-2 py-1.5 rounded-lg border border-border/30">
-                  <Clock className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-                  <span>Flexible schedule · Available on demand</span>
-                </div>
-              )}
-            </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 px-2 py-0.5 rounded-md">
+                  Assigned
+                </span>
+              </div>
+            )}
+
+            {!assessment.assignedSlot && (
+              <div className="min-h-[38px] flex items-center">
+                {assessment.startTime || assessment.endTime ? (
+                  <div className="w-full text-[11px] text-muted-foreground flex items-center gap-1.5 bg-muted/40 p-2 rounded-lg border border-border/50">
+                    <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span className="truncate">
+                      {assessment.startTime ? formatAssessmentDateTime(assessment.startTime, "MMM D, h:mm A") : "Immediate"}
+                      {" → "}
+                      {assessment.endTime ? formatAssessmentDateTime(assessment.endTime, "MMM D, h:mm A") : "Open"}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="w-full text-[11px] text-muted-foreground/75 flex items-center gap-1.5 bg-muted/20 px-2 py-1.5 rounded-lg border border-border/30">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+                    <span>Flexible schedule · Available on demand</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             <dl className="grid grid-cols-3 gap-2 border-y border-border py-3.5 text-sm">{[{ label: "Duration", value: `${assessment.durationMinutes} mins`, icon: Clock }, { label: "Questions", value: assessment.questionCount, icon: Layers }, { label: "Total marks", value: `${assessment.totalMarks} pts`, icon: Award }].map(({ label, value, icon: MetaIcon }) => <div key={label}><dt className="text-xs text-muted-foreground flex gap-1 items-center mb-1"><MetaIcon className="w-3.5 h-3.5 shrink-0" />{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl>
             <div className="text-xs text-muted-foreground flex flex-wrap gap-3 min-h-[20px] items-center">
               <span>{inProgress ? "Attempt in progress" : remainingAttempts}</span>
@@ -148,7 +170,20 @@ export default function StudentAssessmentsPage() {
               <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-primary" />Time left <strong className="font-mono text-sm text-foreground">{formatAssessmentTimeLeft(assessment.attemptExpiresAt, now)}</strong></span>
               <span>Resumes left <strong className="font-mono text-sm text-foreground">{resumesLeft} / {assessment.maxResumeAttempts ?? 3}</strong></span>
             </div>}
-            {canAttempt ? completed ? <Button className="w-full" onClick={() => retake(id)}>Re-attempt</Button> : <Link href={`/assessments/${id}`} className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg bg-foreground text-background font-semibold text-sm hover:opacity-90">{inProgress ? "Resume Assessment" : "Attempt Now"}<ArrowRight className="w-4 h-4" /></Link> : <Button variant="outline" className="w-full" disabled>{inProgress && resumeExpired ? "Time expired" : inProgress && resumesLeft <= 0 ? "Resume limit reached" : status === "Upcoming" ? "Opens at the scheduled start time" : "Assessment closed"}</Button>}
+            {canAttempt ? (
+              completed ? (
+                <Button className="w-full" onClick={() => retake(id)}>Re-attempt</Button>
+              ) : (
+                <Link href={`/assessments/${id}`} className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg bg-foreground text-background font-semibold text-sm hover:opacity-90">
+                  {inProgress ? "Resume Assessment" : "Attempt Now"}
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              )
+            ) : (
+              <Button variant="outline" className="w-full" disabled>
+                {assessment.unavailabilityReason || (inProgress && resumeExpired ? "Time expired" : inProgress && resumesLeft <= 0 ? "Resume limit reached" : status === "Upcoming" ? "Opens at the scheduled start time" : "Assessment closed")}
+              </Button>
+            )}
           </footer>
         </article>;
       })}</div>}</div>

@@ -5,6 +5,8 @@ import {
   UnauthorizedException,
   NotFoundException,
   InternalServerErrorException,
+  ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
@@ -16,6 +18,9 @@ import { LoginThrottleService } from './login-throttle.service';
 import { validatePasswordPolicy } from './password.util';
 import { OAuth2Client } from 'google-auth-library';
 import axios from 'axios';
+import { randomBytes } from 'crypto';
+import { RedisService } from '../redis/redis.service';
+import { isOriginAllowed, resolveAllowedCorsOrigins } from '../common/cors.util';
 import {
   RegisterDto,
   LoginDto,
@@ -32,11 +37,54 @@ import {
   ForceChangePasswordDto,
   RefreshTokenDto,
   LogoutDto,
+  StartSocialAccountLinkDto,
+  CompleteSocialAccountLinkDto,
 } from './dto/auth.dto';
 
 function escapeIlike(str: string): string {
   return str.replace(/[%_\\]/g, '\\$&');
 }
+
+type SocialLinkProvider = 'github';
+type SocialLinkState = {
+  userId: string;
+  provider: SocialLinkProvider;
+  redirectUri: string;
+};
+
+function isSocialProfileUrl(value: string, domain: 'github.com'): boolean {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === 'https:' &&
+      (hostname === domain || hostname === `www.${domain}`) &&
+      url.pathname.split('/').filter(Boolean).length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isSocialAvatarUrl(
+  value: unknown,
+  providerDomain: 'githubusercontent.com',
+): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === 'https:' &&
+      !url.username &&
+      !url.password &&
+      (hostname === providerDomain || hostname.endsWith(`.${providerDomain}`))
+    );
+  } catch {
+    return false;
+  }
+}
+
 
 @Injectable()
 export class AuthService {
@@ -49,6 +97,7 @@ export class AuthService {
     private configService: ConfigService,
     private tokenService: TokenService,
     private loginThrottleService: LoginThrottleService,
+    @Optional() private readonly redisService?: RedisService,
   ) {
     this.googleClient = new OAuth2Client(
       this.configService.get<string>('oauth.googleClientId'),
@@ -612,6 +661,206 @@ export class AuthService {
     return user;
   }
 
+  private validateSocialRedirectUri(
+    redirectUri: string,
+    provider: SocialLinkProvider,
+  ): string {
+    let parsed: URL;
+    try {
+      parsed = new URL(redirectUri);
+    } catch {
+      throw new BadRequestException('Invalid social account callback URL');
+    }
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+    if (
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password ||
+      parsed.hash ||
+      parsed.pathname !== '/profile' ||
+      parsed.search !== `?social=${provider}` ||
+      (isProduction && parsed.protocol !== 'https:') ||
+      (!isProduction && parsed.protocol !== 'https:' && !isLocalHost) ||
+      !isOriginAllowed(parsed.origin, resolveAllowedCorsOrigins(), isProduction)
+    ) {
+      throw new BadRequestException('Social account callback URL is not allowed');
+    }
+    return parsed.toString();
+  }
+
+  private socialLinkStateKey(provider: SocialLinkProvider, state: string): string {
+    return `auth:social-link:${provider}:${state}`;
+  }
+
+  async startSocialAccountLink(
+    userId: string,
+    dto: StartSocialAccountLinkDto,
+  ) {
+    const provider = dto.provider;
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user || user.isActive === false) {
+      throw new UnauthorizedException('Your account is not active');
+    }
+    if (user.isAssessmentStudent) {
+      throw new BadRequestException(
+        'Assessment student accounts cannot connect social accounts.',
+      );
+    }
+    if (!this.redisService) {
+      throw new InternalServerErrorException(
+        'Social account linking is temporarily unavailable',
+      );
+    }
+
+    const redirectUri = this.validateSocialRedirectUri(dto.redirectUri, provider);
+    const clientId = this.configService.get<string>(`oauth.${provider}ClientId`);
+    const clientSecret = this.configService.get<string>(`oauth.${provider}ClientSecret`);
+    if (
+      !clientId ||
+      !clientSecret ||
+      /^(your_|replace|changeme|default)/i.test(clientId) ||
+      /^(your_|replace|changeme|default)/i.test(clientSecret)
+    ) {
+      throw new BadRequestException(
+        `GitHub OAuth is not configured on this server.`,
+      );
+    }
+
+    const state = randomBytes(32).toString('hex');
+    const stateValue: SocialLinkState = { userId, provider, redirectUri };
+    try {
+      const stored = await this.redisService
+        .getClient()
+        .set(this.socialLinkStateKey(provider, state), JSON.stringify(stateValue), 'EX', 600, 'NX');
+      if (stored !== 'OK') throw new Error('OAuth state was not stored');
+    } catch {
+      throw new InternalServerErrorException(
+        'Unable to start social account linking. Please try again.',
+      );
+    }
+
+    const authorizationUrl = new URL('https://github.com/login/oauth/authorize');
+    authorizationUrl.searchParams.set('response_type', 'code');
+    authorizationUrl.searchParams.set('client_id', clientId);
+    authorizationUrl.searchParams.set('redirect_uri', redirectUri);
+    authorizationUrl.searchParams.set('state', state);
+    authorizationUrl.searchParams.set(
+      'scope',
+      'read:user',
+    );
+
+    return { authorizationUrl: authorizationUrl.toString() };
+  }
+
+  async completeSocialAccountLink(
+    userId: string,
+    dto: CompleteSocialAccountLinkDto,
+  ) {
+    const provider = dto.provider;
+    if (!this.redisService) {
+      throw new InternalServerErrorException(
+        'Social account linking is temporarily unavailable',
+      );
+    }
+    const redirectUri = this.validateSocialRedirectUri(dto.redirectUri, provider);
+    let stateJson: string | null;
+    try {
+      stateJson = (await this.redisService.getClient().eval(
+        "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
+        1,
+        this.socialLinkStateKey(provider, dto.state),
+      )) as string | null;
+    } catch {
+      throw new InternalServerErrorException(
+        'Unable to verify the social account authorization. Please try again.',
+      );
+    }
+    if (!stateJson) {
+      throw new UnauthorizedException(
+        'Social authorization expired or was already used. Please try again.',
+      );
+    }
+
+    let state: SocialLinkState;
+    try {
+      state = JSON.parse(stateJson) as SocialLinkState;
+    } catch {
+      throw new UnauthorizedException('Invalid social authorization state');
+    }
+    if (
+      state.userId !== userId ||
+      state.provider !== provider ||
+      state.redirectUri !== redirectUri
+    ) {
+      throw new UnauthorizedException(
+        'Social authorization does not match the signed-in account.',
+      );
+    }
+
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user || user.isActive === false) {
+      throw new UnauthorizedException('Your account is not active');
+    }
+
+    const clientId = this.configService.get<string>(`oauth.${provider}ClientId`);
+    const clientSecret = this.configService.get<string>(`oauth.${provider}ClientSecret`);
+
+    try {
+      if (provider === 'github') {
+        const tokenResponse = await axios.post(
+          'https://github.com/login/oauth/access_token',
+          {
+            client_id: clientId,
+            client_secret: clientSecret,
+            code: dto.code,
+            redirect_uri: redirectUri,
+          },
+          { headers: { Accept: 'application/json' } },
+        );
+        const accessToken = tokenResponse.data.access_token;
+        if (!accessToken) throw new Error('GitHub did not return an access token');
+
+        const profileResponse = await axios.get('https://api.github.com/user', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const { id, login, html_url: htmlUrl, avatar_url: avatarUrl } = profileResponse.data;
+        if (id === undefined || !login) throw new Error('GitHub profile is incomplete');
+        const githubId = String(id);
+        const existingOwner = await this.userRepository.findOne({ where: { githubId } });
+        if (existingOwner && existingOwner.id !== user.id) {
+          throw new ConflictException('This GitHub account is already connected to another CodeSkill account.');
+        }
+        if (user.githubId && user.githubId !== githubId) {
+          throw new ConflictException('A different GitHub account is already connected.');
+        }
+
+        user.githubId = githubId;
+        user.profile = {
+          ...(user.profile || {}),
+          githubUsername: login,
+          githubUrl: isSocialProfileUrl(String(htmlUrl || ''), 'github.com')
+            ? String(htmlUrl)
+            : `https://github.com/${encodeURIComponent(login)}`,
+          githubAvatarUrl: isSocialAvatarUrl(avatarUrl, 'githubusercontent.com')
+            ? avatarUrl
+            : '',
+        };
+      }
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      this.logger.warn(
+        `GitHub account link failed: ${(error as Error)?.message || 'unknown error'}`,
+      );
+      throw new UnauthorizedException(
+        'Could not verify the GitHub authorization. Please try again.',
+      );
+    }
+
+    return this.userRepository.save(user);
+  }
+
   async updateProfile(userId: string, data: any) {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
@@ -623,6 +872,7 @@ export class AuthService {
       'preferredLanguage',
       'theme',
       'fontSize',
+      'githubUrl',
     ];
 
     for (const key of allowedFields) {
@@ -630,9 +880,20 @@ export class AuthService {
     }
 
     if (data.profile) {
+      if (!user.profile) user.profile = {};
       for (const key of allowedProfileFields) {
         if (data.profile[key] !== undefined) {
-          if (!user.profile) user.profile = {};
+          if (key === 'githubUrl') {
+            const value = String(data.profile[key]).trim();
+            const domain = 'github.com';
+            if (value && !isSocialProfileUrl(value, domain)) {
+              throw new BadRequestException(
+                `GitHub profile must be a valid HTTPS profile URL on ${domain}`,
+              );
+            }
+            (user.profile as any)[key] = value;
+            continue;
+          }
           (user.profile as any)[key] = data.profile[key];
         }
       }
