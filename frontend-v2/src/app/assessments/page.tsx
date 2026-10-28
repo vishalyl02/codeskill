@@ -81,7 +81,7 @@ export default function StudentAssessmentsPage() {
       </div>
       <div className="flex flex-col md:flex-row gap-3"><div className="relative flex-1"><Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" /><input aria-label="Search assessments" placeholder="Search by assessment title..." value={search} onChange={event => setSearch(event.target.value)} className="w-full py-2 pl-10 pr-3 rounded-lg bg-background border border-border" /></div><select aria-label="Availability" value={availability} onChange={event => setAvailability(event.target.value)} className="p-2 rounded-lg border border-border bg-background">{availabilityOptions.map(value => <option key={value}>{value}</option>)}</select><select aria-label="Difficulty" value={difficulty} onChange={event => setDifficulty(event.target.value)} className="p-2 rounded-lg border border-border bg-background">{["All difficulties", "Easy", "Medium", "Hard"].map(value => <option key={value}>{value}</option>)}</select></div>
       {error && <div role="alert" className="p-5 border border-destructive/30 rounded-xl flex flex-wrap gap-3 items-center justify-between"><p className="text-destructive">{error}</p><Button variant="outline" onClick={() => setRetry(value => value + 1)}>Try again</Button></div>}
-      <div id="assessment-results" role="tabpanel" aria-labelledby={`assessment-tab-${tabs.indexOf(tab)}`} tabIndex={0} className="min-w-0 focus-visible:outline-none">{authLoading || loading ? <div role="status" className="py-16 flex justify-center gap-3 text-muted-foreground"><Spinner />Loading assessments...</div> : !user ? <div className="min-h-64 rounded-2xl border border-dashed border-border bg-muted/30 flex items-center justify-center p-8 text-center"><p className="max-w-sm text-sm text-muted-foreground">Your assigned assessments, upcoming tests and results will appear here after you sign in.</p></div> : !error && visible.length === 0 ? <div className="text-center p-12 border border-border rounded-2xl text-muted-foreground">No assessments match your filters.</div> : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">{visible.map(assessment => {
+      <div id="assessment-results" role="tabpanel" aria-labelledby={`assessment-tab-${tabs.indexOf(tab)}`} tabIndex={0} className="min-w-0 min-h-[580px] focus-visible:outline-none flex flex-col">{authLoading || loading ? <div role="status" className="flex-1 min-h-[400px] flex items-center justify-center gap-3 text-muted-foreground"><Spinner />Loading assessments...</div> : !user ? <div className="flex-1 min-h-[400px] rounded-2xl border border-dashed border-border bg-muted/30 flex items-center justify-center p-8 text-center"><p className="max-w-sm text-sm text-muted-foreground">Your assigned assessments, upcoming tests and results will appear here after you sign in.</p></div> : !error && visible.length === 0 ? <div className="flex-1 min-h-[400px] flex flex-col items-center justify-center p-12 border border-dashed border-border rounded-2xl text-muted-foreground text-center"><div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center mb-3 text-muted-foreground"><Layers className="w-6 h-6" /></div><p className="text-base font-semibold text-foreground mb-1">No assessments match your filters.</p><p className="text-sm text-muted-foreground max-w-sm">Try switching category tabs or clearing your search criteria to see other assessments.</p></div> : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">{visible.map(assessment => {
         const types = assessmentTypes(assessment); const Icon = types.length === 1 ? icons[types[0]] : Layers;
         const completed = assessmentCompleted(assessment);
         const inProgress = assessment.attemptStatus === "in_progress";
@@ -95,45 +95,54 @@ export default function StudentAssessmentsPage() {
         const resumesLeft = assessment.resumeAttemptsRemaining ?? 3;
         const resumeExpired = Boolean(assessment.attemptExpiresAt && new Date(assessment.attemptExpiresAt).getTime() <= now);
 
-        return <article key={id} className="bg-card border border-border rounded-2xl p-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="bg-primary/10 text-primary p-3 rounded-xl">
-              <Icon aria-label={types.length === 1 ? `${getQuestionTypeLabel(types[0])} assessment` : "Mixed assessment"} className="w-6 h-6" />
+        return <article key={id} className="bg-card border border-border rounded-2xl p-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 flex flex-col justify-between h-full min-h-[490px]">
+          <div className="space-y-3.5">
+            <div className="flex items-start justify-between gap-3 min-h-[44px]">
+              <div className="bg-primary/10 text-primary p-3 rounded-xl shrink-0">
+                <Icon aria-label={types.length === 1 ? `${getQuestionTypeLabel(types[0])} assessment` : "Mixed assessment"} className="w-6 h-6" />
+              </div>
+              <div className="flex flex-col items-end gap-1.5 shrink-0">
+                <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold bg-primary/10 text-primary border border-primary/20 flex items-center gap-1">
+                  <GraduationCap className="w-3 h-3" />{formatSemesterScope(assessment.targetSemesters)}
+                </span>
+                <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${status === "Live" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" : status === "In Progress" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 animate-pulse" : status === "Upcoming" ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30" : status === "Expired" ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30" : "bg-muted text-muted-foreground border-border"}`}>{status}</span>
+              </div>
             </div>
-            <div className="flex flex-col items-end gap-1.5">
-              <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold bg-primary/10 text-primary border border-primary/20 flex items-center gap-1">
-                <GraduationCap className="w-3 h-3" />{formatSemesterScope(assessment.targetSemesters)}
-              </span>
-              <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${status === "Live" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" : status === "In Progress" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 animate-pulse" : status === "Upcoming" ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30" : status === "Expired" ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30" : "bg-muted text-muted-foreground border-border"}`}>{status}</span>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 min-h-[26px] items-center">
               {types.length ? types.map(type => <span key={type} className="text-xs bg-primary/5 text-primary border border-primary/15 px-2 py-0.5 rounded-md">{getQuestionTypeLabel(type)}</span>) : <span className="text-xs text-muted-foreground">{assessment.type || "Technical Assessment"}</span>}
               {assessment.targetSections && assessment.targetSections.length > 0 && <span className="text-xs bg-muted text-muted-foreground border border-border px-2 py-0.5 rounded-md">Sec: {assessment.targetSections.join(", ")}</span>}
               {assessment.targetGroups && assessment.targetGroups.length > 0 && <span className="text-xs bg-muted text-muted-foreground border border-border px-2 py-0.5 rounded-md">Grp: {assessment.targetGroups.join(", ")}</span>}
             </div>
-            <h2 className="text-lg font-bold leading-snug break-words">{assessment.title}</h2>
-            <p className="text-sm text-muted-foreground line-clamp-2 min-h-10">{assessment.description || "A technical assessment assigned to your account."}</p>
-          </div>
-          {(assessment.startTime || assessment.endTime) && (
-            <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 bg-muted/40 p-2 rounded-lg border border-border/50">
-              <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
-              <span>
-                {assessment.startTime ? formatAssessmentDateTime(assessment.startTime, "MMM D, h:mm A") : "Immediate"}
-                {" → "}
-                {assessment.endTime ? formatAssessmentDateTime(assessment.endTime, "MMM D, h:mm A") : "Open"}
-              </span>
+            <div className="space-y-1.5">
+              <h2 className="text-lg font-bold leading-snug break-words min-h-[3.25rem] line-clamp-2">{assessment.title}</h2>
+              <p className="text-sm text-muted-foreground line-clamp-2 min-h-[2.5rem]">{assessment.description || "A technical assessment assigned to your account."}</p>
             </div>
-          )}
-          <dl className="grid grid-cols-3 gap-2 border-y border-border py-4 text-sm">{[{ label: "Duration", value: `${assessment.durationMinutes} mins`, icon: Clock }, { label: "Questions", value: assessment.questionCount, icon: Layers }, { label: "Total marks", value: `${assessment.totalMarks} pts`, icon: Award }].map(({ label, value, icon: MetaIcon }) => <div key={label}><dt className="text-xs text-muted-foreground flex gap-1 items-center mb-1"><MetaIcon className="w-3.5 h-3.5 shrink-0" />{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl>
-          <div className="text-xs text-muted-foreground flex flex-wrap gap-3">
-            <span>{inProgress ? "Attempt in progress" : remainingAttempts}</span>
-            {levels.length > 0 && <span className="capitalize">Difficulty: {levels.length === 1 ? levels[0] : "Mixed"}</span>}
-            {assessment.proctoring && Object.values(assessment.proctoring).some(Boolean) && <span className="flex gap-1 items-center"><ShieldCheck className="w-3.5 h-3.5" /> Proctored</span>}
-            {assessment.code && <span className="font-mono">{assessment.code}</span>}
+            <div className="min-h-[38px] flex items-center">
+              {assessment.startTime || assessment.endTime ? (
+                <div className="w-full text-[11px] text-muted-foreground flex items-center gap-1.5 bg-muted/40 p-2 rounded-lg border border-border/50">
+                  <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <span className="truncate">
+                    {assessment.startTime ? formatAssessmentDateTime(assessment.startTime, "MMM D, h:mm A") : "Immediate"}
+                    {" → "}
+                    {assessment.endTime ? formatAssessmentDateTime(assessment.endTime, "MMM D, h:mm A") : "Open"}
+                  </span>
+                </div>
+              ) : (
+                <div className="w-full text-[11px] text-muted-foreground/75 flex items-center gap-1.5 bg-muted/20 px-2 py-1.5 rounded-lg border border-border/30">
+                  <Clock className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+                  <span>Flexible schedule · Available on demand</span>
+                </div>
+              )}
+            </div>
+            <dl className="grid grid-cols-3 gap-2 border-y border-border py-3.5 text-sm">{[{ label: "Duration", value: `${assessment.durationMinutes} mins`, icon: Clock }, { label: "Questions", value: assessment.questionCount, icon: Layers }, { label: "Total marks", value: `${assessment.totalMarks} pts`, icon: Award }].map(({ label, value, icon: MetaIcon }) => <div key={label}><dt className="text-xs text-muted-foreground flex gap-1 items-center mb-1"><MetaIcon className="w-3.5 h-3.5 shrink-0" />{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl>
+            <div className="text-xs text-muted-foreground flex flex-wrap gap-3 min-h-[20px] items-center">
+              <span>{inProgress ? "Attempt in progress" : remainingAttempts}</span>
+              {levels.length > 0 && <span className="capitalize">Difficulty: {levels.length === 1 ? levels[0] : "Mixed"}</span>}
+              {assessment.proctoring && Object.values(assessment.proctoring).some(Boolean) && <span className="flex gap-1 items-center"><ShieldCheck className="w-3.5 h-3.5" /> Proctored</span>}
+              {assessment.code && <span className="font-mono">{assessment.code}</span>}
+            </div>
           </div>
-          <footer className="mt-auto pt-2 space-y-3">
+          <footer className="mt-auto pt-3 space-y-3 border-t border-border/40">
             {completed && <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>Score: <strong>{assessment.attemptScore ?? 0} / {assessment.totalMarks} pts</strong></span><Link href={`/assessments/${id}/result`} className="font-semibold text-primary flex items-center gap-1 hover:underline"><BarChart3 className="w-4 h-4" />Scorecard</Link></div>}
             {inProgress && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground" aria-label="Assessment resume information">
               <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-primary" />Time left <strong className="font-mono text-sm text-foreground">{formatAssessmentTimeLeft(assessment.attemptExpiresAt, now)}</strong></span>

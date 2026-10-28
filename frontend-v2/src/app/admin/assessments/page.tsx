@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import Link from "next/link";
 import { 
   Plus, 
@@ -17,31 +17,72 @@ import {
   Trash2,
   RefreshCw,
   Edit3,
-  GraduationCap
+  GraduationCap,
+  X,
+  Loader2
 } from "lucide-react";
 import { adminAssessmentsAPI } from "@/config/api";
 
 export default function AdminAssessmentsPage() {
   const [assessments, setAssessments] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const searchRequestId = useRef(0);
 
-  const fetchAssessments = async () => {
-    setIsLoading(true);
+  // Debounce search input by 250ms to eliminate rapid firing & UI flickering
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const fetchAssessments = useCallback(async (searchQuery = debouncedSearch) => {
+    const currentReq = ++searchRequestId.current;
+    setIsSearching(true);
     try {
-      const res = await adminAssessmentsAPI.getAll({ search });
-      setAssessments(res.data.assessments || []);
+      const res = await adminAssessmentsAPI.getAll({ search: searchQuery || undefined });
+      if (currentReq === searchRequestId.current) {
+        setAssessments(res.data.assessments || []);
+      }
     } catch (err) {
       console.error("Failed to load assessments:", err);
     } finally {
-      setIsLoading(false);
+      if (currentReq === searchRequestId.current) {
+        setIsInitialLoading(false);
+        setIsSearching(false);
+      }
     }
-  };
+  }, [debouncedSearch]);
 
   useEffect(() => {
-    fetchAssessments();
-  }, [search]);
+    fetchAssessments(debouncedSearch);
+  }, [debouncedSearch, fetchAssessments]);
+
+  // Instant optimistic client-side filtering across already loaded items
+  const displayedAssessments = useMemo(() => {
+    if (!search.trim()) return assessments;
+    const q = search.trim().toLowerCase();
+    return assessments.filter((a) => {
+      const title = String(a.title || "").toLowerCase();
+      const code = String(a.code || "").toLowerCase();
+      const semester = Array.isArray(a.targetSemesters)
+        ? a.targetSemesters.join(" ").toLowerCase()
+        : "";
+      const section = Array.isArray(a.targetSections)
+        ? a.targetSections.join(" ").toLowerCase()
+        : "";
+      return (
+        title.includes(q) ||
+        code.includes(q) ||
+        semester.includes(q) ||
+        section.includes(q)
+      );
+    });
+  }, [assessments, search]);
 
   const handleCopyLink = (code: string, id: string) => {
     const url = `${window.location.origin}/assessments/${id}`;
@@ -109,50 +150,85 @@ export default function AdminAssessmentsPage() {
       {/* Search and Filters */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          {isSearching ? (
+            <Loader2 className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-primary animate-spin" />
+          ) : (
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          )}
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search assessments by title or test code..."
-            className="w-full pl-10 pr-4 py-2 bg-muted/40 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full pl-10 pr-10 py-2 bg-muted/40 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded-full transition-colors"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         <button
-          onClick={fetchAssessments}
+          type="button"
+          onClick={() => fetchAssessments(debouncedSearch)}
           className="p-2 border border-border hover:bg-muted text-muted-foreground hover:text-foreground rounded-xl text-xs font-medium transition-colors"
           title="Refresh List"
+          disabled={isSearching}
         >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw className={`w-4 h-4 ${isSearching ? "animate-spin text-primary" : ""}`} />
         </button>
       </div>
 
       {/* Assessments Grid */}
-      {isLoading ? (
+      {isInitialLoading ? (
         <div className="py-20 text-center text-muted-foreground text-sm">
           <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
           Loading assessments...
         </div>
-      ) : assessments.length === 0 ? (
-        <div className="text-center py-16 bg-card border border-border rounded-2xl p-8 space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center mx-auto">
-            <Layers className="w-6 h-6" />
+      ) : displayedAssessments.length === 0 ? (
+        search.trim() ? (
+          <div className="text-center py-16 bg-card border border-border rounded-2xl p-8 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-muted/60 border border-border text-muted-foreground flex items-center justify-center mx-auto">
+              <Search className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground">No Assessments Matched</h3>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              No assessments found matching &ldquo;{search}&rdquo;. Try checking the test code or title spelling.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-border text-foreground font-semibold rounded-xl text-xs hover:bg-muted transition-colors shadow-xs"
+            >
+              Clear Search Filter
+            </button>
           </div>
-          <h3 className="text-lg font-bold text-foreground">No Assessments Found</h3>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Get started by creating your first standardized university MCQ test from the Question Bank.
-          </p>
-          <Link
-            href="/admin/assessments/create"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground font-semibold rounded-xl text-sm hover:bg-primary/90 transition-colors shadow-md shadow-primary/20"
-          >
-            <Plus className="w-4 h-4" /> Create Assessment Now
-          </Link>
-        </div>
+        ) : (
+          <div className="text-center py-16 bg-card border border-border rounded-2xl p-8 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center mx-auto">
+              <Layers className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground">No Assessments Found</h3>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              Get started by creating your first standardized university MCQ test from the Question Bank.
+            </p>
+            <Link
+              href="/admin/assessments/create"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground font-semibold rounded-xl text-sm hover:bg-primary/90 transition-colors shadow-md shadow-primary/20"
+            >
+              <Plus className="w-4 h-4" /> Create Assessment Now
+            </Link>
+          </div>
+        )
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {assessments.map((test) => {
+        <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 transition-opacity duration-200 ${isSearching ? "opacity-75" : "opacity-100"}`}>
+          {displayedAssessments.map((test) => {
             const isLive = test.status === "published";
 
             return (

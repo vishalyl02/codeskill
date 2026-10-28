@@ -48,9 +48,16 @@ it("keeps category tabs dimensionally consistent through every category transiti
     const selected = screen.getByRole("tab", { name: category, exact: true });
     fireEvent.click(selected);
     expect(selected).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", selected.id);
+    const panel = screen.getByRole("tabpanel");
+    expect(panel).toHaveAttribute("aria-labelledby", selected.id);
+    expect(panel).toHaveClass("min-h-[580px]");
     const expected = category === "All Assessments" ? fixtures.length : category === "MCQs" ? 2 : 1;
-    expect(screen.getAllByRole("article")).toHaveLength(expected);
+    const cards = screen.getAllByRole("article");
+    expect(cards).toHaveLength(expected);
+    cards.forEach(card => {
+      expect(card).toHaveClass("min-h-[490px]");
+      expect(card).toHaveClass("h-full");
+    });
   }
 });
 it("supports keyboard navigation between category tabs", async () => {
