@@ -2,7 +2,7 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Code2, ListChecks, CheckSquare2, ToggleLeft, Terminal, Layers, Clock, Award, ArrowRight, ShieldCheck, Search, RefreshCw, BarChart3, GraduationCap, LockKeyhole } from "lucide-react";
+import { Code2, ListChecks, CheckSquare2, ToggleLeft, Terminal, Layers, Clock, Award, ArrowRight, ShieldCheck, Search, RefreshCw, BarChart3, GraduationCap, LockKeyhole, Calendar } from "lucide-react";
 import { studentAssessmentsAPI } from "@/config/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -116,7 +116,25 @@ export default function StudentAssessmentsPage() {
             <h2 className="text-lg font-bold leading-snug break-words">{assessment.title}</h2>
             <p className="text-sm text-muted-foreground line-clamp-2 min-h-10">{assessment.description || "A technical assessment assigned to your account."}</p>
           </div>
-          {(assessment.startTime || assessment.endTime) && (
+          {/* Batch Slot Information if Scheduled */}
+          {assessment.assignedSlot && (
+            <div className="text-[11px] bg-primary/5 text-primary border border-primary/20 p-2.5 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
+                <div>
+                  <span className="font-bold">{assessment.assignedSlot.name || `Slot ${assessment.assignedSlot.slotCode}`}</span>
+                  <span className="text-muted-foreground ml-1.5 font-normal">
+                    {assessment.assignedSlot.date} &bull; {assessment.assignedSlot.startTime} - {assessment.assignedSlot.endTime}
+                  </span>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 px-2 py-0.5 rounded-md">
+                Assigned
+              </span>
+            </div>
+          )}
+
+          {(assessment.startTime || assessment.endTime) && !assessment.assignedSlot && (
             <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 bg-muted/40 p-2 rounded-lg border border-border/50">
               <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
               <span>
@@ -139,7 +157,20 @@ export default function StudentAssessmentsPage() {
               <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-primary" />Time left <strong className="font-mono text-sm text-foreground">{formatAssessmentTimeLeft(assessment.attemptExpiresAt, now)}</strong></span>
               <span>Resumes left <strong className="font-mono text-sm text-foreground">{resumesLeft} / {assessment.maxResumeAttempts ?? 3}</strong></span>
             </div>}
-            {canAttempt ? completed ? <Button className="w-full" onClick={() => retake(id)}>Re-attempt</Button> : <Link href={`/assessments/${id}`} className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg bg-foreground text-background font-semibold text-sm hover:opacity-90">{inProgress ? "Resume Assessment" : "Attempt Now"}<ArrowRight className="w-4 h-4" /></Link> : <Button variant="outline" className="w-full" disabled>{inProgress && resumeExpired ? "Time expired" : inProgress && resumesLeft <= 0 ? "Resume limit reached" : status === "Upcoming" ? "Opens at the scheduled start time" : "Assessment closed"}</Button>}
+            {canAttempt ? (
+              completed ? (
+                <Button className="w-full" onClick={() => retake(id)}>Re-attempt</Button>
+              ) : (
+                <Link href={`/assessments/${id}`} className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg bg-foreground text-background font-semibold text-sm hover:opacity-90">
+                  {inProgress ? "Resume Assessment" : "Attempt Now"}
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              )
+            ) : (
+              <Button variant="outline" className="w-full" disabled>
+                {assessment.unavailabilityReason || (inProgress && resumeExpired ? "Time expired" : inProgress && resumesLeft <= 0 ? "Resume limit reached" : status === "Upcoming" ? "Opens at the scheduled start time" : "Assessment closed")}
+              </Button>
+            )}
           </footer>
         </article>;
       })}</div>}</div>

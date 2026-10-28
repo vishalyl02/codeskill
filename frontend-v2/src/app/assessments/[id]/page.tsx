@@ -389,6 +389,11 @@ export default function AssessmentBriefingPage({
                   <span className="text-[10px] uppercase font-bold tracking-wide text-muted-foreground">Candidate</span>
                   <div className="mt-1 text-sm font-bold text-foreground">{user.name}</div>
                   <div className="text-xs font-mono text-primary font-semibold">{user.uid}</div>
+                  {assessment.assignedSlot && (
+                    <div className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                      Scheduled Slot: {assessment.assignedSlot.name || assessment.assignedSlot.slotCode} ({assessment.assignedSlot.startTime} - {assessment.assignedSlot.endTime})
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -628,7 +633,9 @@ export default function AssessmentBriefingPage({
           ) : (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
               <span className="text-xs text-muted-foreground">
-                {resumeUnavailable
+                {assessment.unavailabilityReason
+                  ? assessment.unavailabilityReason
+                  : resumeUnavailable
                   ? resumeExpired ? "This attempt has run out of time." : "All three resume opportunities have been used."
                   : !canStartInWindow
                   ? "This assessment is currently not accepting new attempts."
