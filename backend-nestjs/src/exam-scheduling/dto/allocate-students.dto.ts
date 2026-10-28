@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsArray,
   IsBoolean,
+  IsNumber,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -13,6 +14,8 @@ export type AllocationStrategy =
   | 'sequential'
   | 'section_grouped'
   | 'random';
+
+export type AllocationSortBy = 'uid' | 'name' | 'section';
 
 export class AllocateStudentsDto {
   @ApiProperty({
@@ -30,6 +33,47 @@ export class AllocateStudentsDto {
   @IsOptional()
   @IsArray()
   slotIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Specific student user UUIDs or UIDs to allocate (omit to allocate all unassigned eligible students)',
+  })
+  @IsOptional()
+  @IsArray()
+  studentIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Specific assignment UUIDs to allocate',
+  })
+  @IsOptional()
+  @IsArray()
+  assignmentIds?: string[];
+
+  @ApiPropertyOptional({
+    enum: ['uid', 'name', 'section'],
+    default: 'uid',
+    description: 'Ordering to apply before distributing students across slots',
+  })
+  @IsOptional()
+  @IsEnum(['uid', 'name', 'section'])
+  sortBy?: AllocationSortBy = 'uid';
+
+  @ApiPropertyOptional({
+    description: 'Configurable maximum number of students per slot for this allocation',
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value !== undefined && value !== null ? Number(value) : undefined))
+  @IsNumber()
+  perSlotCount?: number;
+
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Whether to simulate allocation and return preview calculation without committing changes',
+  })
+  @IsOptional()
+  @IsBoolean()
+  previewOnly?: boolean = false;
 
   @ApiPropertyOptional({
     default: false,
@@ -60,6 +104,11 @@ export class ReassignStudentSlotDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @ApiPropertyOptional({ description: 'Force reassignment even if student attempt has started (advanced exception)' })
+  @IsOptional()
+  @IsBoolean()
+  forceImmediate?: boolean = false;
 }
 
 export class BatchReassignSlotDto {
@@ -84,4 +133,9 @@ export class BatchReassignSlotDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @ApiPropertyOptional({ description: 'Force reassignment even if student attempt has started (advanced exception)' })
+  @IsOptional()
+  @IsBoolean()
+  forceImmediate?: boolean = false;
 }

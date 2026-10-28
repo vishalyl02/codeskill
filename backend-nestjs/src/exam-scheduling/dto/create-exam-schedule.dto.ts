@@ -49,6 +49,41 @@ export class ExamScheduleConfigDto {
   @IsOptional()
   @IsBoolean()
   strictTimeBoundary?: boolean = true;
+
+  @ApiPropertyOptional({ description: 'Schedule start date (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: 'Schedule end date (YYYY-MM-DD, inclusive)' })
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @ApiPropertyOptional({ enum: ['slotted', 'flexible'], default: 'slotted' })
+  @IsOptional()
+  @IsString()
+  scheduleMode?: 'slotted' | 'flexible' = 'slotted';
+
+  @ApiPropertyOptional({ default: false, description: 'Allow flexible access without individual slots' })
+  @IsOptional()
+  @IsBoolean()
+  isFlexibleAvailability?: boolean = false;
+
+  @ApiPropertyOptional({ description: 'Flexible availability window opening timestamp (ISO string)' })
+  @IsOptional()
+  @IsString()
+  flexibleWindowStart?: string;
+
+  @ApiPropertyOptional({ description: 'Flexible availability window closing timestamp (ISO string)' })
+  @IsOptional()
+  @IsString()
+  flexibleWindowEnd?: string;
+
+  @ApiPropertyOptional({ default: 15, description: 'Completion grace period in minutes' })
+  @IsOptional()
+  @IsNumber()
+  completionGracePeriodMinutes?: number = 15;
 }
 
 export class CreateExamScheduleDto {

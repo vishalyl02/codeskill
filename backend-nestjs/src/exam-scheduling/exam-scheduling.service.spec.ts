@@ -87,6 +87,7 @@ describe('ExamSchedulingService', () => {
           create: jest.fn((_, dto) => ({ id: 'assign-uuid-chunk', ...dto })),
           save: jest.fn((entity) => Promise.resolve(entity)),
           count: jest.fn().mockResolvedValue(10),
+          update: jest.fn().mockResolvedValue({ affected: 1 }),
         };
         return callback(manager);
       }),
@@ -228,6 +229,92 @@ describe('ExamSchedulingService', () => {
 
       expect(slots.length).toBe(6); // 3 slots * 2 days = 6 slots
     });
+
+    it('generates inclusive 3-day exam slots across 28, 29, and 30 October 2026 without off-by-one errors', async () => {
+      scheduleRepo.findOne.mockResolvedValue({ id: 'schedule-uuid' });
+      slotRepo.find.mockResolvedValue([]);
+
+      const slots = await service.autoGenerateSlots(
+        'schedule-uuid',
+        {
+          startDate: '2026-10-28',
+          endDate: '2026-10-30',
+          dailyStartTime: '09:30',
+          slotDurationMinutes: 200,
+          gapMinutes: 0,
+          capacityPerSlot: 150,
+          slotsPerDay: 2,
+          namePrefix: 'Batch Slot',
+        },
+        { id: 'admin-id' },
+      );
+
+      expect(slots.length).toBe(6); // 2 slots * 3 days = 6 slots
+      const dates = slots.map((s) => s.date);
+      expect(dates).toEqual([
+        '2026-10-28',
+        '2026-10-28',
+        '2026-10-29',
+        '2026-10-29',
+        '2026-10-30',
+        '2026-10-30',
+      ]);
+      expect(dates).not.toContain('2026-10-27');
+      expect(dates).not.toContain('2026-10-31');
+      expect(slots[0].capacity).toBe(150);
+      expect(slots[0].slotCode).toBe('SLOT-01');
+      expect(slots[5].slotCode).toBe('SLOT-06');
+    });
+
+    it('copies a day slot configuration to target dates without duplicating existing slots', async () => {
+      scheduleRepo.findOne.mockResolvedValue({ id: 'schedule-uuid' });
+
+      // Mock source slots on 2026-10-28
+      const sourceSlots = [
+        {
+          id: 's-1',
+          name: 'Slot 1 (Morning)',
+          slotCode: 'SLOT-01',
+          date: '2026-10-28',
+          startTime: new Date('2026-10-28T04:00:00Z'),
+          endTime: new Date('2026-10-28T07:20:00Z'),
+          capacity: 250,
+          roomOrLab: 'Lab A',
+          status: 'scheduled',
+        },
+        {
+          id: 's-2',
+          name: 'Slot 2 (Afternoon)',
+          slotCode: 'SLOT-02',
+          date: '2026-10-28',
+          startTime: new Date('2026-10-28T07:20:00Z'),
+          endTime: new Date('2026-10-28T10:40:00Z'),
+          capacity: 250,
+          roomOrLab: 'Lab B',
+          status: 'scheduled',
+        },
+      ];
+
+      // First find call: for sourceDate; second call: all slots for existing check
+      slotRepo.find
+        .mockResolvedValueOnce(sourceSlots)
+        .mockResolvedValueOnce([...sourceSlots]);
+
+      const copied = await service.copyDaySlots(
+        'schedule-uuid',
+        {
+          sourceDate: '2026-10-28',
+          targetDates: ['2026-10-29', '2026-10-30'],
+        },
+        { id: 'admin-id' },
+      );
+
+      expect(copied.length).toBe(4); // 2 slots * 2 target days = 4 slots
+      const copiedDates = copied.map((s) => s.date);
+      expect(copiedDates).toContain('2026-10-29');
+      expect(copiedDates).toContain('2026-10-30');
+      expect(copiedDates).not.toContain('2026-10-28');
+    });
   });
 
   describe('CSV Validation', () => {
@@ -277,6 +364,121 @@ describe('ExamSchedulingService', () => {
       );
 
       expect(result.allocatedCount).toBe(3);
+    });
+
+    it('calculates allocation preview without committing to DB', async () => {
+      scheduleRepo.findOne.mockResolvedValue({
+        id: 'schedule-uuid',
+        config: { earlyAccessMinutes: 5, gracePeriodMinutes: 5 },
+      });
+
+      slotRepo.find.mockResolvedValue([
+        { id: 'slot-1', name: 'Slot 1', capacity: 2, assignedCount: 0, startTime: new Date(), endTime: new Date() },
+        { id: 'slot-2', name: 'Slot 2', capacity: 2, assignedCount: 0, startTime: new Date(), endTime: new Date() },
+      ]);
+
+      assignmentRepo.find.mockResolvedValue([
+        { id: 'a1', studentUid: '101', status: 'eligible' },
+        { id: 'a2', studentUid: '102', status: 'eligible' },
+        { id: 'a3', studentUid: '103', status: 'eligible' },
+      ]);
+
+      const result = await service.allocateStudentsToSlots(
+        'schedule-uuid',
+        { strategy: 'balanced', previewOnly: true },
+        { id: 'admin-id' },
+      );
+
+      expect(result.preview).toBe(true);
+      expect(result.allocatedCount).toBe(3);
+      expect(result.slots.length).toBe(2);
+      expect(result.unassignedCount).toBe(0);
+    });
+
+    it('bulk reassigns students to destination slot and updates counts', async () => {
+      scheduleRepo.findOne.mockResolvedValue({
+        id: 'schedule-uuid',
+        config: { earlyAccessMinutes: 5, gracePeriodMinutes: 5 },
+      });
+
+      slotRepo.findOne.mockResolvedValue({
+        id: 'dest-slot',
+        name: 'Afternoon Slot',
+        capacity: 100,
+        assignedCount: 10,
+        startTime: new Date(),
+        endTime: new Date(),
+      });
+
+      assignmentRepo.find.mockResolvedValue([
+        { id: 'a1', studentId: 's1', studentUid: 'U1', slotId: 'old-slot', status: 'assigned' },
+        { id: 'a2', studentId: 's2', studentUid: 'U2', slotId: 'old-slot', status: 'assigned' },
+      ]);
+
+      assignmentRepo.count.mockResolvedValue(12);
+
+      const result = await service.bulkReassignSlot(
+        'schedule-uuid',
+        {
+          assignmentIds: ['a1', 'a2'],
+          targetSlotId: 'dest-slot',
+          reason: 'Emergency reschedule',
+        },
+        { id: 'admin-id', email: 'admin@test.com', role: 'admin' },
+      );
+
+      expect(result.reassignedCount).toBe(2);
+      expect(result.skippedCount).toBe(0);
+      expect(result.targetSlot.id).toBe('dest-slot');
+    });
+
+    it('rejects bulk reassign when destination slot capacity is exceeded', async () => {
+      scheduleRepo.findOne.mockResolvedValue({ id: 'schedule-uuid' });
+
+      slotRepo.findOne.mockResolvedValue({
+        id: 'dest-slot',
+        name: 'Full Slot',
+        capacity: 2,
+        assignedCount: 2,
+        startTime: new Date(),
+        endTime: new Date(),
+      });
+
+      assignmentRepo.find.mockResolvedValue([
+        { id: 'a1', studentId: 's1', studentUid: 'U1', slotId: 'other-slot', status: 'assigned' },
+      ]);
+
+      assignmentRepo.count.mockResolvedValue(2); // remaining capacity is 0
+
+      await expect(
+        service.bulkReassignSlot(
+          'schedule-uuid',
+          {
+            assignmentIds: ['a1'],
+            targetSlotId: 'dest-slot',
+          },
+          { id: 'admin-id' },
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('bulk revokes access and refreshes affected slot capacity', async () => {
+      assignmentRepo.find.mockResolvedValue([
+        { id: 'a1', studentId: 's1', studentUid: 'U1', slotId: 'slot-1', status: 'assigned' },
+        { id: 'a2', studentId: 's2', studentUid: 'U2', slotId: 'slot-1', status: 'assigned' },
+      ]);
+      assignmentRepo.count.mockResolvedValue(0);
+
+      const result = await service.revokeAccess(
+        'schedule-uuid',
+        {
+          assignmentIds: ['a1', 'a2'],
+          reason: 'Academic violation',
+        },
+        { id: 'admin-id', email: 'admin@test.com', role: 'admin' },
+      );
+
+      expect(result.revokedCount).toBe(2);
     });
 
     it('blocks student access when revoked', async () => {
@@ -359,6 +561,118 @@ describe('ExamSchedulingService', () => {
 
       expect(verification.isAllowed).toBe(true);
       expect(verification.slot).toBeDefined();
+    });
+
+    it('allocates large student population of 3,000 students evenly across 6 multi-day slots', async () => {
+      scheduleRepo.findOne.mockResolvedValue({
+        id: '00000000-0000-0000-0000-000000000001',
+        config: { earlyAccessMinutes: 5, gracePeriodMinutes: 5 },
+      });
+
+      // 6 slots (2 slots/day across 3 days) each with capacity 500 (total capacity: 3,000)
+      const slots = [
+        { id: 'slot-1', date: '2026-10-28', capacity: 500, assignedCount: 0, startTime: new Date(), endTime: new Date() },
+        { id: 'slot-2', date: '2026-10-28', capacity: 500, assignedCount: 0, startTime: new Date(), endTime: new Date() },
+        { id: 'slot-3', date: '2026-10-29', capacity: 500, assignedCount: 0, startTime: new Date(), endTime: new Date() },
+        { id: 'slot-4', date: '2026-10-29', capacity: 500, assignedCount: 0, startTime: new Date(), endTime: new Date() },
+        { id: 'slot-5', date: '2026-10-30', capacity: 500, assignedCount: 0, startTime: new Date(), endTime: new Date() },
+        { id: 'slot-6', date: '2026-10-30', capacity: 500, assignedCount: 0, startTime: new Date(), endTime: new Date() },
+      ];
+      slotRepo.find.mockResolvedValue(slots);
+
+      // Generate 3,000 eligible students
+      const eligibleStudents = Array.from({ length: 3000 }, (_, i) => ({
+        id: `assign-${i + 1}`,
+        studentUid: `UID-${String(i + 1).padStart(5, '0')}`,
+        status: 'eligible',
+      }));
+      assignmentRepo.find.mockResolvedValue(eligibleStudents);
+
+      const result = await service.allocateStudentsToSlots(
+        '00000000-0000-0000-0000-000000000001',
+        { strategy: 'balanced', previewOnly: true },
+        { id: 'admin-id' },
+      );
+
+      expect(result.allocatedCount).toBe(3000);
+      expect(result.slots.length).toBe(6);
+      for (const slotSummary of result.slots) {
+        expect(slotSummary.proposedCount).toBe(500);
+      }
+    });
+
+    it('calculates multi-day perDayOccupancy and flexible access counts in findScheduleById', async () => {
+      const scheduleUuid = '00000000-0000-0000-0000-000000000001';
+      scheduleRepo.findOne.mockResolvedValue({
+        id: scheduleUuid,
+        title: '3-Day Comprehensive Assessment',
+        totalEligibleStudents: 900,
+        config: {
+          scheduleMode: 'flexible',
+          isFlexibleAvailability: true,
+          startDate: '2026-10-28',
+          endDate: '2026-10-30',
+        },
+      });
+
+      const slots = [
+        { id: 's1', date: '2026-10-28', capacity: 150, assignedCount: 150 },
+        { id: 's2', date: '2026-10-28', capacity: 150, assignedCount: 150 },
+        { id: 's3', date: '2026-10-29', capacity: 150, assignedCount: 150 },
+        { id: 's4', date: '2026-10-29', capacity: 150, assignedCount: 150 },
+        { id: 's5', date: '2026-10-30', capacity: 150, assignedCount: 150 },
+        { id: 's6', date: '2026-10-30', capacity: 150, assignedCount: 150 },
+      ];
+      slotRepo.find.mockResolvedValue(slots);
+
+      const mockQb = {
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn().mockResolvedValue([
+          { slotId: 's1', count: '150' },
+          { slotId: 's2', count: '150' },
+          { slotId: 's3', count: '150' },
+          { slotId: 's4', count: '150' },
+          { slotId: 's5', count: '150' },
+          { slotId: 's6', count: '150' },
+        ]),
+      };
+      assignmentRepo.createQueryBuilder.mockReturnValue(mockQb);
+
+      assignmentRepo.count
+        .mockResolvedValueOnce(900) // totalAssignedStudents
+        .mockResolvedValueOnce(900) // assignedWithSlotCount
+        .mockResolvedValueOnce(0);  // flexibleAccessCount
+
+      const scheduleWithDetails = await service.findScheduleById(scheduleUuid);
+
+      expect(scheduleWithDetails.slotsCount).toBe(6);
+      expect(scheduleWithDetails.totalSlotCapacity).toBe(900);
+      expect(scheduleWithDetails.totalAssignedStudents).toBe(900);
+      expect(scheduleWithDetails.unallocatedStudents).toBe(0);
+
+      // Verify perDayOccupancy
+      expect(scheduleWithDetails.perDayOccupancy).toBeDefined();
+      expect(scheduleWithDetails.perDayOccupancy['2026-10-28']).toEqual({
+        date: '2026-10-28',
+        slotsCount: 2,
+        totalCapacity: 300,
+        assignedCount: 300,
+      });
+      expect(scheduleWithDetails.perDayOccupancy['2026-10-29']).toEqual({
+        date: '2026-10-29',
+        slotsCount: 2,
+        totalCapacity: 300,
+        assignedCount: 300,
+      });
+      expect(scheduleWithDetails.perDayOccupancy['2026-10-30']).toEqual({
+        date: '2026-10-30',
+        slotsCount: 2,
+        totalCapacity: 300,
+        assignedCount: 300,
+      });
     });
   });
 

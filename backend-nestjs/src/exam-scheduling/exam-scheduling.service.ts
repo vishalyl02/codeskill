@@ -7,7 +7,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In, Like, Raw } from 'typeorm';
+import { Repository, DataSource, In, Like, Raw, Not, IsNull } from 'typeorm';
 import {
   ExamSchedule,
   ExamScheduleConfig,
@@ -229,13 +229,74 @@ export class ExamSchedulingService {
       order: { startTime: 'ASC' },
     });
 
+    // Recalibrate live slot assignment counts from database
+    if (slots.length > 0) {
+      const slotCounts = await this.assignmentRepo
+        .createQueryBuilder('a')
+        .select('a.slotId', 'slotId')
+        .addSelect('COUNT(a.id)', 'count')
+        .where('a.scheduleId = :id AND a.slotId IS NOT NULL AND a.status != :revoked', {
+          id,
+          revoked: 'revoked',
+        })
+        .groupBy('a.slotId')
+        .getRawMany();
+
+      const countMap = new Map<string, number>();
+      for (const sc of slotCounts) {
+        if (sc.slotId) {
+          countMap.set(sc.slotId, parseInt(sc.count, 10) || 0);
+        }
+      }
+
+      for (const slot of slots) {
+        const liveCount = countMap.get(slot.id) ?? 0;
+        if (slot.assignedCount !== liveCount) {
+          slot.assignedCount = liveCount;
+          await this.slotRepo.update({ id: slot.id }, { assignedCount: liveCount });
+        }
+      }
+    }
+
     const totalSlotCapacity = slots.reduce((acc, s) => acc + (s.capacity || 0), 0);
+
+    // Multi-day per-day occupancy breakdown
+    const perDayOccupancy: Record<string, { date: string; slotsCount: number; totalCapacity: number; assignedCount: number }> = {};
+    for (const slot of slots) {
+      if (!perDayOccupancy[slot.date]) {
+        perDayOccupancy[slot.date] = {
+          date: slot.date,
+          slotsCount: 0,
+          totalCapacity: 0,
+          assignedCount: 0,
+        };
+      }
+      perDayOccupancy[slot.date].slotsCount++;
+      perDayOccupancy[slot.date].totalCapacity += slot.capacity || 0;
+      perDayOccupancy[slot.date].assignedCount += slot.assignedCount || 0;
+    }
+
+    const totalAssignedStudents = await this.assignmentRepo.count({
+      where: { scheduleId: id, status: Not('revoked') },
+    });
+    const assignedWithSlotCount = await this.assignmentRepo.count({
+      where: { scheduleId: id, status: Not('revoked'), slotId: Not(IsNull()) },
+    });
+    const flexibleAccessCount = await this.assignmentRepo.count({
+      where: { scheduleId: id, status: Not('revoked'), slotId: IsNull() },
+    });
+    const unallocatedStudents = Math.max(0, (schedule.totalEligibleStudents || 0) - assignedWithSlotCount);
 
     return {
       ...schedule,
       slots,
       slotsCount: slots.length,
       totalSlotCapacity,
+      totalAssignedStudents,
+      assignedWithSlotCount,
+      unallocatedStudents,
+      flexibleAccessCount,
+      perDayOccupancy,
     };
   }
 
@@ -448,52 +509,88 @@ export class ExamSchedulingService {
     }
 
     const createdSlots: ExamSlot[] = [];
-    const baseDate = new Date(dto.startDate);
+
+    // Inclusive date range calculation (e.g. 28 Oct to 30 Oct -> 28, 29, 30 Oct)
+    const [startY, startM, startD] = dto.startDate.split('-').map(Number);
+    const dates: string[] = [];
+
+    if (dto.endDate) {
+      const [endY, endM, endD] = dto.endDate.split('-').map(Number);
+      const curr = new Date(Date.UTC(startY, startM - 1, startD));
+      const endDt = new Date(Date.UTC(endY, endM - 1, endD));
+      while (curr.getTime() <= endDt.getTime() && dates.length < 14) {
+        dates.push(curr.toISOString().split('T')[0]);
+        curr.setUTCDate(curr.getUTCDate() + 1);
+      }
+    } else {
+      const days = Math.max(1, Math.min(14, dto.totalDays ?? 1));
+      for (let i = 0; i < days; i++) {
+        const dt = new Date(Date.UTC(startY, startM - 1, startD + i));
+        dates.push(dt.toISOString().split('T')[0]);
+      }
+    }
 
     const [startHour, startMinute] = dto.dailyStartTime.split(':').map(Number);
-    const totalDays = Math.max(1, Math.min(14, dto.totalDays ?? 1));
     const slotsPerDay = Math.max(1, Math.min(10, dto.slotsPerDay ?? 4));
     const slotDuration = Math.max(15, Math.min(360, dto.slotDurationMinutes ?? 60));
     const gapMinutes = Math.max(0, Math.min(240, dto.gapMinutes ?? dto.breakDurationMinutes ?? 30));
     const capacityPerSlot = Math.max(1, dto.capacityPerSlot ?? 300);
     const prefix = dto.namePrefix || dto.slotPrefix || 'Slot';
 
-    for (let day = 0; day < totalDays; day++) {
-      const currentDay = new Date(baseDate);
-      currentDay.setDate(currentDay.getDate() + day);
-      const dateStr = currentDay.toISOString().split('T')[0];
+    const existingSlots = await this.slotRepo.find({ where: { scheduleId } });
+    let maxSlotNum = 0;
+    for (const es of existingSlots) {
+      const match = es.slotCode?.match(/SLOT-(\d+)/i);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxSlotNum) maxSlotNum = n;
+      }
+    }
+
+    for (let day = 0; day < dates.length; day++) {
+      const dateStr = dates[day];
+      const [y, m, d] = dateStr.split('-').map(Number);
 
       let slotStartMinutes = startHour * 60 + startMinute;
 
       for (let s = 1; s <= slotsPerDay; s++) {
-        const slotStart = new Date(currentDay);
-        slotStart.setHours(Math.floor(slotStartMinutes / 60), slotStartMinutes % 60, 0, 0);
-
+        const slotStart = new Date(y, m - 1, d, Math.floor(slotStartMinutes / 60), slotStartMinutes % 60, 0, 0);
         const slotEndMinutes = slotStartMinutes + slotDuration;
-        const slotEnd = new Date(currentDay);
-        slotEnd.setHours(Math.floor(slotEndMinutes / 60), slotEndMinutes % 60, 0, 0);
+        const slotEnd = new Date(y, m - 1, d, Math.floor(slotEndMinutes / 60), slotEndMinutes % 60, 0, 0);
 
-        const slotIndex = day * slotsPerDay + s;
-        const codeNum = String(slotIndex).padStart(2, '0');
+        // Avoid creating duplicate slots on the same date with identical timings
+        const alreadyExists = existingSlots.some(
+          (es) =>
+            es.date === dateStr &&
+            new Date(es.startTime).getTime() === slotStart.getTime() &&
+            new Date(es.endTime).getTime() === slotEnd.getTime(),
+        );
 
-        const slot = this.slotRepo.create({
-          scheduleId,
-          name: `${prefix} ${slotIndex} (Day ${day + 1})`,
-          slotCode: `SLOT-${codeNum}`,
-          date: dateStr,
-          startTime: slotStart,
-          endTime: slotEnd,
-          capacity: capacityPerSlot,
-          assignedCount: 0,
-          status: 'scheduled',
-        });
+        if (!alreadyExists) {
+          const slotNum = ++maxSlotNum;
+          const codeNum = String(slotNum).padStart(2, '0');
 
-        createdSlots.push(slot);
+          const slot = this.slotRepo.create({
+            scheduleId,
+            name: `${prefix} ${s} (Day ${day + 1} - ${dateStr})`,
+            slotCode: `SLOT-${codeNum}`,
+            date: dateStr,
+            startTime: slotStart,
+            endTime: slotEnd,
+            capacity: capacityPerSlot,
+            assignedCount: 0,
+            status: 'scheduled',
+          });
+
+          createdSlots.push(slot);
+          existingSlots.push(slot);
+        }
+
         slotStartMinutes = slotEndMinutes + gapMinutes;
       }
     }
 
-    const saved = await this.slotRepo.save(createdSlots);
+    const saved = createdSlots.length > 0 ? await this.slotRepo.save(createdSlots) : [];
 
     await this.logAudit({
       scheduleId,
@@ -501,11 +598,97 @@ export class ExamSchedulingService {
       actorEmail: user?.email || 'admin@codeskill.ac.in',
       actorRole: user?.role || 'admin',
       action: 'SLOTS_AUTO_GENERATED',
-      reason: `Auto-generated ${saved.length} slots across ${dto.totalDays} days with capacity ${dto.capacityPerSlot} each`,
-      newState: { slotsCount: saved.length },
+      reason: `Auto-generated ${saved.length} slots across ${dates.length} days (${dates.join(', ')}) with capacity ${capacityPerSlot} each`,
+      newState: { slotsCount: saved.length, dates },
     });
 
     return saved;
+  }
+
+  async copyDaySlots(
+    scheduleId: string,
+    dto: { sourceDate: string; targetDates: string[] },
+    user: any,
+  ): Promise<ExamSlot[]> {
+    const schedule = await this.scheduleRepo.findOne({ where: { id: scheduleId } });
+    if (!schedule) {
+      throw new NotFoundException(`Schedule with ID "${scheduleId}" not found`);
+    }
+
+    const sourceSlots = await this.slotRepo.find({
+      where: { scheduleId, date: dto.sourceDate },
+      order: { startTime: 'ASC' },
+    });
+
+    if (sourceSlots.length === 0) {
+      throw new NotFoundException(`No existing slots found on source date "${dto.sourceDate}"`);
+    }
+
+    const existingSlots = await this.slotRepo.find({ where: { scheduleId } });
+    let maxSlotNum = 0;
+    for (const es of existingSlots) {
+      const match = es.slotCode?.match(/SLOT-(\d+)/i);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxSlotNum) maxSlotNum = n;
+      }
+    }
+
+    const newSlots: ExamSlot[] = [];
+
+    for (const targetDate of dto.targetDates) {
+      if (targetDate === dto.sourceDate) continue;
+      const [ty, tm, td] = targetDate.split('-').map(Number);
+
+      for (let i = 0; i < sourceSlots.length; i++) {
+        const src = sourceSlots[i];
+        const srcStart = new Date(src.startTime);
+        const srcEnd = new Date(src.endTime);
+
+        const targetStart = new Date(ty, tm - 1, td, srcStart.getHours(), srcStart.getMinutes(), 0, 0);
+        const targetEnd = new Date(ty, tm - 1, td, srcEnd.getHours(), srcEnd.getMinutes(), 0, 0);
+
+        const alreadyExists = existingSlots.some(
+          (es) =>
+            es.date === targetDate &&
+            new Date(es.startTime).getTime() === targetStart.getTime() &&
+            new Date(es.endTime).getTime() === targetEnd.getTime(),
+        );
+
+        if (!alreadyExists) {
+          const slotNum = ++maxSlotNum;
+          const clonedSlot = this.slotRepo.create({
+            scheduleId,
+            name: `${src.name.replace(/\(.*?\)/g, '').trim()} (${targetDate})`,
+            slotCode: `SLOT-${String(slotNum).padStart(2, '0')}`,
+            date: targetDate,
+            startTime: targetStart,
+            endTime: targetEnd,
+            capacity: src.capacity,
+            assignedCount: 0,
+            status: 'scheduled',
+            roomOrLab: src.roomOrLab,
+          });
+          newSlots.push(clonedSlot);
+          existingSlots.push(clonedSlot);
+        }
+      }
+    }
+
+    if (newSlots.length > 0) {
+      await this.slotRepo.save(newSlots);
+      await this.logAudit({
+        scheduleId,
+        actorId: user?.id,
+        actorEmail: user?.email || 'admin@codeskill.ac.in',
+        actorRole: user?.role || 'admin',
+        action: 'SLOTS_COPIED',
+        reason: `Copied ${sourceSlots.length} slots from ${dto.sourceDate} to ${dto.targetDates.join(', ')} (${newSlots.length} slots created)`,
+        newState: { copiedCount: newSlots.length, targetDates: dto.targetDates },
+      });
+    }
+
+    return newSlots;
   }
 
   async updateSlot(
@@ -951,7 +1134,8 @@ export class ExamSchedulingService {
     }
 
     let targetSlot: ExamSlot | null = null;
-    if (dto.targetSlotId) {
+    const isDistribute = dto.autoDistribute === true || dto.targetSlotId === 'distribute';
+    if (dto.targetSlotId && !isDistribute) {
       targetSlot = await this.slotRepo.findOne({
         where: { id: dto.targetSlotId, scheduleId },
       });
@@ -965,6 +1149,8 @@ export class ExamSchedulingService {
 
     let newlyAssigned = 0;
     const batchSize = 500;
+    const affectedSlotIds = new Set<string>();
+    if (targetSlot) affectedSlotIds.add(targetSlot.id);
 
     // Process in bounded batches for scale (3,000+ students)
     for (let i = 0; i < candidateStudents.length; i += batchSize) {
@@ -1011,18 +1197,52 @@ export class ExamSchedulingService {
 
             await manager.save(assignment);
             newlyAssigned++;
+          } else {
+            // Existing student already in schedule
+            if (targetSlot && existing.slotId !== targetSlot.id) {
+              const prevSlotId = existing.slotId;
+              existing.slotId = targetSlot.id;
+              existing.status = 'assigned';
+              existing.accessWindowStart = windowStart;
+              existing.accessWindowEnd = windowEnd;
+              await manager.save(existing);
+              newlyAssigned++;
+              if (prevSlotId) affectedSlotIds.add(prevSlotId);
+            } else if (!targetSlot && existing.status === 'revoked') {
+              existing.status = 'eligible';
+              await manager.save(existing);
+              newlyAssigned++;
+            }
           }
         }
       });
     }
 
-    // Refresh assigned counts
-    if (targetSlot) {
+    // If auto-distribute was requested, balance all matching candidate students across available slots
+    if (isDistribute) {
+      const studentIds = candidateStudents.map((s) => s.id);
+      const allocResult = await this.allocateStudentsToSlots(
+        scheduleId,
+        {
+          strategy: 'balanced',
+          sortBy: 'uid',
+          studentIds,
+        },
+        user,
+      );
+      return {
+        assigned: allocResult.allocated,
+        assignedCount: allocResult.allocated,
+        totalEligible: await this.refreshScheduleStudentCounts(scheduleId),
+      };
+    }
+
+    // Refresh assigned counts on all affected slots
+    for (const sId of affectedSlotIds) {
       const slotCount = await this.assignmentRepo.count({
-        where: { slotId: targetSlot.id },
+        where: { slotId: sId, status: Not('revoked') },
       });
-      targetSlot.assignedCount = slotCount;
-      await this.slotRepo.save(targetSlot);
+      await this.slotRepo.update({ id: sId }, { assignedCount: slotCount });
     }
 
     const totalEligible = await this.refreshScheduleStudentCounts(scheduleId);
@@ -1033,7 +1253,7 @@ export class ExamSchedulingService {
       actorEmail: user?.email || 'admin@codeskill.ac.in',
       actorRole: user?.role || 'admin',
       action: 'STUDENTS_ASSIGNED',
-      reason: `Assigned ${newlyAssigned} students via ${dto.source}`,
+      reason: `Assigned ${newlyAssigned} students via ${dto.source}${targetSlot ? ` to slot "${targetSlot.name}"` : ''}`,
       newState: { newlyAssigned, totalEligible },
     });
 
@@ -1044,7 +1264,15 @@ export class ExamSchedulingService {
     scheduleId: string,
     dto: AllocateStudentsDto,
     user: any,
-  ): Promise<{ allocatedCount: number; slots: any[] }> {
+  ): Promise<{
+    allocated: number;
+    allocatedCount: number;
+    unassignedCount: number;
+    preview?: boolean;
+    totalEligible?: number;
+    unassignedReasons?: Array<{ studentId: string; studentUid: string; reason: string }>;
+    slots: any[];
+  }> {
     const schedule = await this.scheduleRepo.findOne({ where: { id: scheduleId } });
     if (!schedule) {
       throw new NotFoundException(`Schedule "${scheduleId}" not found`);
@@ -1063,41 +1291,105 @@ export class ExamSchedulingService {
       throw new BadRequestException('No active slots available for allocation');
     }
 
-    // Fetch unassigned assignments (or all unstarted if rebalanceExisting=true)
-    const statusFilter = dto.rebalanceExisting
-      ? In(['eligible', 'assigned', 'rescheduled'])
-      : In(['eligible']);
+    // Determine target assignments
+    let assignments: ExamEligibilityAssignment[] = [];
 
-    const assignments = await this.assignmentRepo.find({
-      where: { scheduleId, status: statusFilter },
-    });
-
-    if (assignments.length === 0) {
-      return { allocatedCount: 0, slots };
+    if (dto.assignmentIds && dto.assignmentIds.length > 0) {
+      assignments = await this.assignmentRepo.find({
+        where: { scheduleId, id: In(dto.assignmentIds) },
+      });
+    } else if (dto.studentIds && dto.studentIds.length > 0) {
+      assignments = await this.assignmentRepo.find({
+        where: { scheduleId, studentId: In(dto.studentIds) },
+      });
+    } else {
+      const statusFilter = dto.rebalanceExisting
+        ? In(['eligible', 'assigned', 'rescheduled'])
+        : In(['eligible']);
+      assignments = await this.assignmentRepo.find({
+        where: { scheduleId, status: statusFilter },
+      });
     }
 
-    // Allocation strategies
+    // Filter out exams that are already in-progress or completed to prevent exam corruption
+    assignments = assignments.filter(
+      (a) => a.status !== 'in_progress' && a.status !== 'completed' && a.status !== 'revoked',
+    );
+
+    if (assignments.length === 0) {
+      return {
+        allocated: 0,
+        allocatedCount: 0,
+        unassignedCount: 0,
+        preview: dto.previewOnly,
+        totalEligible: 0,
+        unassignedReasons: [],
+        slots,
+      };
+    }
+
+    // Apply sorting/ordering
     let orderedAssignments = [...assignments];
 
-    if (dto.strategy === 'random') {
-      orderedAssignments = this.shuffle(orderedAssignments);
-    } else if (dto.strategy === 'section_grouped') {
-      // Group by section so section cohorts take exam in the same slot
+    if (dto.sortBy === 'uid') {
+      orderedAssignments.sort((a, b) => {
+        const uidA = a.studentUid || '';
+        const uidB = b.studentUid || '';
+        return uidA.localeCompare(uidB, undefined, { numeric: true, sensitivity: 'base' });
+      });
+    } else if (dto.sortBy === 'name') {
+      orderedAssignments.sort((a, b) => {
+        const nameA = (a.academicSnapshot as any)?.name || a.studentUid || '';
+        const nameB = (b.academicSnapshot as any)?.name || b.studentUid || '';
+        return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+      });
+    } else if (dto.sortBy === 'section' || dto.strategy === 'section_grouped') {
       orderedAssignments.sort((a, b) => {
         const secA = (a.academicSnapshot?.section || '').toLowerCase();
         const secB = (b.academicSnapshot?.section || '').toLowerCase();
-        return secA.localeCompare(secB);
+        if (secA !== secB) return secA.localeCompare(secB);
+        return (a.studentUid || '').localeCompare(b.studentUid || '', undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
       });
+    } else if (dto.strategy === 'random') {
+      orderedAssignments = this.shuffle(orderedAssignments);
     }
 
     const earlyAccess = schedule.config?.earlyAccessMinutes ?? 5;
     const gracePeriod = schedule.config?.gracePeriodMinutes ?? 5;
 
+    // Calculate existing assignments per slot not included in this batch
+    const batchAssignmentIds = new Set(orderedAssignments.map((a) => a.id));
+    const slotExistingCounts = new Map<string, number>();
+
+    for (const slot of slots) {
+      if (dto.rebalanceExisting) {
+        slotExistingCounts.set(slot.id, 0);
+      } else {
+        const currentSlotAssignments = await this.assignmentRepo.find({
+          where: { slotId: slot.id, status: In(['assigned', 'rescheduled', 'in_progress', 'completed']) },
+          select: { id: true },
+        });
+        const nonBatchCount = currentSlotAssignments.filter((a) => !batchAssignmentIds.has(a.id)).length;
+        slotExistingCounts.set(slot.id, nonBatchCount);
+      }
+    }
+
+    const maxCap = (s: ExamSlot) => {
+      const limit =
+        dto.perSlotCount && dto.perSlotCount > 0 ? Math.min(s.capacity, dto.perSlotCount) : s.capacity;
+      const existing = slotExistingCounts.get(s.id) || 0;
+      return Math.max(0, limit - existing);
+    };
+
     const slotAllocations = new Map<string, ExamEligibilityAssignment[]>();
     slots.forEach((s) => slotAllocations.set(s.id, []));
+    const unassigned: Array<{ assignment: ExamEligibilityAssignment; reason: string }> = [];
 
     if (dto.strategy === 'balanced') {
-      // Round-robin distribution respecting capacity
+      // Balanced round-robin across selected slots respecting capacity
       let slotIdx = 0;
       for (const assignment of orderedAssignments) {
         let attempts = 0;
@@ -1105,7 +1397,7 @@ export class ExamSchedulingService {
         while (attempts < slots.length) {
           const currentSlot = slots[slotIdx];
           const currentCount = slotAllocations.get(currentSlot.id)!.length;
-          if (currentCount < currentSlot.capacity) {
+          if (currentCount < maxCap(currentSlot)) {
             slotAllocations.get(currentSlot.id)!.push(assignment);
             placed = true;
             slotIdx = (slotIdx + 1) % slots.length;
@@ -1115,23 +1407,78 @@ export class ExamSchedulingService {
           attempts++;
         }
         if (!placed) {
-          this.logger.warn(`Could not place assignment ${assignment.id}: all slots at capacity`);
+          unassigned.push({
+            assignment,
+            reason: 'All available slots have reached configured capacity limits',
+          });
         }
       }
     } else {
       // Sequential / section_grouped
       let slotIdx = 0;
       for (const assignment of orderedAssignments) {
-        while (slotIdx < slots.length && slotAllocations.get(slots[slotIdx].id)!.length >= slots[slotIdx].capacity) {
+        while (
+          slotIdx < slots.length &&
+          slotAllocations.get(slots[slotIdx].id)!.length >= maxCap(slots[slotIdx])
+        ) {
           slotIdx++;
         }
         if (slotIdx >= slots.length) {
-          break; // Capacity exhausted
+          unassigned.push({
+            assignment,
+            reason: 'All available slots have reached configured capacity limits',
+          });
+        } else {
+          slotAllocations.get(slots[slotIdx].id)!.push(assignment);
         }
-        slotAllocations.get(slots[slotIdx].id)!.push(assignment);
       }
     }
 
+    const unassignedReasons = unassigned.map((u) => ({
+      studentId: u.assignment.studentId,
+      studentUid: u.assignment.studentUid,
+      reason: u.reason,
+    }));
+
+    // If PREVIEW ONLY: return calculation without DB commit
+    if (dto.previewOnly) {
+      const previewSlots = slots.map((s) => {
+        const allocated = slotAllocations.get(s.id) || [];
+        const existing = slotExistingCounts.get(s.id) || 0;
+        return {
+          id: s.id,
+          name: s.name,
+          date: s.date,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          capacity: s.capacity,
+          currentAssignedCount: existing,
+          proposedCount: allocated.length,
+          newTotalCount: existing + allocated.length,
+          remainingCapacity: Math.max(0, s.capacity - (existing + allocated.length)),
+          sampleStudents: allocated.slice(0, 10).map((a) => ({
+            id: a.id,
+            studentId: a.studentId,
+            studentUid: a.studentUid,
+            name: (a.academicSnapshot as any)?.name || a.studentUid,
+            section: a.academicSnapshot?.section,
+          })),
+        };
+      });
+
+      const proposedCount = orderedAssignments.length - unassigned.length;
+      return {
+        preview: true,
+        totalEligible: orderedAssignments.length,
+        allocated: proposedCount,
+        allocatedCount: proposedCount,
+        unassignedCount: unassigned.length,
+        unassignedReasons,
+        slots: previewSlots,
+      };
+    }
+
+    // Commit allocations to DB inside transaction
     let allocatedTotal = 0;
 
     await this.dataSource.transaction(async (manager) => {
@@ -1152,7 +1499,7 @@ export class ExamSchedulingService {
         }
 
         const newCount = await manager.count(ExamEligibilityAssignment, {
-          where: { slotId: slot.id },
+          where: { slotId: slot.id, status: In(['assigned', 'rescheduled', 'in_progress', 'completed']) },
         });
         slot.assignedCount = newCount;
         await manager.save(slot);
@@ -1173,11 +1520,22 @@ export class ExamSchedulingService {
       actorEmail: user?.email || 'admin@codeskill.ac.in',
       actorRole: user?.role || 'admin',
       action: 'SLOTS_ALLOCATED',
-      reason: `Allocated ${allocatedTotal} students across ${slots.length} slots using "${dto.strategy}" strategy`,
-      newState: { allocatedTotal, strategy: dto.strategy },
+      reason: `Allocated ${allocatedTotal} students across ${slots.length} slots using "${dto.strategy}" strategy (Sort: ${dto.sortBy || 'uid'})`,
+      newState: {
+        allocatedTotal,
+        unassignedCount: unassigned.length,
+        strategy: dto.strategy,
+        sortBy: dto.sortBy,
+      },
     });
 
-    return { allocatedCount: allocatedTotal, slots };
+    return {
+      allocated: allocatedTotal,
+      allocatedCount: allocatedTotal,
+      unassignedCount: unassigned.length,
+      unassignedReasons,
+      slots,
+    };
   }
 
   async reassignStudentSlot(
@@ -1200,9 +1558,12 @@ export class ExamSchedulingService {
       throw new NotFoundException(`Assignment for student/ID "${targetId}" not found`);
     }
 
-    if (assignment.status === 'in_progress' || assignment.status === 'completed') {
+    if (
+      !dto.forceImmediate &&
+      (assignment.status === 'in_progress' || assignment.status === 'completed')
+    ) {
       throw new BadRequestException(
-        `Cannot reassign student whose exam is already "${assignment.status}".`,
+        `Cannot reassign student whose exam is already "${assignment.status}". To reassign in-progress exams, administrator confirmation is required.`,
       );
     }
 
@@ -1237,10 +1598,14 @@ export class ExamSchedulingService {
 
     // Refresh slot counts
     if (previousSlotId) {
-      const prevCount = await this.assignmentRepo.count({ where: { slotId: previousSlotId } });
+      const prevCount = await this.assignmentRepo.count({
+        where: { slotId: previousSlotId, status: In(['assigned', 'rescheduled', 'in_progress', 'completed']) },
+      });
       await this.slotRepo.update({ id: previousSlotId }, { assignedCount: prevCount });
     }
-    const targetCount = await this.assignmentRepo.count({ where: { slotId: targetSlot.id } });
+    const targetCount = await this.assignmentRepo.count({
+      where: { slotId: targetSlot.id, status: In(['assigned', 'rescheduled', 'in_progress', 'completed']) },
+    });
     await this.slotRepo.update({ id: targetSlot.id }, { assignedCount: targetCount });
 
     await this.logAudit({
@@ -1260,6 +1625,150 @@ export class ExamSchedulingService {
     return saved;
   }
 
+  async bulkReassignSlot(
+    scheduleId: string,
+    dto: BatchReassignSlotDto,
+    user: any,
+  ): Promise<{
+    reassignedCount: number;
+    skippedCount: number;
+    failedCount: number;
+    targetSlot: any;
+    skipped: Array<{ id: string; studentUid?: string; reason: string }>;
+  }> {
+    const rawTargets = (dto.assignmentIds || []).filter(Boolean);
+    if (rawTargets.length === 0) {
+      throw new BadRequestException('No assignmentIds provided for bulk slot reassignment');
+    }
+
+    const targetSlot = await this.slotRepo.findOne({
+      where: { id: dto.targetSlotId, scheduleId },
+    });
+    if (!targetSlot) {
+      throw new NotFoundException(`Destination slot "${dto.targetSlotId}" not found in schedule`);
+    }
+
+    const assignments = await this.assignmentRepo.find({
+      where: [
+        { id: In(rawTargets), scheduleId },
+        { studentId: In(rawTargets), scheduleId },
+      ],
+    });
+
+    if (assignments.length === 0) {
+      throw new NotFoundException('No matching student assignments found for reassignment');
+    }
+
+    const schedule = await this.scheduleRepo.findOne({ where: { id: scheduleId } });
+    const earlyAccess = schedule?.config?.earlyAccessMinutes ?? 5;
+    const gracePeriod = schedule?.config?.gracePeriodMinutes ?? 5;
+
+    // Filter eligible assignments
+    const eligible: ExamEligibilityAssignment[] = [];
+    const skipped: Array<{ id: string; studentUid?: string; reason: string }> = [];
+
+    for (const a of assignments) {
+      if (a.slotId === targetSlot.id) {
+        skipped.push({ id: a.id, studentUid: a.studentUid, reason: 'Already assigned to this slot' });
+        continue;
+      }
+      if (a.status === 'completed') {
+        skipped.push({ id: a.id, studentUid: a.studentUid, reason: 'Exam attempt already completed' });
+        continue;
+      }
+      if (a.status === 'in_progress' && !dto.forceImmediate) {
+        skipped.push({
+          id: a.id,
+          studentUid: a.studentUid,
+          reason: 'Exam currently in progress; requires force confirmation',
+        });
+        continue;
+      }
+      eligible.push(a);
+    }
+
+    // Check available capacity
+    const currentTargetCount = await this.assignmentRepo.count({
+      where: { slotId: targetSlot.id, status: In(['assigned', 'rescheduled', 'in_progress', 'completed']) },
+    });
+    const remainingCapacity = Math.max(0, targetSlot.capacity - currentTargetCount);
+
+    if (eligible.length > remainingCapacity) {
+      throw new BadRequestException(
+        `Destination slot "${targetSlot.name}" has only ${remainingCapacity} seats available, but ${eligible.length} students were selected for reassignment.`,
+      );
+    }
+
+    const previousSlotIds = new Set<string>();
+
+    await this.dataSource.transaction(async (manager) => {
+      const windowStart = new Date(targetSlot.startTime.getTime() - earlyAccess * 60_000);
+      const windowEnd = new Date(targetSlot.endTime.getTime() + gracePeriod * 60_000);
+
+      for (const a of eligible) {
+        if (a.slotId) previousSlotIds.add(a.slotId);
+
+        a.slotId = targetSlot.id;
+        a.status = 'rescheduled';
+        a.accessWindowStart = windowStart;
+        a.accessWindowEnd = windowEnd;
+        a.overrideReason = dto.reason || 'Bulk rescheduled by administrator';
+        a.overrideById = user?.id;
+        a.overrideAt = new Date();
+
+        await manager.save(a);
+      }
+
+      // Update destination slot count
+      const newTargetCount = await manager.count(ExamEligibilityAssignment, {
+        where: { slotId: targetSlot.id, status: In(['assigned', 'rescheduled', 'in_progress', 'completed']) },
+      });
+      targetSlot.assignedCount = newTargetCount;
+      await manager.save(targetSlot);
+
+      // Update previous slots counts
+      for (const prevId of previousSlotIds) {
+        const prevCount = await manager.count(ExamEligibilityAssignment, {
+          where: { slotId: prevId, status: In(['assigned', 'rescheduled', 'in_progress', 'completed']) },
+        });
+        const prevSlot = await manager.findOne(ExamSlot, { where: { id: prevId } });
+        if (prevSlot) {
+          prevSlot.assignedCount = prevCount;
+          await manager.save(prevSlot);
+        }
+      }
+    });
+
+    // Audit log
+    for (const a of eligible) {
+      await this.logAudit({
+        scheduleId,
+        slotId: targetSlot.id,
+        studentId: a.studentId,
+        studentUid: a.studentUid,
+        actorId: user?.id,
+        actorEmail: user?.email || 'admin@codeskill.ac.in',
+        actorRole: user?.role || 'admin',
+        action: 'STUDENT_RESCHEDULED',
+        reason: dto.reason || `Bulk moved to slot "${targetSlot.name}"`,
+        newState: { slotId: targetSlot.id, status: 'rescheduled' },
+      });
+    }
+
+    return {
+      reassignedCount: eligible.length,
+      skippedCount: skipped.length,
+      failedCount: 0,
+      targetSlot: {
+        id: targetSlot.id,
+        name: targetSlot.name,
+        assignedCount: targetSlot.assignedCount,
+        capacity: targetSlot.capacity,
+      },
+      skipped,
+    };
+  }
+
   // =========================================================================
   // 5. ACCESS OVERRIDES & EXCEPTIONAL ACCESS
   // =========================================================================
@@ -1268,7 +1777,7 @@ export class ExamSchedulingService {
     scheduleId: string,
     dto: RevokeStudentAccessDto,
     user: any,
-  ): Promise<{ revokedCount: number }> {
+  ): Promise<{ revokedCount: number; skippedCount: number; activeAttemptsCount: number }> {
     const rawTargets = [
       ...(dto.assignmentIds || []),
       dto.assignmentId,
@@ -1290,13 +1799,26 @@ export class ExamSchedulingService {
       throw new NotFoundException('No matching student assignments found to revoke');
     }
 
+    const affectedSlotIds = new Set<string>();
+    let revokedCount = 0;
+    let activeAttemptsCount = 0;
+
     for (const a of assignments) {
       const prevStatus = a.status;
+      if (prevStatus === 'in_progress') {
+        activeAttemptsCount++;
+      }
+
       a.status = 'revoked';
       a.overrideReason = dto.reason;
       a.overrideById = user?.id;
       a.overrideAt = new Date();
       await this.assignmentRepo.save(a);
+
+      if (a.slotId) {
+        affectedSlotIds.add(a.slotId);
+      }
+      revokedCount++;
 
       await this.logAudit({
         scheduleId,
@@ -1309,11 +1831,21 @@ export class ExamSchedulingService {
         action: 'ACCESS_REVOKED',
         reason: dto.reason,
         previousState: { status: prevStatus },
-        newState: { status: 'revoked' },
+        newState: { status: 'revoked', activeAttemptPreserved: prevStatus === 'in_progress' },
       });
     }
 
-    return { revokedCount: assignments.length };
+    // Refresh slot counts for affected slots
+    for (const slotId of affectedSlotIds) {
+      const validCount = await this.assignmentRepo.count({
+        where: { slotId, status: In(['assigned', 'rescheduled', 'in_progress', 'completed']) },
+      });
+      await this.slotRepo.update({ id: slotId }, { assignedCount: validCount });
+    }
+
+    await this.refreshScheduleStudentCounts(scheduleId);
+
+    return { revokedCount, skippedCount: 0, activeAttemptsCount };
   }
 
   async grantException(
@@ -1387,46 +1919,85 @@ export class ExamSchedulingService {
     scheduleId: string,
     dto: ReinstateStudentAccessDto,
     user: any,
-  ): Promise<ExamEligibilityAssignment> {
-    const targetId = dto.assignmentId || dto.studentId;
-    if (!targetId) {
+  ): Promise<ExamEligibilityAssignment | { reinstatedCount: number }> {
+    const rawTargets = [
+      ...(dto.assignmentIds || []),
+      dto.assignmentId,
+      dto.studentId,
+    ].filter(Boolean) as string[];
+
+    if (rawTargets.length === 0) {
       throw new BadRequestException('Target assignmentId or studentId is required');
     }
 
-    const assignment = await this.assignmentRepo.findOne({
+    const assignments = await this.assignmentRepo.find({
       where: [
-        { id: targetId, scheduleId },
-        { studentId: targetId, scheduleId },
+        { id: In(rawTargets), scheduleId },
+        { studentId: In(rawTargets), scheduleId },
       ],
     });
-    if (!assignment) {
-      throw new NotFoundException(`Assignment for student/ID "${targetId}" not found`);
+
+    if (assignments.length === 0) {
+      throw new NotFoundException(`No assignments found for target IDs in schedule`);
     }
 
-    assignment.status = dto.targetSlotId ? 'assigned' : 'eligible';
-    if (dto.targetSlotId) {
-      assignment.slotId = dto.targetSlotId;
+    const affectedSlotIds = new Set<string>();
+
+    for (const assignment of assignments) {
+      assignment.status = (dto.targetSlotId || assignment.slotId) ? 'assigned' : 'eligible';
+      if (dto.targetSlotId) {
+        assignment.slotId = dto.targetSlotId;
+      }
+      assignment.overrideReason = dto.reason;
+      assignment.overrideById = user?.id;
+      assignment.overrideAt = new Date();
+
+      await this.assignmentRepo.save(assignment);
+
+      if (assignment.slotId) {
+        affectedSlotIds.add(assignment.slotId);
+      }
+
+      await this.logAudit({
+        scheduleId,
+        slotId: assignment.slotId,
+        studentId: assignment.studentId,
+        studentUid: assignment.studentUid,
+        actorId: user?.id,
+        actorEmail: user?.email || 'admin@codeskill.ac.in',
+        actorRole: user?.role || 'admin',
+        action: 'ACCESS_REINSTATED',
+        reason: dto.reason,
+        newState: { status: assignment.status, slotId: assignment.slotId },
+      });
     }
-    assignment.overrideReason = dto.reason;
-    assignment.overrideById = user?.id;
-    assignment.overrideAt = new Date();
 
-    const saved = await this.assignmentRepo.save(assignment);
+    // Refresh affected slot counts
+    for (const slotId of affectedSlotIds) {
+      const validCount = await this.assignmentRepo.count({
+        where: { slotId, status: In(['assigned', 'rescheduled', 'in_progress', 'completed']) },
+      });
+      await this.slotRepo.update({ id: slotId }, { assignedCount: validCount });
+    }
 
-    await this.logAudit({
-      scheduleId,
-      slotId: saved.slotId,
-      studentId: saved.studentId,
-      studentUid: saved.studentUid,
-      actorId: user?.id,
-      actorEmail: user?.email || 'admin@codeskill.ac.in',
-      actorRole: user?.role || 'admin',
-      action: 'ACCESS_REINSTATED',
-      reason: dto.reason,
-      newState: { status: saved.status },
-    });
+    await this.refreshScheduleStudentCounts(scheduleId);
 
-    return saved;
+    if (assignments.length === 1 && !dto.assignmentIds?.length) {
+      return assignments[0];
+    }
+    return { reinstatedCount: assignments.length };
+  }
+
+  async bulkReinstateAccess(
+    scheduleId: string,
+    dto: ReinstateStudentAccessDto,
+    user: any,
+  ): Promise<{ reinstatedCount: number }> {
+    const res = await this.reinstateAccess(scheduleId, dto, user);
+    if ('reinstatedCount' in res) {
+      return res;
+    }
+    return { reinstatedCount: 1 };
   }
 
   // =========================================================================

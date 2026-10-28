@@ -76,6 +76,19 @@ export class GrantExceptionAccessDto {
 }
 
 export class ReinstateStudentAccessDto {
+  @ApiPropertyOptional({ type: [String], description: 'List of assignment UUIDs to reinstate' })
+  @IsOptional()
+  @Transform(({ value, obj }) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string' && value.trim()) return [value.trim()];
+    if (Array.isArray(obj?.studentIds)) return obj.studentIds;
+    if (typeof obj?.studentId === 'string' && obj.studentId.trim()) return [obj.studentId.trim()];
+    if (typeof obj?.assignmentId === 'string' && obj.assignmentId.trim()) return [obj.assignmentId.trim()];
+    return [];
+  })
+  @IsArray()
+  assignmentIds?: string[];
+
   @ApiPropertyOptional({ description: 'Student assignment UUID or student ID' })
   @IsOptional()
   @Transform(({ value, obj }) => value || obj?.studentId || obj?.id)

@@ -107,10 +107,15 @@ export class BulkAssignStudentsDto {
   @IsString()
   savedGroupId?: string;
 
-  @ApiPropertyOptional({ description: 'Optional specific slot to assign these students into directly' })
+  @ApiPropertyOptional({ description: 'Optional specific slot to assign these students into directly, or "distribute" to auto-balance across all slots' })
   @IsOptional()
   @IsString()
   targetSlotId?: string;
+
+  @ApiPropertyOptional({ description: 'Automatically distribute matching students across all slots' })
+  @IsOptional()
+  @IsBoolean()
+  autoDistribute?: boolean;
 }
 
 export class CsvValidationResultDto {

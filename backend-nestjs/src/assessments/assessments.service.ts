@@ -1497,40 +1497,83 @@ export class AssessmentsService {
             `Your examination eligibility has been revoked: ${studentAssignment.overrideReason || 'Administrative restriction'}`,
           );
         }
-        if (!studentAssignment.slotId || !studentAssignment.slot) {
-          throw new BadRequestException(
-            'Your examination slot has not yet been assigned by the administrator.',
-          );
-        }
+        const isFlexibleMode =
+          (activeSchedule.config as any)?.scheduleMode === 'flexible' ||
+          Boolean((activeSchedule.config as any)?.isFlexibleAvailability);
 
-        const slot = studentAssignment.slot;
-        const earlyAccess = activeSchedule.config?.earlyAccessMinutes ?? 5;
-        const lateStart = activeSchedule.config?.lateStartAllowanceMinutes ?? 15;
-        const gracePeriod = activeSchedule.config?.gracePeriodMinutes ?? 5;
-
-        const effectiveStart = new Date(slot.startTime.getTime() - earlyAccess * 60_000);
-        const lateStartLimit = new Date(slot.startTime.getTime() + lateStart * 60_000);
-        const effectiveEnd = studentAssignment.accessWindowEnd || new Date(slot.endTime.getTime() + gracePeriod * 60_000);
+        let effectiveStart: Date;
+        let effectiveEnd: Date;
+        let lateStartLimit: Date | null = null;
 
         const existingInProgress = await this.attemptRepo.findOne({
           where: { assessmentId: assessment.id, studentId, status: 'in_progress' },
         });
 
-        if (!existingInProgress) {
-          if (now < effectiveStart) {
+        if (isFlexibleMode) {
+          const flexStartStr =
+            (activeSchedule.config as any)?.flexibleWindowStart ||
+            (activeSchedule.config as any)?.startDate;
+          const flexEndStr =
+            (activeSchedule.config as any)?.flexibleWindowEnd ||
+            (activeSchedule.config as any)?.endDate;
+
+          effectiveStart = flexStartStr ? new Date(flexStartStr) : new Date(0);
+          effectiveEnd = flexEndStr
+            ? new Date(flexEndStr)
+            : new Date(Date.now() + 30 * 24 * 3600_000);
+
+          const gracePeriod =
+            (activeSchedule.config as any)?.completionGracePeriodMinutes ??
+            activeSchedule.config?.gracePeriodMinutes ??
+            15;
+          effectiveEnd = new Date(effectiveEnd.getTime() + gracePeriod * 60_000);
+
+          if (!existingInProgress) {
+            if (now < effectiveStart) {
+              throw new BadRequestException(
+                `This flexible multi-day exam opens on ${effectiveStart.toLocaleString()}. You cannot start before the opening window.`,
+              );
+            }
+            if (now > effectiveEnd) {
+              throw new ForbiddenException(
+                `The multi-day exam window closed on ${effectiveEnd.toLocaleString()}. New attempts are no longer permitted.`,
+              );
+            }
+          }
+        } else {
+          if (!studentAssignment.slotId || !studentAssignment.slot) {
             throw new BadRequestException(
-              `Your scheduled exam slot begins at ${slot.startTime.toLocaleTimeString()} on ${slot.date}. Early entry opens at ${effectiveStart.toLocaleTimeString()}.`,
+              'Your examination slot has not yet been assigned by the administrator.',
             );
           }
-          if (now > lateStartLimit) {
-            throw new ForbiddenException(
-              `The late-start window of ${lateStart} minutes closed at ${lateStartLimit.toLocaleTimeString()}. You cannot begin a new attempt.`,
-            );
+
+          const slot = studentAssignment.slot;
+          const earlyAccess = activeSchedule.config?.earlyAccessMinutes ?? 5;
+          const lateStart = activeSchedule.config?.lateStartAllowanceMinutes ?? 15;
+          const gracePeriod = activeSchedule.config?.gracePeriodMinutes ?? 5;
+
+          effectiveStart = new Date(slot.startTime.getTime() - earlyAccess * 60_000);
+          lateStartLimit = new Date(slot.startTime.getTime() + lateStart * 60_000);
+          effectiveEnd =
+            studentAssignment.accessWindowEnd ||
+            new Date(slot.endTime.getTime() + gracePeriod * 60_000);
+
+          if (!existingInProgress) {
+            if (now < effectiveStart) {
+              throw new BadRequestException(
+                `Your scheduled exam slot begins at ${slot.startTime.toLocaleTimeString()} on ${slot.date}. Early entry opens at ${effectiveStart.toLocaleTimeString()}.`,
+              );
+            }
+            if (lateStartLimit && now > lateStartLimit) {
+              throw new ForbiddenException(
+                `The late-start window of ${lateStart} minutes closed at ${lateStartLimit.toLocaleTimeString()}. You cannot begin a new attempt.`,
+              );
+            }
           }
         }
 
         if (now > effectiveEnd) {
-          throw new ForbiddenException('Your scheduled exam slot has concluded.');
+          throw new ForbiddenException('Your scheduled exam window has concluded.');
         }
 
         if (activeSchedule.maxConcurrentSessions > 0 && !existingInProgress) {

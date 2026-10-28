@@ -308,6 +308,16 @@ export class AdminExamSchedulingController {
     return this.schedulingService.autoGenerateSlots(scheduleId, dto, adminUser);
   }
 
+  @Post(['schedules/:id/slots/copy-day', ':id/slots/copy-day'])
+  @ApiOperation({ summary: 'Copy slot configuration from one date to other dates' })
+  async copyDaySlots(
+    @Param('id') scheduleId: string,
+    @Body() dto: { sourceDate: string; targetDates: string[] },
+    @CurrentUser() adminUser: any,
+  ) {
+    return this.schedulingService.copyDaySlots(scheduleId, dto, adminUser);
+  }
+
   @Patch(['schedules/:id/slots/:slotId', ':id/slots/:slotId'])
   @ApiOperation({ summary: 'Update an existing slot' })
   async updateSlot(
@@ -372,6 +382,25 @@ export class AdminExamSchedulingController {
     return this.schedulingService.allocateStudentsToSlots(scheduleId, dto, adminUser);
   }
 
+  @Post([
+    'schedules/:id/allocate-preview',
+    'schedules/:id/preview-allocate',
+    ':id/allocate-preview',
+    ':id/preview-allocate',
+  ])
+  @ApiOperation({ summary: 'Calculate and preview student distribution without committing to database' })
+  async allocatePreview(
+    @Param('id') scheduleId: string,
+    @Body() dto: AllocateStudentsDto,
+    @CurrentUser() adminUser: any,
+  ) {
+    return this.schedulingService.allocateStudentsToSlots(
+      scheduleId,
+      { ...dto, previewOnly: true },
+      adminUser,
+    );
+  }
+
   @Post(['schedules/:id/reassign-slot', ':id/reassign-slot'])
   @ApiOperation({ summary: 'Move individual student to a different slot' })
   async reassignStudentSlot(
@@ -380,6 +409,21 @@ export class AdminExamSchedulingController {
     @CurrentUser() adminUser: any,
   ) {
     return this.schedulingService.reassignStudentSlot(scheduleId, dto, adminUser);
+  }
+
+  @Post([
+    'schedules/:id/assignments/bulk-reassign',
+    'schedules/:id/bulk-reassign',
+    ':id/assignments/bulk-reassign',
+    ':id/bulk-reassign',
+  ])
+  @ApiOperation({ summary: 'Bulk move multiple student assignments to a destination slot safely' })
+  async bulkReassignSlot(
+    @Param('id') scheduleId: string,
+    @Body() dto: BatchReassignSlotDto,
+    @CurrentUser() adminUser: any,
+  ) {
+    return this.schedulingService.bulkReassignSlot(scheduleId, dto, adminUser);
   }
 
   // --- Eligibility, Overrides & Exceptions ---
@@ -436,6 +480,21 @@ export class AdminExamSchedulingController {
     @CurrentUser() adminUser: any,
   ) {
     return this.schedulingService.reinstateAccess(scheduleId, dto, adminUser);
+  }
+
+  @Post([
+    'schedules/:id/access/bulk-reinstate',
+    'schedules/:id/assignments/bulk-reinstate',
+    ':id/access/bulk-reinstate',
+    ':id/assignments/bulk-reinstate',
+  ])
+  @ApiOperation({ summary: 'Bulk reinstate multiple previously revoked student assignments' })
+  async bulkReinstateAccess(
+    @Param('id') scheduleId: string,
+    @Body() dto: ReinstateStudentAccessDto,
+    @CurrentUser() adminUser: any,
+  ) {
+    return this.schedulingService.bulkReinstateAccess(scheduleId, dto, adminUser);
   }
 
   // --- Attendance, Attempts & Export ---

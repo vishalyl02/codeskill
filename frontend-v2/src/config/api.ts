@@ -813,6 +813,8 @@ export const examSchedulingAPI = {
     api.post(`/admin/exam-scheduling/schedules/${scheduleId}/slots`, data),
   autoGenerateSlots: (scheduleId: string, data: any) =>
     api.post(`/admin/exam-scheduling/schedules/${scheduleId}/slots/auto-generate`, data),
+  copyDaySlots: (scheduleId: string, data: { sourceDate: string; targetDates: string[] }) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/slots/copy-day`, data),
   updateSlot: (scheduleId: string, slotId: string, data: any) =>
     api.patch(`/admin/exam-scheduling/schedules/${scheduleId}/slots/${slotId}`, data),
   deleteSlot: (scheduleId: string, slotId: string) =>
@@ -822,8 +824,12 @@ export const examSchedulingAPI = {
     api.post(`/admin/exam-scheduling/schedules/${scheduleId}/assignments/bulk`, data),
   allocateSlots: (scheduleId: string, data: any) =>
     api.post(`/admin/exam-scheduling/schedules/${scheduleId}/allocate-slots`, data),
+  previewAllocateSlots: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/allocate-preview`, data),
   reassignSlot: (scheduleId: string, data: any) =>
     api.post(`/admin/exam-scheduling/schedules/${scheduleId}/reassign-slot`, data),
+  bulkReassignSlots: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/assignments/bulk-reassign`, data),
 
   getAssignments: (scheduleId: string, params?: any) =>
     api.get(`/admin/exam-scheduling/schedules/${scheduleId}/assignments`, { params }),
@@ -833,6 +839,8 @@ export const examSchedulingAPI = {
     api.post(`/admin/exam-scheduling/schedules/${scheduleId}/access/grant-exception`, data),
   reinstateAccess: (scheduleId: string, data: any) =>
     api.post(`/admin/exam-scheduling/schedules/${scheduleId}/access/reinstate`, data),
+  bulkReinstateAccess: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/assignments/bulk-reinstate`, data),
 
   getAttendance: (scheduleId: string) =>
     api.get(`/admin/exam-scheduling/schedules/${scheduleId}/attendance`),
