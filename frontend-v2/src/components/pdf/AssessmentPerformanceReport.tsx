@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
   page: {
     paddingHorizontal: 28,
     paddingTop: 22,
-    paddingBottom: 26,
+    paddingBottom: 50,
     backgroundColor: "#FFFFFF",
     fontFamily: "Helvetica",
     color: BRAND_COLORS.navyDark,
@@ -433,10 +433,13 @@ const styles = StyleSheet.create({
 
   // 9. Verification Footer
   footerSeparator: {
+    position: "absolute",
+    bottom: 14,
+    left: 28,
+    right: 28,
     borderTopWidth: 1.5,
     borderTopColor: BRAND_COLORS.cuRed,
-    paddingTop: 8,
-    marginTop: "auto",
+    paddingTop: 6,
   },
   footerSecurityText: {
     fontSize: 7.2,
@@ -803,14 +806,14 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
 
         {/* 6. Question Details Table */}
         {questions.length > 0 && (
-          <View style={styles.section} wrap={false}>
-            <View style={styles.sectionTitleWithBar}>
+          <View style={styles.section}>
+            <View style={styles.sectionTitleWithBar} wrap={false}>
               <View style={styles.redAccentBar} />
               <Text style={styles.sectionTitleText}>Problem-Level Assessment Breakdown</Text>
             </View>
 
             <View style={styles.questionTable}>
-              <View style={styles.tableHeader}>
+              <View style={styles.tableHeader} fixed>
                 <Text style={[styles.tableHeaderCell, styles.qColIndex]}>#</Text>
                 <Text style={[styles.tableHeaderCell, styles.qColTitle]}>Problem Title</Text>
                 <Text style={[styles.tableHeaderCell, styles.qColDiff]}>Difficulty</Text>
@@ -818,55 +821,60 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
                 <Text style={[styles.tableHeaderCell, styles.qColPoints]}>Score</Text>
               </View>
 
-              {questions.map((q, idx) => (
-                <View
-                  key={q.id || idx}
-                  style={[
-                    styles.tableRow,
-                    idx === questions.length - 1 ? { borderBottomWidth: 0 } : {},
-                  ]}
-                  wrap={false}
-                >
-                  <Text style={[styles.tableCell, styles.qColIndex, { color: BRAND_COLORS.slateMuted }]}>{idx + 1}</Text>
-                  <Text style={[styles.tableCell, styles.qColTitle, { fontWeight: "bold", color: BRAND_COLORS.navyDark }]}>
-                    {q.title.length > 40 ? `${q.title.substring(0, 38)}...` : q.title}
-                  </Text>
-                  <View style={styles.qColDiff}>
+              {questions.map((q, idx) => {
+                const rawTitle = q.title || "Assessment Question";
+                const cleanTitle = rawTitle.replace(/\r?\n|\r/g, " ").replace(/\s+/g, " ").trim();
+                const displayTitle = cleanTitle.length > 75 ? `${cleanTitle.slice(0, 72)}...` : cleanTitle;
+                return (
+                  <View
+                    key={q.id || idx}
+                    style={[
+                      styles.tableRow,
+                      idx === questions.length - 1 ? { borderBottomWidth: 0 } : {},
+                    ]}
+                    wrap={false}
+                  >
+                    <Text style={[styles.tableCell, styles.qColIndex, { color: BRAND_COLORS.slateMuted }]}>{idx + 1}</Text>
+                    <Text style={[styles.tableCell, styles.qColTitle, { fontWeight: "bold", color: BRAND_COLORS.navyDark }]}>
+                      {displayTitle}
+                    </Text>
+                    <View style={styles.qColDiff}>
+                      <Text
+                        style={[
+                          styles.diffBadge,
+                          q.difficulty.toLowerCase() === "easy"
+                            ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
+                            : q.difficulty.toLowerCase() === "medium"
+                            ? { backgroundColor: BRAND_COLORS.warningBg, color: BRAND_COLORS.warningAmber }
+                            : { backgroundColor: BRAND_COLORS.dangerBg, color: BRAND_COLORS.dangerRed },
+                        ]}
+                      >
+                        {q.difficulty}
+                      </Text>
+                    </View>
                     <Text
                       style={[
-                        styles.diffBadge,
-                        q.difficulty.toLowerCase() === "easy"
-                          ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
-                          : q.difficulty.toLowerCase() === "medium"
-                          ? { backgroundColor: BRAND_COLORS.warningBg, color: BRAND_COLORS.warningAmber }
-                          : { backgroundColor: BRAND_COLORS.dangerBg, color: BRAND_COLORS.dangerRed },
+                        styles.tableCell,
+                        styles.qColStatus,
+                        {
+                          fontWeight: "bold",
+                          color:
+                            q.status === "Passed"
+                              ? BRAND_COLORS.successGreen
+                              : q.status === "Failed"
+                              ? BRAND_COLORS.dangerRed
+                              : BRAND_COLORS.warningAmber,
+                        },
                       ]}
                     >
-                      {q.difficulty}
+                      {q.status}
+                    </Text>
+                    <Text style={[styles.tableCell, styles.qColPoints, { fontWeight: "bold" }]}>
+                      {q.points} pts
                     </Text>
                   </View>
-                  <Text
-                    style={[
-                      styles.tableCell,
-                      styles.qColStatus,
-                      {
-                        fontWeight: "bold",
-                        color:
-                          q.status === "Passed"
-                            ? BRAND_COLORS.successGreen
-                            : q.status === "Failed"
-                            ? BRAND_COLORS.dangerRed
-                            : BRAND_COLORS.warningAmber,
-                      },
-                    ]}
-                  >
-                    {q.status}
-                  </Text>
-                  <Text style={[styles.tableCell, styles.qColPoints, { fontWeight: "bold" }]}>
-                    {q.points} pts
-                  </Text>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
         )}

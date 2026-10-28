@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
   page: {
     paddingHorizontal: 28,
     paddingTop: 22,
-    paddingBottom: 26,
+    paddingBottom: 50,
     backgroundColor: "#FFFFFF",
     fontFamily: "Helvetica",
     color: BRAND_COLORS.navyDark,
@@ -345,10 +345,13 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   footerSeparator: {
+    position: "absolute",
+    bottom: 14,
+    left: 28,
+    right: 28,
     borderTopWidth: 1.5,
     borderTopColor: BRAND_COLORS.cuRed,
-    paddingTop: 8,
-    marginTop: "auto",
+    paddingTop: 6,
   },
   footerSecurityText: {
     fontSize: 7.2,
@@ -511,61 +514,66 @@ export const StudentResultReport = ({ result }: { result: StudentResult }) => {
         </View>
 
         {/* Questions Table */}
-        <View style={styles.section} wrap={false}>
-          <View style={styles.sectionTitleWithBar}>
+        <View style={styles.section}>
+          <View style={styles.sectionTitleWithBar} wrap={false}>
             <View style={styles.redAccentBar} />
             <Text style={styles.sectionTitleText}>Problem-Level Assessment Breakdown</Text>
           </View>
           <View style={styles.tableCard}>
-            <View style={styles.tableHeader}>
+            <View style={styles.tableHeader} fixed>
               <Text style={[styles.tableHeaderCell, { width: "8%", textAlign: "center" }]}>#</Text>
               <Text style={[styles.tableHeaderCell, { width: "47%" }]}>Problem Title</Text>
               <Text style={[styles.tableHeaderCell, { width: "17%" }]}>Difficulty</Text>
               <Text style={[styles.tableHeaderCell, { width: "16%" }]}>Status</Text>
               <Text style={[styles.tableHeaderCell, { width: "12%", textAlign: "right" }]}>Points</Text>
             </View>
-            {result.questions.map((q, idx) => (
-              <View
-                key={q.id || idx}
-                style={[styles.tableRow, idx === result.questions.length - 1 ? { borderBottomWidth: 0 } : {}]}
-                wrap={false}
-              >
-                <Text style={[styles.tableCell, { width: "8%", textAlign: "center", color: BRAND_COLORS.slateMuted }]}>{idx + 1}</Text>
-                <Text style={[styles.tableCell, { width: "47%", fontWeight: "bold" }]}>{q.title}</Text>
-                <View style={{ width: "17%" }}>
+            {result.questions.map((q, idx) => {
+              const rawTitle = q.title || "Assessment Question";
+              const cleanTitle = rawTitle.replace(/\r?\n|\r/g, " ").replace(/\s+/g, " ").trim();
+              const displayTitle = cleanTitle.length > 90 ? `${cleanTitle.slice(0, 87)}...` : cleanTitle;
+              return (
+                <View
+                  key={q.id || idx}
+                  style={[styles.tableRow, idx === result.questions.length - 1 ? { borderBottomWidth: 0 } : {}]}
+                  wrap={false}
+                >
+                  <Text style={[styles.tableCell, { width: "8%", textAlign: "center", color: BRAND_COLORS.slateMuted }]}>{idx + 1}</Text>
+                  <Text style={[styles.tableCell, { width: "47%", fontWeight: "bold" }]}>{displayTitle}</Text>
+                  <View style={{ width: "17%" }}>
+                    <Text
+                      style={[
+                        styles.diffBadge,
+                        q.difficulty.toLowerCase() === "easy"
+                          ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
+                          : q.difficulty.toLowerCase() === "medium"
+                          ? { backgroundColor: BRAND_COLORS.warningBg, color: BRAND_COLORS.warningAmber }
+                          : { backgroundColor: BRAND_COLORS.dangerBg, color: BRAND_COLORS.dangerRed },
+                      ]}
+                    >
+                      {q.difficulty}
+                    </Text>
+                  </View>
                   <Text
                     style={[
-                      styles.diffBadge,
-                      q.difficulty.toLowerCase() === "easy"
-                        ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
-                        : q.difficulty.toLowerCase() === "medium"
-                        ? { backgroundColor: BRAND_COLORS.warningBg, color: BRAND_COLORS.warningAmber }
-                        : { backgroundColor: BRAND_COLORS.dangerBg, color: BRAND_COLORS.dangerRed },
+                      styles.tableCell,
+                      {
+                        width: "16%",
+                        fontWeight: "bold",
+                        color:
+                          q.status === "Passed"
+                            ? BRAND_COLORS.successGreen
+                            : q.status === "Failed"
+                            ? BRAND_COLORS.dangerRed
+                            : BRAND_COLORS.warningAmber,
+                      },
                     ]}
                   >
-                    {q.difficulty}
+                    {q.status}
                   </Text>
+                  <Text style={[styles.tableCell, { width: "12%", textAlign: "right", fontWeight: "bold" }]}>{q.points} pts</Text>
                 </View>
-                <Text
-                  style={[
-                    styles.tableCell,
-                    {
-                      width: "16%",
-                      fontWeight: "bold",
-                      color:
-                        q.status === "Passed"
-                          ? BRAND_COLORS.successGreen
-                          : q.status === "Failed"
-                          ? BRAND_COLORS.dangerRed
-                          : BRAND_COLORS.warningAmber,
-                    },
-                  ]}
-                >
-                  {q.status}
-                </Text>
-                <Text style={[styles.tableCell, { width: "12%", textAlign: "right", fontWeight: "bold" }]}>{q.points} pts</Text>
-              </View>
-            ))}
+              );
+            })}
           </View>
         </View>
 
