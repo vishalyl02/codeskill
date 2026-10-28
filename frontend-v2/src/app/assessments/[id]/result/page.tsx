@@ -38,27 +38,11 @@ import { releaseAssessmentStream } from "@/lib/assessment-media-session";
 export default function AssessmentResultPage({
   params,
 }: {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const router = useRouter();
-  const [resolvedId, setResolvedId] = useState<string>(() => {
-    if (params && typeof (params as any).then !== "function") {
-      return (params as { id: string }).id || "";
-    }
-    return "";
-  });
-
-  useEffect(() => {
-    if (params && typeof (params as any).then === "function") {
-      void (params as Promise<{ id: string }>).then((res) => {
-        if (res?.id) setResolvedId(res.id);
-      });
-    } else if (params && (params as { id: string }).id) {
-      setResolvedId((params as { id: string }).id);
-    }
-  }, [params]);
-
-  const id = resolvedId;
+  const unwrappedParams = use(params);
+  const id = unwrappedParams.id;
 
   const { user } = useAuth();
   const [data, setData] = useState<any>(null);
@@ -221,11 +205,11 @@ export default function AssessmentResultPage({
       if (sortField === "index") {
         comp = a.index - b.index;
       } else if (sortField === "difficulty") {
-        const order = { Easy: 1, Medium: 2, Hard: 3 };
-        comp = order[a.normalizedDiff] - order[b.normalizedDiff];
+        const order: Record<string, number> = { Easy: 1, Medium: 2, Hard: 3 };
+        comp = (order[a.normalizedDiff] ?? 0) - (order[b.normalizedDiff] ?? 0);
       } else if (sortField === "status") {
-        const order = { Passed: 1, Unattempted: 2, Failed: 3 };
-        comp = order[a.computedStatus] - order[b.computedStatus];
+        const order: Record<string, number> = { Passed: 1, Unattempted: 2, Failed: 3 };
+        comp = (order[a.computedStatus] ?? 0) - (order[b.computedStatus] ?? 0);
       } else if (sortField === "score") {
         comp = a.marksAwarded - b.marksAwarded;
       }

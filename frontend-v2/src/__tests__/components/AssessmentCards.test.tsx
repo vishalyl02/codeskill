@@ -100,3 +100,31 @@ it("keeps unauthenticated users behind the existing student sign-in flow", async
   auth.mockReturnValue({ user: null, loading: false } as ReturnType<typeof useAuth>); render(<Page />);
   expect(await screen.findByRole("link", { name: "Student Sign In" })).toHaveAttribute("href", "/login?redirect=/assessments"); expect(load).not.toHaveBeenCalled();
 });
+it("maintains uniform card and sub-container heights across different assessment categories and attempt states", async () => {
+  const mixedFixtures = [
+    { ...fixtures[0], attemptStatus: "in_progress", attemptExpiresAt: new Date(Date.now() + 60000).toISOString(), assignedSlot: { name: "Slot A", slotCode: "A", date: "2026-10-30", startTime: "10:00 AM", endTime: "11:00 AM" } },
+    { ...fixtures[1], attemptStatus: "auto_submitted", attemptScore: 45 },
+    { ...fixtures[2], attemptStatus: "not_started" },
+    { ...fixtures[3], attemptStatus: "not_started" },
+    { ...fixtures[4], attemptStatus: "not_started" },
+  ];
+  load.mockResolvedValue({ data: { assessments: mixedFixtures } });
+  render(<Page />); await screen.findByRole("heading", { name: "Coding Problem Test" });
+  const categories = ["DSA / Coding", "MCQs", "True / False", "Code Output"];
+  for (const cat of categories) {
+    fireEvent.click(screen.getByRole("tab", { name: cat, exact: true }));
+    const cards = screen.getAllByRole("article");
+    expect(cards.length).toBeGreaterThan(0);
+    cards.forEach(card => {
+      expect(card).toHaveClass("min-h-[490px]");
+      expect(card).toHaveClass("h-full");
+      // Check schedule container has fixed height
+      const scheduleContainer = card.querySelector(".h-\\[46px\\]");
+      expect(scheduleContainer).toBeInTheDocument();
+      // Check footer status container has fixed height
+      const footerStatusContainer = card.querySelector(".h-\\[44px\\]");
+      expect(footerStatusContainer).toBeInTheDocument();
+    });
+  }
+});
+

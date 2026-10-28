@@ -64,7 +64,9 @@ const object = (value: unknown): Record<string, unknown> =>
     ? (value as Record<string, unknown>)
     : {};
 const published = (visibility: unknown) =>
-  ['public', 'published'].includes(text(visibility).toLowerCase());
+  ['public', 'published', 'contestonly', 'contest_only'].includes(
+    text(visibility).toLowerCase(),
+  );
 const filter = (value: unknown) =>
   ['all', 'all topics', 'undefined', 'null'].includes(text(value).toLowerCase())
     ? ''
@@ -121,21 +123,21 @@ const bankPublicSql = `lower(q."questionType") IN ('dsa', 'coding', 'algorithmic
   AND coalesce(q.metadata->>'contestOnly', 'false') <> 'true'`;
 function bankExecutionEligible(question: Question) {
   const metadata = object(question.metadata);
+  const status = text(question.status).toLowerCase();
+  const contestOnly = metadata.contestOnly === true;
   return (
     codingTypes.includes(text(question.questionType).toLowerCase()) &&
-    ['approved', 'active', 'published'].includes(
-      text(question.status).toLowerCase(),
-    ) &&
-    published(metadata.visibility)
+    ['approved', 'active', 'published'].includes(status) &&
+    (published(metadata.visibility) || contestOnly)
   );
 }
 function bankViewEligible(question: Question) {
   const metadata = object(question.metadata);
+  const status = text(question.status).toLowerCase();
+  const contestOnly = metadata.contestOnly === true;
   return (
-    ['approved', 'active', 'published'].includes(
-      text(question.status).toLowerCase(),
-    ) &&
-    published(metadata.visibility)
+    ['approved', 'active', 'published'].includes(status) &&
+    (published(metadata.visibility) || contestOnly)
   );
 }
 function bankSlug(question: Question) {
@@ -272,46 +274,70 @@ export class ProblemsService {
   }
 
   private async metadataBySlug(slug: string) {
+    const rawSlug = text(slug);
+    const cleanId = rawSlug.replace(/^(problem|question)-/i, '');
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        slug,
+        rawSlug,
+      ) ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        cleanId,
       );
-    return this.metadataRepository
+    const id = isUuid
+      ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          cleanId,
+        )
+        ? cleanId
+        : rawSlug
+      : null;
+
+    const qb = this.metadataRepository
       .createQueryBuilder('metadata')
       .leftJoinAndSelect('metadata.statement', 'statement')
       .leftJoinAndSelect('metadata.config', 'config')
-      .leftJoinAndSelect('metadata.testCases', 'testCases')
-      .where(
-        isUuid
-          ? 'metadata.id = :id OR lower(btrim(metadata.slug)) = :slug'
-          : 'lower(btrim(metadata.slug)) = :slug',
-        { id: slug, slug: text(slug).toLowerCase() },
-      )
-      .getOne();
+      .leftJoinAndSelect('metadata.testCases', 'testCases');
+
+    if (id) {
+      qb.where('metadata.id = :id OR lower(btrim(metadata.slug)) = :slug', {
+        id,
+        slug: rawSlug.toLowerCase(),
+      });
+    } else {
+      qb.where('lower(btrim(metadata.slug)) = :slug', {
+        slug: rawSlug.toLowerCase(),
+      });
+    }
+    return qb.getOne();
   }
 
   private async hasMetadataCounterpart(problem: Problem | Question) {
+    const slug = text(problem.slug).toLowerCase();
     return Boolean(
       await this.metadataRepository
         .createQueryBuilder('metadata')
-        .where('metadata.id = :id OR lower(btrim(metadata.slug)) = :slug', {
-          id: problem.id,
-          slug: text(problem.slug).toLowerCase(),
-        })
+        .where(
+          slug
+            ? 'metadata.id = :id OR lower(btrim(metadata.slug)) = :slug'
+            : 'metadata.id = :id',
+          { id: problem.id, slug },
+        )
         .getOne(),
     );
   }
 
   private async hasBankCounterpart(problem: Problem) {
+    const slug = text(problem.slug).toLowerCase();
     return Boolean(
       await this.questionRepository
         .createQueryBuilder('q')
         .where(
-          `lower(q."questionType") IN (:...types) AND (q.id = :id OR lower(${bankSlugSql}) = :slug)`,
+          slug
+            ? `lower(q."questionType") IN (:...types) AND (q.id = :id OR lower(${bankSlugSql}) = :slug)`
+            : `lower(q."questionType") IN (:...types) AND q.id = :id`,
           {
             types: codingTypes,
             id: problem.id,
-            slug: text(problem.slug).toLowerCase(),
+            slug,
           },
         )
         .getOne(),
@@ -396,17 +422,30 @@ export class ProblemsService {
         },
       };
     }
+    const rawSlug = text(slug);
+    const cleanId = rawSlug.replace(/^(problem|question)-/i, '');
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        slug,
+        rawSlug,
+      ) ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        cleanId,
       );
+    const targetId = isUuid
+      ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          cleanId,
+        )
+        ? cleanId
+        : rawSlug
+      : null;
+
     const question = await this.questionRepository
       .createQueryBuilder('q')
       .where(
-        isUuid
+        targetId
           ? `q.id = :id OR lower(${bankSlugSql}) = :slug`
           : `lower(${bankSlugSql}) = :slug`,
-        { id: slug, slug: text(slug).toLowerCase() },
+        { id: targetId, slug: rawSlug.toLowerCase() },
       )
       .getOne();
     if (question) {
@@ -462,9 +501,12 @@ export class ProblemsService {
     }
     const problem = await this.problemRepository
       .createQueryBuilder('problem')
-      .where('lower(btrim(problem.slug)) = :slug', {
-        slug: text(slug).toLowerCase(),
-      })
+      .where(
+        targetId
+          ? 'problem.id = :id OR lower(btrim(problem.slug)) = :slug'
+          : 'lower(btrim(problem.slug)) = :slug',
+        { id: targetId, slug: rawSlug.toLowerCase() },
+      )
       .getOne();
     if (
       !problem ||
@@ -513,15 +555,26 @@ export class ProblemsService {
     id: string,
     source?: 'problem' | 'metadata' | 'question',
   ): Promise<ExecutionProblem> {
-    if (
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        id,
-      )
-    )
+    const rawId = text(id);
+    const cleanId = rawId.replace(/^(problem|question)-/i, '');
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        rawId,
+      ) ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        cleanId,
+      );
+    if (!isUuid)
       throw new NotFoundException('Problem not found');
+    const targetId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      cleanId,
+    )
+      ? cleanId
+      : rawId;
+
     if (!source || source === 'metadata') {
       const metadata = await this.metadataRepository.findOne({
-        where: { id },
+        where: { id: targetId },
         relations: { config: true, testCases: true },
       });
       if (metadata) {
@@ -551,7 +604,7 @@ export class ProblemsService {
         throw new NotFoundException('Problem not found');
     }
     if (!source || source === 'question') {
-      const question = await this.questionRepository.findOne({ where: { id } });
+      const question = await this.questionRepository.findOne({ where: { id: targetId } });
       if (question) {
         if (
           !bankExecutionEligible(question) ||
@@ -572,7 +625,7 @@ export class ProblemsService {
     }
     if (source && source !== 'problem')
       throw new NotFoundException('Problem not found');
-    const problem = await this.problemRepository.findOne({ where: { id } });
+    const problem = await this.problemRepository.findOne({ where: { id: targetId } });
     if (
       !problem ||
       (problem.visibility !== null && !published(problem.visibility)) ||

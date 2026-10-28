@@ -17,6 +17,7 @@ import { SubmissionStore } from '../database/sharding/submission-store';
 import { ContestReattemptGrant } from '../database/entities/contest-reattempt-grant.entity';
 import { Question } from '../database/entities/question.entity';
 import { ProblemMetadata } from '../database/entities/problem-metadata.entity';
+import { Problem } from '../database/entities/problem.entity';
 
 export interface ContestProblemSummary {
   id: string;
@@ -347,7 +348,7 @@ export class ContestsService {
               return {
                 id: problem.id,
                 title: problem.title,
-                slug: problem.slug,
+                slug: problem.slug || `problem-${problem.id}`,
                 questionType: 'coding',
               };
             } catch {
@@ -402,6 +403,7 @@ export class ContestsService {
                     title: meta.title,
                     slug: meta.slug || `problem-${meta.id}`,
                     questionType: 'coding',
+                    difficulty: meta.difficulty,
                   };
                 }
               }
@@ -410,16 +412,43 @@ export class ContestsService {
             }
 
             try {
+              const problemRepo =
+                this.contestRepo.manager?.getRepository(Problem);
+              if (problemRepo && isUuid) {
+                const legacyProb = await problemRepo.findOne({
+                  where: { id: problemId },
+                });
+                if (legacyProb) {
+                  return {
+                    id: legacyProb.id,
+                    title: legacyProb.title,
+                    slug: legacyProb.slug || `problem-${legacyProb.id}`,
+                    questionType: 'coding',
+                    difficulty: legacyProb.difficulty,
+                    description: legacyProb.description,
+                  };
+                }
+              }
+            } catch {
+              // Ignore legacy problem lookup failure
+            }
+
+            try {
               const res = await this.problemsService.getProblemBySlug(problemId);
               if (res?.data?.id) {
                 return {
                   id: res.data.id,
                   title: res.data.title,
-                  slug: res.data.slug,
+                  slug: res.data.slug || `problem-${res.data.id}`,
                   questionType: (res.data as any).questionType || 'coding',
                   options: (res.data as any).options || [],
                   question:
                     (res.data as any).statement?.description || res.data.title,
+                  problemStatement:
+                    (res.data as any).statement?.description,
+                  description:
+                    (res.data as any).statement?.description,
+                  difficulty: res.data.difficulty,
                   codeSnippet: (res.data as any).codeSnippet,
                 };
               }

@@ -108,68 +108,94 @@ export default function StudentAssessmentsPage() {
                 <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${status === "Live" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" : status === "In Progress" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 animate-pulse" : status === "Upcoming" ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30" : status === "Expired" ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30" : "bg-muted text-muted-foreground border-border"}`}>{status}</span>
               </div>
             </div>
-            <div className="flex flex-wrap gap-1.5 min-h-[26px] items-center">
-              {types.length ? types.map(type => <span key={type} className="text-xs bg-primary/5 text-primary border border-primary/15 px-2 py-0.5 rounded-md">{getQuestionTypeLabel(type)}</span>) : <span className="text-xs text-muted-foreground">{assessment.type || "Technical Assessment"}</span>}
-              {assessment.targetSections && assessment.targetSections.length > 0 && <span className="text-xs bg-muted text-muted-foreground border border-border px-2 py-0.5 rounded-md">Sec: {assessment.targetSections.join(", ")}</span>}
-              {assessment.targetGroups && assessment.targetGroups.length > 0 && <span className="text-xs bg-muted text-muted-foreground border border-border px-2 py-0.5 rounded-md">Grp: {assessment.targetGroups.join(", ")}</span>}
+            <div className="flex items-center gap-1.5 min-h-[28px] max-h-[28px] overflow-hidden flex-nowrap">
+              {types.length ? types.map(type => <span key={type} className="text-xs bg-primary/5 text-primary border border-primary/15 px-2 py-0.5 rounded-md shrink-0">{getQuestionTypeLabel(type)}</span>) : <span className="text-xs text-muted-foreground shrink-0">{assessment.type || "Technical Assessment"}</span>}
+              {assessment.targetSections && assessment.targetSections.length > 0 && <span className="text-xs bg-muted text-muted-foreground border border-border px-2 py-0.5 rounded-md shrink-0 truncate max-w-[120px]">Sec: {assessment.targetSections.join(", ")}</span>}
+              {assessment.targetGroups && assessment.targetGroups.length > 0 && <span className="text-xs bg-muted text-muted-foreground border border-border px-2 py-0.5 rounded-md shrink-0 truncate max-w-[120px]">Grp: {assessment.targetGroups.join(", ")}</span>}
             </div>
             <div className="space-y-1.5">
-              <h2 className="text-lg font-bold leading-snug break-words min-h-[3.25rem] line-clamp-2">{assessment.title}</h2>
-              <p className="text-sm text-muted-foreground line-clamp-2 min-h-[2.5rem]">{assessment.description || "A technical assessment assigned to your account."}</p>
+              <h2 className="text-lg font-bold leading-snug break-words min-h-[3.25rem] max-h-[3.25rem] line-clamp-2 overflow-hidden">{assessment.title}</h2>
+              <p className="text-sm text-muted-foreground min-h-[2.5rem] max-h-[2.5rem] line-clamp-2 overflow-hidden">{assessment.description || "A technical assessment assigned to your account."}</p>
             </div>
 
             {/* Batch Slot Information if Scheduled */}
-            {assessment.assignedSlot && (
-              <div className="text-[11px] bg-primary/5 text-primary border border-primary/20 p-2.5 rounded-xl flex items-center justify-between min-h-[38px]">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
-                  <div>
-                    <span className="font-bold">{assessment.assignedSlot.name || `Slot ${assessment.assignedSlot.slotCode}`}</span>
-                    <span className="text-muted-foreground ml-1.5 font-normal">
-                      {assessment.assignedSlot.date} &bull; {assessment.assignedSlot.startTime} - {assessment.assignedSlot.endTime}
-                    </span>
+            <div className="h-[46px] min-h-[46px] max-h-[46px] flex items-center">
+              {assessment.assignedSlot ? (
+                <div className="w-full h-full text-[11px] bg-primary/5 text-primary border border-primary/20 px-2.5 py-1.5 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <div className="min-w-0 truncate">
+                      <span className="font-bold truncate">{assessment.assignedSlot.name || `Slot ${assessment.assignedSlot.slotCode}`}</span>
+                      <span className="text-muted-foreground ml-1.5 font-normal text-[10px]">
+                        {assessment.assignedSlot.date} &bull; {assessment.assignedSlot.startTime} - {assessment.assignedSlot.endTime}
+                      </span>
+                    </div>
                   </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 px-2 py-0.5 rounded-md shrink-0 ml-2">
+                    Assigned
+                  </span>
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 px-2 py-0.5 rounded-md">
-                  Assigned
-                </span>
-              </div>
-            )}
+              ) : assessment.startTime || assessment.endTime ? (
+                <div className="w-full h-full text-[11px] text-muted-foreground flex items-center gap-1.5 bg-muted/40 px-2.5 py-1.5 rounded-xl border border-border/50">
+                  <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <span className="truncate">
+                    {assessment.startTime ? formatAssessmentDateTime(assessment.startTime, "MMM D, h:mm A") : "Immediate"}
+                    {" → "}
+                    {assessment.endTime ? formatAssessmentDateTime(assessment.endTime, "MMM D, h:mm A") : "Open"}
+                  </span>
+                </div>
+              ) : (
+                <div className="w-full h-full text-[11px] text-muted-foreground/75 flex items-center gap-1.5 bg-muted/20 px-2.5 py-1.5 rounded-xl border border-border/30">
+                  <Clock className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+                  <span className="truncate">Flexible schedule · Available on demand</span>
+                </div>
+              )}
+            </div>
 
-            {!assessment.assignedSlot && (
-              <div className="min-h-[38px] flex items-center">
-                {assessment.startTime || assessment.endTime ? (
-                  <div className="w-full text-[11px] text-muted-foreground flex items-center gap-1.5 bg-muted/40 p-2 rounded-lg border border-border/50">
-                    <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
-                    <span className="truncate">
-                      {assessment.startTime ? formatAssessmentDateTime(assessment.startTime, "MMM D, h:mm A") : "Immediate"}
-                      {" → "}
-                      {assessment.endTime ? formatAssessmentDateTime(assessment.endTime, "MMM D, h:mm A") : "Open"}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="w-full text-[11px] text-muted-foreground/75 flex items-center gap-1.5 bg-muted/20 px-2 py-1.5 rounded-lg border border-border/30">
-                    <Clock className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-                    <span>Flexible schedule · Available on demand</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <dl className="grid grid-cols-3 gap-2 border-y border-border py-3.5 text-sm">{[{ label: "Duration", value: `${assessment.durationMinutes} mins`, icon: Clock }, { label: "Questions", value: assessment.questionCount, icon: Layers }, { label: "Total marks", value: `${assessment.totalMarks} pts`, icon: Award }].map(({ label, value, icon: MetaIcon }) => <div key={label}><dt className="text-xs text-muted-foreground flex gap-1 items-center mb-1"><MetaIcon className="w-3.5 h-3.5 shrink-0" />{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl>
-            <div className="text-xs text-muted-foreground flex flex-wrap gap-3 min-h-[20px] items-center">
-              <span>{inProgress ? "Attempt in progress" : remainingAttempts}</span>
-              {levels.length > 0 && <span className="capitalize">Difficulty: {levels.length === 1 ? levels[0] : "Mixed"}</span>}
-              {assessment.proctoring && Object.values(assessment.proctoring).some(Boolean) && <span className="flex gap-1 items-center"><ShieldCheck className="w-3.5 h-3.5" /> Proctored</span>}
-              {assessment.code && <span className="font-mono">{assessment.code}</span>}
+            <dl className="grid grid-cols-3 gap-2 border-y border-border py-3.5 text-sm">{[{ label: "Duration", value: `${assessment.durationMinutes} mins`, icon: Clock }, { label: "Questions", value: assessment.questionCount, icon: Layers }, { label: "Total marks", value: `${assessment.totalMarks} pts`, icon: Award }].map(({ label, value, icon: MetaIcon }) => <div key={label} className="min-w-0"><dt className="text-xs text-muted-foreground flex gap-1 items-center mb-1 truncate"><MetaIcon className="w-3.5 h-3.5 shrink-0" />{label}</dt><dd className="font-semibold truncate">{value}</dd></div>)}</dl>
+            <div className="h-[24px] min-h-[24px] max-h-[24px] text-xs text-muted-foreground flex items-center gap-2.5 overflow-hidden">
+              <span className="shrink-0">{inProgress ? "Attempt in progress" : remainingAttempts}</span>
+              <span className="text-border shrink-0">•</span>
+              {levels.length > 0 ? (
+                <span className="capitalize shrink-0 truncate max-w-[100px]">Difficulty: {levels.length === 1 ? levels[0] : "Mixed"}</span>
+              ) : (
+                <span className="capitalize shrink-0">All levels</span>
+              )}
+              {assessment.proctoring && Object.values(assessment.proctoring).some(Boolean) && (
+                <>
+                  <span className="text-border shrink-0">•</span>
+                  <span className="flex gap-1 items-center shrink-0"><ShieldCheck className="w-3.5 h-3.5" /> Proctored</span>
+                </>
+              )}
+              {assessment.code && (
+                <>
+                  <span className="text-border shrink-0">•</span>
+                  <span className="font-mono truncate">{assessment.code}</span>
+                </>
+              )}
             </div>
           </div>
           <footer className="mt-auto pt-3 space-y-3 border-t border-border/40">
-            {completed && <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>Score: <strong>{assessment.attemptScore ?? 0} / {assessment.totalMarks} pts</strong></span><Link href={`/assessments/${id}/result`} className="font-semibold text-primary flex items-center gap-1 hover:underline"><BarChart3 className="w-4 h-4" />Scorecard</Link></div>}
-            {inProgress && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground" aria-label="Assessment resume information">
-              <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-primary" />Time left <strong className="font-mono text-sm text-foreground">{formatAssessmentTimeLeft(assessment.attemptExpiresAt, now)}</strong></span>
-              <span>Resumes left <strong className="font-mono text-sm text-foreground">{resumesLeft} / {assessment.maxResumeAttempts ?? 3}</strong></span>
-            </div>}
+            <div className="h-[44px] min-h-[44px] max-h-[44px] flex items-center">
+              {completed ? (
+                <div className="w-full flex items-center justify-between gap-2 text-sm">
+                  <span>Score: <strong>{assessment.attemptScore ?? 0} / {assessment.totalMarks} pts</strong></span>
+                  <Link href={`/assessments/${id}/result`} className="font-semibold text-primary flex items-center gap-1 hover:underline">
+                    <BarChart3 className="w-4 h-4" />Scorecard
+                  </Link>
+                </div>
+              ) : inProgress ? (
+                <div className="w-full flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground" aria-label="Assessment resume information">
+                  <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-primary" />Time left <strong className="font-mono text-sm text-foreground">{formatAssessmentTimeLeft(assessment.attemptExpiresAt, now)}</strong></span>
+                  <span>Resumes left <strong className="font-mono text-sm text-foreground">{resumesLeft} / {assessment.maxResumeAttempts ?? 3}</strong></span>
+                </div>
+              ) : (
+                <div className="w-full flex items-center justify-between text-xs text-muted-foreground/80 px-1">
+                  <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-muted-foreground/60" /> Standard Examination</span>
+                  <span className="font-mono text-[11px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded border border-border/40">Ready</span>
+                </div>
+              )}
+            </div>
             {canAttempt ? (
               completed ? (
                 <Button className="w-full" onClick={() => retake(id)}>Re-attempt</Button>
