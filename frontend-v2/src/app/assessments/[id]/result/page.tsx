@@ -38,11 +38,11 @@ import { releaseAssessmentStream } from "@/lib/assessment-media-session";
 export default function AssessmentResultPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: any;
 }) {
   const router = useRouter();
-  const unwrappedParams = use(params);
-  const id = unwrappedParams.id;
+  const unwrappedParams = params && typeof params.then === "function" ? use(params as Promise<{ id: string }>) : params;
+  const id = unwrappedParams?.id;
 
   const { user } = useAuth();
   const [data, setData] = useState<any>(null);
