@@ -52,6 +52,46 @@ type TabType =
   | "attendance"
   | "audit";
 
+const getTodayDateStr = () => new Date().toISOString().split("T")[0];
+const getFutureDateStr = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+};
+
+const getInclusiveDates = (startStr?: string, endStr?: string): string[] => {
+  if (!startStr) return [];
+  const startParts = startStr.split("-").map(Number);
+  if (startParts.length !== 3 || startParts.some(isNaN)) return [startStr];
+  const [sy, sm, sd] = startParts;
+  const cur = new Date(Date.UTC(sy, sm - 1, sd));
+
+  let endDt = cur;
+  if (endStr) {
+    const endParts = endStr.split("-").map(Number);
+    if (endParts.length === 3 && !endParts.some(isNaN)) {
+      endDt = new Date(Date.UTC(endParts[0], endParts[1] - 1, endParts[2]));
+    }
+  }
+
+  const result: string[] = [];
+  while (cur.getTime() <= endDt.getTime() && result.length < 31) {
+    result.push(cur.toISOString().split("T")[0]);
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return result;
+};
+
+const formatReadableDate = (dateStr: string): string => {
+  try {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const date = new Date(y, m - 1, d);
+    return date.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return dateStr;
+  }
+};
+
 export default function AdminExamSchedulingPage() {
   const [activeTab, setActiveTab] = useState<TabType>("schedules");
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -62,7 +102,7 @@ export default function AdminExamSchedulingPage() {
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // Form State for Create / Edit Schedule
+  // Form State for Create / Edit Schedule (defaults to current days)
   const [scheduleForm, setScheduleForm] = useState({
     assessmentId: "",
     title: "",
@@ -73,8 +113,8 @@ export default function AdminExamSchedulingPage() {
     academicYear: 3,
     timezone: "Asia/Kolkata",
     maxConcurrentSessions: 500,
-    startDate: "2026-10-28",
-    endDate: "2026-10-30",
+    startDate: getTodayDateStr(),
+    endDate: getFutureDateStr(2),
     scheduleMode: "slotted",
     config: {
       earlyAccessMinutes: 10,
@@ -83,12 +123,12 @@ export default function AdminExamSchedulingPage() {
       allowResumeOnDisconnect: true,
       allowSingleActiveAttempt: true,
       strictSlotBoundary: true,
-      startDate: "2026-10-28",
-      endDate: "2026-10-30",
+      startDate: getTodayDateStr(),
+      endDate: getFutureDateStr(2),
       scheduleMode: "slotted",
       isFlexibleAvailability: false,
-      flexibleWindowStart: "2026-10-28T09:00",
-      flexibleWindowEnd: "2026-10-30T18:00",
+      flexibleWindowStart: `${getTodayDateStr()}T09:00`,
+      flexibleWindowEnd: `${getFutureDateStr(2)}T18:00`,
       attemptDurationMinutes: 60,
       completionGracePeriodMinutes: 15,
     },
@@ -145,8 +185,8 @@ export default function AdminExamSchedulingPage() {
     roomOrLab: "Lab 1-A / Online",
   });
   const [autoSlotForm, setAutoSlotForm] = useState({
-    startDate: "2026-10-28",
-    endDate: "2026-10-30",
+    startDate: getTodayDateStr(),
+    endDate: getFutureDateStr(2),
     dailyStartTime: "09:30",
     dailyEndTime: "16:10",
     slotDurationMinutes: 200,
@@ -162,8 +202,8 @@ export default function AdminExamSchedulingPage() {
     targetDates: string[];
   }>({
     isOpen: false,
-    sourceDate: "2026-10-28",
-    targetDates: ["2026-10-29", "2026-10-30"],
+    sourceDate: getTodayDateStr(),
+    targetDates: [getFutureDateStr(1), getFutureDateStr(2)],
   });
   const [selectedDayFilter, setSelectedDayFilter] = useState<string>("all");
   const [allocationStrategy, setAllocationStrategy] = useState<string>("balanced");
@@ -552,9 +592,11 @@ export default function AdminExamSchedulingPage() {
   };
 
   const handleLoadThreeDayPreset = () => {
+    const sDate = scheduleForm.config.startDate || currentSchedule?.config?.startDate || getTodayDateStr();
+    const eDate = scheduleForm.config.endDate || currentSchedule?.config?.endDate || getFutureDateStr(2);
     setAutoSlotForm({
-      startDate: "2026-10-28",
-      endDate: "2026-10-30",
+      startDate: sDate,
+      endDate: eDate,
       dailyStartTime: "09:30",
       dailyEndTime: "16:10",
       slotDurationMinutes: 200,
@@ -564,7 +606,7 @@ export default function AdminExamSchedulingPage() {
       slotPrefix: "Batch Slot",
       strategy: "balanced",
     });
-    showNotification("Loaded 3-Day Exam Preset (28, 29, 30 Oct 2026; 2 Slots/Day: 9:30 AM–12:50 PM & 12:50 PM–4:10 PM)");
+    showNotification(`Loaded 3-Day Exam Preset (${formatReadableDate(sDate)} to ${formatReadableDate(eDate)}; 2 Slots/Day: 9:30 AM–12:50 PM & 12:50 PM–4:10 PM)`);
   };
 
   const handleCopyDaySlots = async () => {
@@ -1323,8 +1365,8 @@ export default function AdminExamSchedulingPage() {
                 academicYear: 3,
                 timezone: "Asia/Kolkata",
                 maxConcurrentSessions: 500,
-                startDate: "2026-10-28",
-                endDate: "2026-10-30",
+                startDate: getTodayDateStr(),
+                endDate: getFutureDateStr(2),
                 scheduleMode: "slotted",
                 config: {
                   earlyAccessMinutes: 10,
@@ -1333,12 +1375,12 @@ export default function AdminExamSchedulingPage() {
                   allowResumeOnDisconnect: true,
                   allowSingleActiveAttempt: true,
                   strictSlotBoundary: true,
-                  startDate: "2026-10-28",
-                  endDate: "2026-10-30",
+                  startDate: getTodayDateStr(),
+                  endDate: getFutureDateStr(2),
                   scheduleMode: "slotted",
                   isFlexibleAvailability: false,
-                  flexibleWindowStart: "2026-10-28T09:00",
-                  flexibleWindowEnd: "2026-10-30T18:00",
+                  flexibleWindowStart: `${getTodayDateStr()}T09:00`,
+                  flexibleWindowEnd: `${getFutureDateStr(2)}T18:00`,
                   attemptDurationMinutes: 60,
                   completionGracePeriodMinutes: 15,
                 },
@@ -1756,7 +1798,7 @@ export default function AdminExamSchedulingPage() {
                   <input
                     type="date"
                     required
-                    value={scheduleForm.config.startDate || "2026-10-28"}
+                    value={scheduleForm.config.startDate || getTodayDateStr()}
                     onChange={(e) =>
                       setScheduleForm({
                         ...scheduleForm,
@@ -1771,7 +1813,7 @@ export default function AdminExamSchedulingPage() {
                   <input
                     type="date"
                     required
-                    value={scheduleForm.config.endDate || "2026-10-30"}
+                    value={scheduleForm.config.endDate || getFutureDateStr(2)}
                     onChange={(e) =>
                       setScheduleForm({
                         ...scheduleForm,
@@ -1793,29 +1835,38 @@ export default function AdminExamSchedulingPage() {
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/60 text-xs">
-                <span className="text-muted-foreground">
-                  📅 Included Dates:{" "}
-                  <strong className="text-foreground">
-                    28 Oct 2026, 29 Oct 2026, 30 Oct 2026
-                  </strong>{" "}
-                  (3 Continuous Examination Days)
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setScheduleForm({
-                      ...scheduleForm,
-                      config: {
-                        ...scheduleForm.config,
-                        startDate: "2026-10-28",
-                        endDate: "2026-10-30",
-                      },
-                    })
-                  }
-                  className="text-primary hover:underline text-[11px]"
-                >
-                  Reset to 28–30 Oct 2026
-                </button>
+                {(() => {
+                  const s = scheduleForm.config.startDate || getTodayDateStr();
+                  const e = scheduleForm.config.endDate || getFutureDateStr(2);
+                  const incDates = getInclusiveDates(s, e);
+                  return (
+                    <>
+                      <span className="text-muted-foreground">
+                        📅 Included Dates:{" "}
+                        <strong className="text-foreground">
+                          {incDates.map(formatReadableDate).join(", ") || s}
+                        </strong>{" "}
+                        ({incDates.length} Continuous Examination Days)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setScheduleForm({
+                            ...scheduleForm,
+                            config: {
+                              ...scheduleForm.config,
+                              startDate: getTodayDateStr(),
+                              endDate: getFutureDateStr(2),
+                            },
+                          })
+                        }
+                        className="text-primary hover:underline text-[11px]"
+                      >
+                        Reset to 3 Days Starting Today
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2922,11 +2973,18 @@ export default function AdminExamSchedulingPage() {
                   <Button
                     variant="outline"
                     onClick={() => {
-                      const firstDate = currentSchedule.slots?.[0]?.date || "2026-10-28";
+                      const allDates = Array.from(
+                        new Set([
+                          ...getInclusiveDates(currentSchedule.config?.startDate, currentSchedule.config?.endDate),
+                          ...(currentSchedule.slots?.map((s: any) => s.date) || []),
+                        ])
+                      );
+                      const firstDate = currentSchedule.slots?.[0]?.date || allDates[0] || getTodayDateStr();
+                      const targetDates = allDates.filter((d) => d !== firstDate);
                       setCopySlotModal({
                         isOpen: true,
                         sourceDate: firstDate,
-                        targetDates: ["2026-10-29", "2026-10-30"],
+                        targetDates: targetDates.length ? targetDates : [getFutureDateStr(1), getFutureDateStr(2)],
                       });
                     }}
                     disabled={!currentSchedule.slots?.length}
@@ -3318,11 +3376,21 @@ export default function AdminExamSchedulingPage() {
                       <div>
                         <label className="block text-muted-foreground mb-1 font-medium">Destination Dates (Multi-Select)</label>
                         <div className="space-y-2 p-3 bg-muted/30 rounded-xl border border-border">
-                          {["2026-10-28", "2026-10-29", "2026-10-30"].map((targetD) => {
-                            if (targetD === copySlotModal.sourceDate) return null;
-                            const isChecked = copySlotModal.targetDates.includes(targetD);
-                            return (
-                              <label key={targetD} className="flex items-center gap-2 cursor-pointer">
+                          {(() => {
+                            const allDates = Array.from(
+                              new Set([
+                                ...getInclusiveDates(currentSchedule.config?.startDate, currentSchedule.config?.endDate),
+                                ...(currentSchedule.slots?.map((s: any) => s.date) || []),
+                              ])
+                            );
+                            const destDates = allDates.filter((d) => d !== copySlotModal.sourceDate);
+                            if (destDates.length === 0) {
+                              return <p className="text-muted-foreground text-xs">No other destination dates configured in schedule.</p>;
+                            }
+                            return destDates.map((targetD) => {
+                              const isChecked = copySlotModal.targetDates.includes(targetD);
+                              return (
+                                <label key={targetD} className="flex items-center gap-2 cursor-pointer">
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
@@ -3344,7 +3412,8 @@ export default function AdminExamSchedulingPage() {
                                 <span className="font-mono">{targetD}</span>
                               </label>
                             );
-                          })}
+                            });
+                          })()}
                         </div>
                       </div>
 

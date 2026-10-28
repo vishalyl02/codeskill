@@ -224,13 +224,13 @@ export class ReportsController {
       examName: assessment.title,
       attemptId: attempt.id,
       attemptStatus: attempt.status,
-      dateTaken: attempt.startedAt
-        ? new Date(attempt.startedAt).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          })
-        : 'Unknown Date',
+      dateTaken: new Date(
+        attempt.startedAt || (attempt as any).submittedAt || (attempt as any).createdAt || new Date(),
+      ).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      }),
       score: attempt.score || 0,
       maxScore: attempt.maxScore || 100,
       duration: `${Math.floor((attempt.timeSpentSeconds || 0) / 60)}m ${(attempt.timeSpentSeconds || 0) % 60}s`,
