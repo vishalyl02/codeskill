@@ -491,5 +491,42 @@ describe('ExamSchedulingService', () => {
       expect(res.stats.inProgress).toBe(0);
       expect(res.stats.completed).toBe(0);
     });
+
+    it('assigns students using non-UUID string UIDs without type uuid errors', async () => {
+      scheduleRepo.findOne.mockResolvedValue({ id: 'schedule-uuid-1', assessmentId: 'assessment-1' });
+      assignmentRepo.findOne.mockResolvedValue(null);
+      assignmentRepo.create.mockImplementation((d: any) => d);
+      assignmentRepo.save.mockImplementation((d: any) => Promise.resolve(d));
+      assignmentRepo.count.mockResolvedValue(1);
+
+      const mockQb = {
+        where: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([
+          {
+            id: '550e8400-e29b-41d4-a716-446655440000',
+            uid: '2533821',
+            email: 'student@cuchd.in',
+            name: 'Bob',
+            studentProfile: {},
+          },
+        ]),
+      };
+      userRepo.createQueryBuilder.mockReturnValue(mockQb);
+
+      const res = await service.bulkAssignStudents(
+        'schedule-uuid-1',
+        {
+          selectionType: 'manual',
+          studentUids: ['2533821'],
+        } as any,
+        { id: 'admin-1', role: 'admin' },
+      );
+
+      expect(res.assignedCount).toBe(1);
+      expect(mockQb.where).toHaveBeenCalledWith(
+        expect.not.stringContaining('u.id IN'),
+        expect.anything(),
+      );
+    });
   });
 });
