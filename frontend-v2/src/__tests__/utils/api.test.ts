@@ -144,10 +144,17 @@ describe('API Utils', () => {
     it('does not clear session data or redirect for permission and validation errors', async () => {
       localStorage.setItem('codeskill_token', 'still-valid');
       const errorHandler = api.interceptors.response.handlers[0].rejected;
-      for (const status of [400, 403, 404, 409, 422, 429]) {
-        await expect(errorHandler({ response: { status }, config: { url: '/resource' } })).rejects.toBeDefined();
+      const { logger } = await import('@/lib/logger');
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      try {
+        for (const status of [400, 403, 404, 409, 422, 429]) {
+          await expect(errorHandler({ response: { status }, config: { url: '/resource' } })).rejects.toBeDefined();
+        }
+        expect(localStorage.getItem('codeskill_token')).toBe('still-valid');
+      } finally {
+        warnSpy.mockRestore();
       }
-      expect(localStorage.getItem('codeskill_token')).toBe('still-valid');
     });
   });
 });

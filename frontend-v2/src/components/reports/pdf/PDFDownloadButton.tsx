@@ -28,7 +28,7 @@ export const PDFDownloadButton = ({ data }: Props) => {
 
   return (
     <>
-      <div className="flex items-center gap-2 print:hidden">
+      <div className="flex items-center gap-2 print-hidden">
         <button
           onClick={() => setShowPreview(true)}
           className="flex items-center gap-2 bg-card border border-border hover:bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium transition-colors"

@@ -81,3 +81,85 @@ it("blocks the editor independently of dismissible warnings when fullscreen is l
   proctor.mockReturnValue({ ...state, isFullscreen: true }); rerender(<Page />);
   expect(screen.getByText("Existing problem editor embedded").closest('[inert]')).toBeNull();
 });
+
+it("renders MCQ workspace with options instead of code editor in mixed contest", async () => {
+  const mixedContext = {
+    ...context,
+    problems: [
+      { id: "code-1", slug: "two-sum", title: "Two Sum", questionType: "coding" },
+      {
+        id: "mcq-1",
+        slug: "time-complexity",
+        title: "Complexity MCQ",
+        questionType: "single_choice",
+        options: ["O(1)", "O(n)", "O(n^2)", "O(log n)"],
+        question: "What is the complexity of binary search?",
+      },
+    ],
+  };
+
+  get.mockImplementation(async (url: string) => {
+    if (String(url).includes("/submissions/problem/")) {
+      return { data: { data: [] } };
+    }
+    return { data: { contest: mixedContext.contest, antiCheatConfig: mixedContext.antiCheatConfig } };
+  });
+
+  post.mockImplementation(async (url: string) => {
+    if (String(url).endsWith("/start")) return { data: mixedContext };
+    if (String(url) === "/submissions") {
+      return { data: { success: true, status: "accepted", submission: { id: "sub-mcq-1", status: "accepted" } } };
+    }
+    return { data: { success: true } };
+  });
+
+  render(<Page />);
+  const startButton = await screen.findByRole("button", { name: "Start live contest" });
+  await act(async () => {
+    fireEvent.click(startButton);
+  });
+
+  // Problem 1 is coding: shows code editor
+  expect(screen.getByText("Existing problem editor embedded")).toBeInTheDocument();
+
+  // Switch to Problem 2 (MCQ)
+  const mcqTab = screen.getByRole("button", { name: "2. Complexity MCQ" });
+  await act(async () => {
+    fireEvent.click(mcqTab);
+  });
+
+  // Code editor should NOT be visible
+  expect(screen.queryByText("Existing problem editor embedded")).toBeNull();
+
+  // MCQ options should be displayed
+  expect(screen.getByText("Complexity MCQ")).toBeInTheDocument();
+  expect(screen.getByText("What is the complexity of binary search?")).toBeInTheDocument();
+  expect(screen.getByText("O(1)")).toBeInTheDocument();
+  expect(screen.getByText("O(n)")).toBeInTheDocument();
+  expect(screen.getByText("O(log n)")).toBeInTheDocument();
+
+  // Select an option and submit
+  const optionCard = screen.getByText("O(log n)").closest("button");
+  expect(optionCard).not.toBeNull();
+  await act(async () => {
+    fireEvent.click(optionCard!);
+  });
+
+  const submitButton = screen.getByRole("button", { name: /Submit Answer/i });
+  await act(async () => {
+    fireEvent.click(submitButton);
+  });
+
+  await waitFor(() => {
+    expect(post).toHaveBeenCalledWith(
+      "/submissions",
+      expect.objectContaining({
+        problemId: "mcq-1",
+        selectedAnswer: 3,
+        language: "text",
+      }),
+    );
+  });
+
+  expect(await screen.findByText(/Accepted! Your answer has been verified/i)).toBeInTheDocument();
+});

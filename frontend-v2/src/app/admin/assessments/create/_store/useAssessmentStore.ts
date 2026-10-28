@@ -25,6 +25,7 @@ export type ProctoringMode = 'fully_proctored' | 'partial_proctored' | 'non_proc
 
 export type ProctoringSettings = {
   mode: ProctoringMode;
+  cameraSelectionPolicy: 'system_default' | 'student_select';
   violationPenaltyMarks: number;
   useCamera: boolean;
   enforceFullscreen: boolean;
@@ -71,6 +72,7 @@ interface AssessmentStore {
 
 const defaultProctoring: ProctoringSettings = {
   mode: 'fully_proctored',
+  cameraSelectionPolicy: 'student_select',
   violationPenaltyMarks: 2,
   useCamera: true,
   enforceFullscreen: true,

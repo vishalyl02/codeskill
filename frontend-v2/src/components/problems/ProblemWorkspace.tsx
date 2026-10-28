@@ -25,6 +25,7 @@ import { submissionAPI, runAPI, problemsAPI, discussionsAPI } from "@/config/api
 import { useTheme } from "@/context/ThemeContext";
 import { Spinner } from "@/components/ui/spinner";
 import { hideEntryPoint, updateSourceFromVisibleEditor } from "@/lib/hidden-entry-point";
+import ContestMCQWorkspace, { isContestMcq } from "@/app/contests/[id]/attempt/_components/ContestMCQWorkspace";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 
@@ -612,6 +613,25 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
         <p className="text-muted-foreground text-sm">The problem you're looking for doesn't exist or has been removed.</p>
         <Link href="/problems"><Button variant="outline" className="mt-2"><ArrowLeft className="w-4 h-4 mr-2" />Back to Problems</Button></Link>
       </div>
+    );
+  }
+
+  if (isContestMcq(problem)) {
+    return (
+      <ContestMCQWorkspace
+        problem={{
+          id: problem.id || problem._id,
+          title: problem.title,
+          slug: problem.slug,
+          questionType: problem.questionType,
+          options: problem.options,
+          question: problem.statement?.description || problem.description || problem.question,
+          problemStatement: problem.statement?.description || problem.description,
+          difficulty: problem.difficulty,
+          codeSnippet: problem.codeSnippet,
+        }}
+        embedded={embedded}
+      />
     );
   }
 

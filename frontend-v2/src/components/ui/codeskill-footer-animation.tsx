@@ -33,6 +33,18 @@ export function CodeSkillFooterAnimation({
     const footer = footerRef.current;
     if (!footer) return;
 
+    const checkVisibility = () => {
+      const rect = footer.getBoundingClientRect();
+      if (rect.top < window.innerHeight && rect.bottom > 0) {
+        setIsInView(true);
+        footer.classList.add("in");
+        giantRef.current?.classList.add("in");
+      }
+    };
+
+    // Immediate check on mount/reload
+    checkVisibility();
+
     if (typeof IntersectionObserver === "undefined") {
       setIsInView(true);
       footer.classList.add("in");
@@ -50,7 +62,7 @@ export function CodeSkillFooterAnimation({
           }
         });
       },
-      { threshold: 0.08 }
+      { threshold: 0.05 }
     );
 
     observer.observe(footer);
@@ -66,11 +78,11 @@ export function CodeSkillFooterAnimation({
       const txt = giantTxtRef.current;
       if (!giant || !txt) return;
 
-      giant.style.setProperty("--fs", "100px");
+      const currentFs = parseFloat(getComputedStyle(giant).getPropertyValue("--fs")) || 100;
       const w = txt.getBoundingClientRect().width;
-      if (w > 0) {
-        // Expand text to 98.5% of full viewport container width
-        const newFs = (100 * giant.clientWidth / w) * 0.985;
+      if (w > 0 && giant.clientWidth > 0) {
+        // Expand text to 98.5% of full viewport container width smoothly without flicker
+        const newFs = (currentFs * giant.clientWidth / w) * 0.985;
         giant.style.setProperty("--fs", `${newFs}px`);
       }
     };
@@ -152,25 +164,62 @@ export function CodeSkillFooterAnimation({
         <div className="grid">
           {/* Brand & Institution Column */}
           <div>
-            <div className="brand-row">
-              <div className="cu-logo-wrap">
+            <div className="brand-row flex items-center gap-2 sm:gap-3 shrink-0 select-none flex-nowrap">
+              {/* Chandigarh University Logo Badge */}
+              <div
+                className="cu-logo-wrap flex items-center h-[38px] sm:h-[44px] px-2.5 sm:px-3 py-1 rounded-xl bg-white border border-black/10 dark:border-white/15 shadow-xs shrink-0 transition-transform duration-200 hover:scale-[1.03]"
+                title="Chandigarh University"
+              >
                 <img
-                  src="/chandigarh-university-logo.png"
+                  src="/cu-logo-tight.png"
                   alt="Chandigarh University"
-                  className="cu-logo-img"
-                  loading="lazy"
+                  className="cu-logo-img h-full w-auto object-contain block max-h-[32px] sm:max-h-[36px]"
+                  loading="eager"
                 />
               </div>
 
-              <span className="brand-divider" aria-hidden="true" />
+              {/* Elegant Divider */}
+              <span
+                className="brand-divider inline-block h-6 sm:h-7 w-[1.5px] bg-black/15 dark:bg-white/20 shrink-0 mx-0.5"
+                aria-hidden="true"
+              />
 
-              <div className="codeskill-logo-wrap">
-                <img
-                  src="/codeskill-logo.png"
-                  alt="CodeSkill"
-                  className="codeskill-logo-img"
-                  loading="lazy"
-                />
+              {/* CodeSkill Brand Mark */}
+              <div className="codeskill-logo-wrap flex items-center gap-2 sm:gap-2.5 shrink-0" title="CodeSkill">
+                <div className="relative w-8 h-8 sm:w-9 sm:h-9 rounded-lg overflow-hidden bg-slate-950 border border-black/10 dark:border-white/15 shadow-xs flex items-center justify-center p-1 shrink-0">
+                  <svg viewBox="0 0 160 160" className="w-full h-full" fill="none">
+                    <polygon
+                      points="80,10 145,45 145,115 80,150 15,115 15,45"
+                      fill="#0F172A"
+                      stroke="#FFFFFF"
+                      strokeWidth="8"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M60 62 L40 80 L60 98"
+                      stroke="#FFFFFF"
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M85 55 L75 105"
+                      stroke="#FFFFFF"
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M100 62 L120 80 L100 98"
+                      stroke="#38BDF8"
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+                <span className="font-extrabold text-[19px] sm:text-[22px] tracking-tight leading-none text-slate-900 dark:text-white">
+                  CodeSkill
+                </span>
               </div>
             </div>
 
@@ -519,24 +568,38 @@ export function CodeSkillFooterAnimation({
         .codeskill-custom-footer .brand-row {
           display: flex;
           align-items: center;
-          gap: 1.15rem;
-          flex-wrap: wrap;
+          gap: 0.95rem;
+          flex-wrap: nowrap;
+          white-space: nowrap;
           max-width: 100%;
         }
 
         .codeskill-custom-footer .cu-logo-wrap {
-          display: flex;
+          display: inline-flex;
           align-items: center;
+          justify-content: center;
           flex-shrink: 0;
-          transition: transform 0.4s var(--ease);
+          background: #ffffff;
+          padding: 5px 12px;
+          border-radius: 12px;
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+          transition: transform 0.4s var(--ease), box-shadow 0.4s var(--ease);
         }
 
         .codeskill-custom-footer .cu-logo-wrap:hover {
           transform: scale(1.03);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        :global(.dark) .codeskill-custom-footer .cu-logo-wrap {
+          background: #ffffff;
+          border-color: rgba(255, 255, 255, 0.15);
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
         }
 
         .codeskill-custom-footer .cu-logo-img {
-          height: 76px;
+          height: 38px;
           width: auto;
           object-fit: contain;
           display: block;
@@ -544,17 +607,22 @@ export function CodeSkillFooterAnimation({
         }
 
         .codeskill-custom-footer .brand-divider {
-          height: 54px;
+          height: 34px;
           width: 2px;
           background: #cbd5e1;
           display: inline-block;
           border-radius: 2px;
           opacity: 0.85;
           flex-shrink: 0;
+          transition: background 0.3s;
+        }
+
+        :global(.dark) .codeskill-custom-footer .brand-divider {
+          background: rgba(255, 255, 255, 0.18);
         }
 
         .codeskill-custom-footer .codeskill-logo-wrap {
-          display: flex;
+          display: inline-flex;
           align-items: center;
           flex-shrink: 0;
           transition: transform 0.4s var(--ease);
@@ -565,11 +633,31 @@ export function CodeSkillFooterAnimation({
         }
 
         .codeskill-custom-footer .codeskill-logo-img {
-          height: 74px;
+          height: 46px;
           width: auto;
           object-fit: contain;
           display: block;
           filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.06));
+        }
+
+        .codeskill-custom-footer .codeskill-icon-bg {
+          fill: #0b0f19;
+          stroke: transparent;
+          stroke-width: 1.5px;
+          transition: stroke 0.3s;
+        }
+
+        :global(.dark) .codeskill-custom-footer .codeskill-icon-bg {
+          stroke: rgba(255, 255, 255, 0.15);
+        }
+
+        .codeskill-custom-footer .codeskill-logo-text {
+          fill: #0f172a;
+          transition: fill 0.3s;
+        }
+
+        :global(.dark) .codeskill-custom-footer .codeskill-logo-text {
+          fill: #ffffff;
         }
 
         .codeskill-custom-footer .dept {
@@ -844,9 +932,10 @@ export function CodeSkillFooterAnimation({
             grid-template-columns: minmax(460px, 2.4fr) repeat(4, 1fr);
             gap: 1.6rem;
           }
-          .codeskill-custom-footer .cu-logo-img { height: 66px; }
-          .codeskill-custom-footer .codeskill-logo-img { height: 64px; }
-          .codeskill-custom-footer .brand-divider { height: 46px; }
+          .codeskill-custom-footer .cu-logo-wrap { padding: 4px 10px; }
+          .codeskill-custom-footer .cu-logo-img { height: 34px; }
+          .codeskill-custom-footer .codeskill-logo-img { height: 42px; }
+          .codeskill-custom-footer .brand-divider { height: 30px; }
         }
 
         @media (max-width: 1000px) {
@@ -862,9 +951,10 @@ export function CodeSkillFooterAnimation({
           .codeskill-custom-footer .grid > div:first-child {
             grid-column: 1 / -1;
           }
-          .codeskill-custom-footer .cu-logo-img { height: 60px; }
-          .codeskill-custom-footer .codeskill-logo-img { height: 56px; }
-          .codeskill-custom-footer .brand-divider { height: 42px; }
+          .codeskill-custom-footer .cu-logo-wrap { padding: 4px 10px; }
+          .codeskill-custom-footer .cu-logo-img { height: 32px; }
+          .codeskill-custom-footer .codeskill-logo-img { height: 38px; }
+          .codeskill-custom-footer .brand-divider { height: 28px; }
         }
 
         @media (max-width: 768px) {
@@ -879,10 +969,11 @@ export function CodeSkillFooterAnimation({
             grid-template-columns: 1fr 1fr;
             gap: 2rem 1.25rem;
           }
-          .codeskill-custom-footer .cu-logo-img { height: 48px; max-width: 160px; }
-          .codeskill-custom-footer .codeskill-logo-img { height: 44px; max-width: 140px; }
-          .codeskill-custom-footer .brand-divider { height: 34px; }
-          .codeskill-custom-footer .brand-row { gap: 0.85rem; }
+          .codeskill-custom-footer .cu-logo-wrap { padding: 3px 8px; border-radius: 10px; }
+          .codeskill-custom-footer .cu-logo-img { height: 28px; max-width: 140px; }
+          .codeskill-custom-footer .codeskill-logo-img { height: 34px; max-width: 150px; }
+          .codeskill-custom-footer .brand-divider { height: 24px; }
+          .codeskill-custom-footer .brand-row { gap: 0.65rem; flex-wrap: nowrap; }
           .codeskill-custom-footer .dept { font-size: 0.95rem; margin: 0.65rem 0 1rem; }
           .codeskill-custom-footer .desc { font-size: 0.92rem; line-height: 1.6; margin-bottom: 1.25rem; }
           .codeskill-custom-footer h4 {
@@ -914,19 +1005,20 @@ export function CodeSkillFooterAnimation({
           .codeskill-custom-footer .brand-row {
             display: flex;
             align-items: center;
-            gap: 0.65rem;
-            flex-wrap: wrap;
+            gap: 0.5rem;
+            flex-wrap: nowrap;
           }
+          .codeskill-custom-footer .cu-logo-wrap { padding: 2px 6px; border-radius: 8px; }
           .codeskill-custom-footer .cu-logo-img {
-            height: 38px;
-            max-width: 135px;
+            height: 22px;
+            max-width: 100px;
           }
           .codeskill-custom-footer .codeskill-logo-img {
-            height: 36px;
-            max-width: 120px;
+            height: 28px;
+            max-width: 125px;
           }
           .codeskill-custom-footer .brand-divider {
-            height: 26px;
+            height: 20px;
             margin: 0 0.1rem;
           }
           .codeskill-custom-footer .dept {
@@ -995,18 +1087,20 @@ export function CodeSkillFooterAnimation({
             padding-top: 1.75rem;
           }
           .codeskill-custom-footer .brand-row {
-            gap: 0.5rem;
+            gap: 0.35rem;
+            flex-wrap: nowrap;
           }
+          .codeskill-custom-footer .cu-logo-wrap { padding: 2px 5px; border-radius: 6px; }
           .codeskill-custom-footer .cu-logo-img {
-            height: 34px;
-            max-width: 120px;
+            height: 18px;
+            max-width: 85px;
           }
           .codeskill-custom-footer .codeskill-logo-img {
-            height: 32px;
-            max-width: 110px;
+            height: 22px;
+            max-width: 100px;
           }
           .codeskill-custom-footer .brand-divider {
-            height: 22px;
+            height: 16px;
           }
           .codeskill-custom-footer .grid {
             grid-template-columns: 1fr 1fr;

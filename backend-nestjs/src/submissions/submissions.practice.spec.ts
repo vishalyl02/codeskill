@@ -51,11 +51,13 @@ describe('Practice submission identity', () => {
   const redis = { getClient: jest.fn().mockReturnValue(null) };
   const problems = {
     getExecutionProblem: jest.fn().mockResolvedValue(problem),
+    getQuestionById: jest.fn().mockResolvedValue(null),
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
     problems.getExecutionProblem.mockResolvedValue(problem);
+    problems.getQuestionById.mockResolvedValue(null);
     service = new SubmissionsService(
       submissionRepo as never,
       userRepo as never,
@@ -221,6 +223,73 @@ describe('Practice submission identity', () => {
       'No test cases configured',
     );
     expect(submissionRepo.save).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('evaluates and accepts a single-choice MCQ without enqueuing execution', async () => {
+    const mcqQuestion = {
+      id: problemId,
+      question: 'What is 2 + 2?',
+      options: ['2', '3', '4', '5'],
+      correctAnswer: 2,
+      questionType: 'single_choice',
+    };
+    problems.getQuestionById.mockResolvedValue(mcqQuestion);
+
+    const result = await service.createSubmission(userId, {
+      problemId,
+      selectedAnswer: 2,
+      language: 'text',
+    });
+
+    expect(result.status).toBe('accepted');
+    expect(result.problemSource).toBe('question');
+    expect(result.testsPassed).toBe(1);
+    expect(submissionRepo.save).toHaveBeenCalledTimes(1);
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('evaluates and marks wrong answer for incorrect single-choice MCQ', async () => {
+    const mcqQuestion = {
+      id: problemId,
+      question: 'What is 2 + 2?',
+      options: ['2', '3', '4', '5'],
+      correctAnswer: 2,
+      questionType: 'single_choice',
+    };
+    problems.getQuestionById.mockResolvedValue(mcqQuestion);
+
+    const result = await service.createSubmission(userId, {
+      problemId,
+      selectedAnswer: 0,
+      language: 'text',
+    });
+
+    expect(result.status).toBe('wrong_answer');
+    expect(result.testsPassed).toBe(0);
+    expect(submissionRepo.save).toHaveBeenCalledTimes(1);
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('evaluates and accepts a multiple-choice MCQ with correctAnswers', async () => {
+    const mcqQuestion = {
+      id: problemId,
+      question: 'Select even numbers',
+      options: ['1', '2', '3', '4'],
+      correctAnswers: [1, 3],
+      questionType: 'multiple_choice',
+    };
+    problems.getQuestionById.mockResolvedValue(mcqQuestion);
+
+    const result = await service.createSubmission(userId, {
+      problemId,
+      selectedAnswers: [3, 1], // Unsorted client answer
+      language: 'text',
+    });
+
+    expect(result.status).toBe('accepted');
+    expect(result.testsPassed).toBe(1);
+    expect(submissionRepo.save).toHaveBeenCalledTimes(1);
     expect(queue.add).not.toHaveBeenCalled();
   });
 });

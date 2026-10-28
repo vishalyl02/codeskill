@@ -396,16 +396,18 @@ it.each([
     service.getExecutionProblem(id, 'question'),
   ).rejects.toBeInstanceOf(NotFoundException);
 });
-it('does not publish contestOnly bank records to the public slug endpoint but allows execution', async () => {
+it('allows contestOnly bank records to resolve by slug and for execution', async () => {
   const { service, bankQuery, bank } = setup();
   const contestQuestion = codingQuestion({
     visibility: 'Published',
     contestOnly: true,
   });
   bankQuery.getOne.mockResolvedValueOnce(contestQuestion);
-  await expect(service.getProblemBySlug('bank-title')).rejects.toBeInstanceOf(
-    NotFoundException,
-  );
+  const detail = await service.getProblemBySlug('bank-title');
+  expect(detail.data).toMatchObject({
+    id,
+    title: 'Bank Title',
+  });
 
   bank.findOne.mockResolvedValueOnce(contestQuestion);
   const execution = await service.getExecutionProblem(id, 'question');

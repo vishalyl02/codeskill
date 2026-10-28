@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { ExecutionService } from '../execution/execution.service';
 import {
   Injectable,
@@ -60,16 +61,176 @@ export class SubmissionsService {
     if (!data || typeof data !== 'object') {
       throw new BadRequestException('Invalid submission payload');
     }
-    const { code, language, problemId } = data as Record<string, unknown>;
+    const payload = data as Record<string, unknown>;
+    const { problemId } = payload;
+    if (typeof problemId !== 'string' || !problemId.trim()) {
+      throw new BadRequestException('Missing problemId');
+    }
 
+    const trimmedProblemId = problemId.trim();
+    const question =
+      typeof this.problemsService.getQuestionById === 'function'
+        ? await this.problemsService.getQuestionById(trimmedProblemId)
+        : null;
+    const codingTypes = ['dsa', 'coding', 'algorithmic'];
+    const isMcq =
+      question &&
+      (!codingTypes.includes((question.questionType || '').toLowerCase()) ||
+        ['single_choice', 'multiple_choice', 'mcq', 'true_false'].includes(
+          (question.questionType || '').toLowerCase(),
+        ));
+
+    if (isMcq) {
+      let selectedAnswer: number | undefined =
+        payload.selectedAnswer !== undefined && payload.selectedAnswer !== null
+          ? Number(payload.selectedAnswer)
+          : undefined;
+      let selectedAnswers: number[] | undefined = Array.isArray(
+        payload.selectedAnswers,
+      )
+        ? payload.selectedAnswers.map(Number)
+        : undefined;
+
+      if (
+        selectedAnswer === undefined &&
+        (selectedAnswers === undefined || selectedAnswers.length === 0) &&
+        typeof payload.code === 'string'
+      ) {
+        try {
+          const parsed = JSON.parse(payload.code);
+          if (typeof parsed === 'number') {
+            selectedAnswer = parsed;
+          } else if (Array.isArray(parsed)) {
+            selectedAnswers = parsed.map(Number);
+          } else if (parsed && typeof parsed === 'object') {
+            if (parsed.selectedAnswer !== undefined)
+              selectedAnswer = Number(parsed.selectedAnswer);
+            if (Array.isArray(parsed.selectedAnswers))
+              selectedAnswers = parsed.selectedAnswers.map(Number);
+          }
+        } catch {
+          const parsedNum = parseInt(payload.code, 10);
+          if (!Number.isNaN(parsedNum)) {
+            selectedAnswer = parsedNum;
+          }
+        }
+      }
+
+      if (
+        selectedAnswer === undefined &&
+        (selectedAnswers === undefined || selectedAnswers.length === 0)
+      ) {
+        throw new BadRequestException('Missing selected answer');
+      }
+
+      const qType = (question.questionType || '').toLowerCase();
+      const isMulti =
+        qType === 'multiple_choice' ||
+        (Array.isArray(question.correctAnswers) &&
+          question.correctAnswers.length > 0);
+
+      let isCorrect = false;
+      if (isMulti) {
+        const selectedList = Array.isArray(selectedAnswers)
+          ? selectedAnswers
+          : selectedAnswer !== undefined && selectedAnswer >= 0
+            ? [selectedAnswer]
+            : [];
+        if (selectedList.length > 0) {
+          const correctList =
+            Array.isArray(question.correctAnswers) &&
+            question.correctAnswers.length > 0
+              ? question.correctAnswers
+              : [question.correctAnswer];
+          const sortedSelected = [...new Set(selectedList)].sort((a, b) => a - b);
+          const sortedCorrect = [...new Set(correctList)].sort((a, b) => a - b);
+          isCorrect =
+            sortedSelected.length === sortedCorrect.length &&
+            sortedSelected.every((val, idx) => val === sortedCorrect[idx]);
+        }
+      } else {
+        const ans =
+          selectedAnswer !== undefined
+            ? selectedAnswer
+            : Array.isArray(selectedAnswers) && selectedAnswers.length > 0
+              ? selectedAnswers[0]
+              : undefined;
+        if (ans !== undefined && ans >= 0) {
+          isCorrect = ans === question.correctAnswer;
+        }
+      }
+
+      const status = isCorrect
+        ? SubmissionStatus.ACCEPTED
+        : SubmissionStatus.WRONG_ANSWER;
+      const testsPassed = isCorrect ? 1 : 0;
+      const totalTests = 1;
+      const testResults = [
+        {
+          id: 1,
+          passed: isCorrect,
+          status: isCorrect ? 'Accepted' : 'Wrong Answer',
+          output: isCorrect ? 'Correct' : 'Incorrect',
+          expected: '',
+        },
+      ];
+
+      const submissionId = randomUUID();
+      const submission = this.submissionRepo.create({
+        id: submissionId,
+        userId,
+        user: { id: userId },
+        problemId: question.id,
+        problemSource: 'question',
+        code:
+          typeof payload.code === 'string' && payload.code
+            ? payload.code
+            : JSON.stringify({ selectedAnswer, selectedAnswers }),
+        language:
+          typeof payload.language === 'string' && payload.language
+            ? (payload.language as string)
+            : 'text',
+        status,
+        executionTime: 0,
+        memoryUsed: 0,
+        testsPassed,
+        totalTests,
+        testResults,
+        completedAt: new Date(),
+      });
+
+      await this.submissionRepo.save(submission);
+
+      await this.userRepo.manager.transaction(async (manager) => {
+        const user = await manager.findOne(User, {
+          where: { id: userId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (user) {
+          user.stats = {
+            ...(user.stats || {}),
+            totalSubmissions: (user.stats?.totalSubmissions || 0) + 1,
+          };
+          await manager.save(User, user);
+        }
+      });
+
+      this.appGateway.emitToUser(userId, 'submission_status', {
+        submissionId: submission.id,
+        status: submission.status,
+        problemId: question.id,
+        completedAt: submission.completedAt,
+      });
+
+      return { ...submission, _id: submission.id };
+    }
+
+    const { code, language } = payload;
     if (typeof code !== 'string' || !code) {
       throw new BadRequestException('Missing or invalid code');
     }
     if (!language || typeof language !== 'string') {
       throw new BadRequestException('Missing or invalid language');
-    }
-    if (typeof problemId !== 'string' || !problemId.trim()) {
-      throw new BadRequestException('Missing problemId');
     }
 
     const langLower = language.trim().toLowerCase();
@@ -86,7 +247,7 @@ export class SubmissionsService {
 
     // Resolve publication and judge data on the server; client source/state is ignored.
     const problem = await this.problemsService.getExecutionProblem(
-      problemId.trim(),
+      trimmedProblemId,
     );
     const allowedLanguages = problem.config.supportedLanguages;
     if (

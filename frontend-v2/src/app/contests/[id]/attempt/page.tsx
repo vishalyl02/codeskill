@@ -6,6 +6,7 @@ import api from "@/config/api";
 import { useAuth } from "@/context/AuthContext";
 import { useAntiCheatMaster } from "@/hooks/anti-cheat/useAntiCheatMaster";
 import ProblemWorkspace from "@/components/problems/ProblemWorkspace";
+import ContestMCQWorkspace, { isContestMcq } from "./_components/ContestMCQWorkspace";
 import { ContestStartGate } from "./_components/ContestStartGate";
 import { AntiCheatWarningDialog } from "./_components/AntiCheatWarningDialog";
 import { WatermarkOverlay } from "./_components/WatermarkOverlay";
@@ -16,7 +17,18 @@ import { type PublicContest } from "@/lib/contests";
 
 interface AttemptContext {
   contest: PublicContest; sessionId: string; startedAt: string;
-  problems: Array<{ id: string; title: string; slug: string }>;
+  problems: Array<{
+    id: string;
+    title: string;
+    slug: string;
+    questionType?: string;
+    options?: string[];
+    question?: string;
+    problemStatement?: string;
+    description?: string;
+    difficulty?: string;
+    codeSnippet?: string;
+  }>;
   antiCheatConfig: {
     enableFullscreen: boolean; enableCopyProtect: boolean; enablePasteProtect: boolean;
     enableDevToolsDetect: boolean; enableTabSwitchDetect: boolean; warningLimit: number;
@@ -143,7 +155,63 @@ function ContestSession({ id }: { id: string }) {
     <SubmissionConfirmationDialog isOpen={confirm} onClose={() => setConfirm(false)} onConfirm={() => void finish()} fullName={user.name} username={user.username || user.uid || user.name} contestName={context.contest.title} warnings={proctor.warnings} elapsedSeconds={elapsed} />
     <header className="border-b border-border bg-card px-4 py-3 flex flex-wrap gap-3 justify-between items-center shrink-0 z-50"><div className="min-w-0"><h1 className="font-bold truncate">{context.contest.title}</h1><p className="text-xs text-muted-foreground">{user.name} · Warnings {proctor.warnings} / {proctor.warningLimit}</p></div><div className="flex items-center gap-3"><span className="font-mono text-sm">{Math.floor(remaining / 3600).toString().padStart(2, "0")}:{Math.floor(remaining / 60 % 60).toString().padStart(2, "0")}:{(remaining % 60).toString().padStart(2, "0")}</span><Button size="sm" disabled={busy} onClick={() => ended ? void finish(true) : setConfirm(true)}>{busy ? "Submitting..." : ended ? "Retry submission" : "Finish Contest"}</Button></div></header>
     {error && <p role="alert" className="px-4 py-2 text-destructive shrink-0">{error}</p>}
-    {ended ? <div className="p-8 text-center">This contest session has ended.</div> : <><nav aria-label="Contest problems" className="flex gap-2 overflow-x-auto p-2 border-b border-border shrink-0">{context.problems.map((item, index) => <button key={item.id} aria-pressed={selected === index} onClick={() => setSelected(index)} className={`px-3 py-2 text-sm rounded-md whitespace-nowrap ${selected === index ? "bg-foreground text-background" : "hover:bg-muted"}`}>{index + 1}. {item.title}</button>)}</nav><div className="flex-1 min-h-0"><Suspense fallback={<div role="status" className="p-8">Loading problem...</div>}>{problem ? <ProblemWorkspace key={problem.id} params={workspaceParams} embedded /> : <p className="p-8 text-center">No available problems are configured for this contest.</p>}</Suspense></div></>}
+    {ended ? (
+      <div className="p-8 text-center">This contest session has ended.</div>
+    ) : (
+      <>
+        <nav
+          aria-label="Contest problems"
+          className="flex gap-2 overflow-x-auto p-2 border-b border-border shrink-0"
+        >
+          {context.problems.map((item, index) => {
+            const mcq = isContestMcq(item);
+            return (
+              <button
+                key={item.id}
+                aria-pressed={selected === index}
+                onClick={() => setSelected(index)}
+                className={`px-3 py-2 text-sm rounded-md whitespace-nowrap flex items-center gap-1.5 ${
+                  selected === index
+                    ? "bg-foreground text-background"
+                    : "hover:bg-muted"
+                }`}
+              >
+                <span>{index + 1}. {item.title}</span>
+                <span
+                  aria-hidden="true"
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                    selected === index
+                      ? "bg-background/20 text-background"
+                      : mcq
+                        ? "bg-purple-500/10 text-purple-400 border border-purple-500/20"
+                        : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                  }`}
+                >
+                  {mcq ? "MCQ" : "Code"}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="flex-1 min-h-0">
+          <Suspense fallback={<div role="status" className="p-8">Loading problem...</div>}>
+            {!problem ? (
+              <p className="p-8 text-center">No available problems are configured for this contest.</p>
+            ) : isContestMcq(problem) ? (
+              <ContestMCQWorkspace
+                key={problem.id}
+                problem={problem}
+                contestId={id}
+                sessionId={context.sessionId}
+                embedded
+              />
+            ) : (
+              <ProblemWorkspace key={problem.id} params={workspaceParams} embedded />
+            )}
+          </Suspense>
+        </div>
+      </>
+    )}
     </div>
   </div>;
 }

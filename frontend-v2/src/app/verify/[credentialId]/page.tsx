@@ -177,7 +177,7 @@ export default function PublicCertificateVerificationPage({
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans transition-colors">
       {/* Top Banner / Verification Header (Hidden on Print) */}
-      <header className="print:hidden border-b border-border bg-card/60 backdrop-blur-md sticky top-0 z-40">
+      <header className="print-hidden border-b border-border bg-card/60 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-4 py-2.5 sm:px-6 flex items-center justify-between">
           <Link
             href="/learning"
@@ -203,7 +203,7 @@ export default function PublicCertificateVerificationPage({
 
       <main className="flex-1 max-w-5xl w-full mx-auto p-3 sm:p-4 lg:p-6 space-y-4 print:p-0 print:m-0 print:max-w-none print:w-full print:space-y-0">
         {/* Verification Status Overview Banner (Hidden on Print) */}
-        <div className="print:hidden text-center max-w-2xl mx-auto space-y-2 pt-1">
+        <div className="print-hidden text-center max-w-2xl mx-auto space-y-2 pt-1">
           <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-muted text-foreground border border-border">
             <GraduationCap className="w-3.5 h-3.5 text-primary" />
             <span>Chandigarh University · Verifiable Digital Credential</span>
@@ -223,7 +223,7 @@ export default function PublicCertificateVerificationPage({
 
         {/* Action Toolbar (Hidden on Print) */}
         {result?.valid && (
-          <div className="print:hidden flex flex-wrap items-center justify-center gap-2 sm:gap-2.5 py-1">
+          <div className="print-hidden flex flex-wrap items-center justify-center gap-2 sm:gap-2.5 py-1">
             <Button
               onClick={handlePrint}
               variant="default"
@@ -323,7 +323,7 @@ export default function PublicCertificateVerificationPage({
 
         {/* Metadata Card Below Certificate (Hidden on Print) */}
         {result?.valid && (
-          <div className="print:hidden max-w-[820px] mx-auto bg-card border border-border rounded-xl p-4 shadow-sm space-y-3">
+          <div className="print-hidden max-w-[820px] mx-auto bg-card border border-border rounded-xl p-4 shadow-sm space-y-3">
             <div className="flex items-center justify-between border-b border-border pb-2.5">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-500" />
@@ -412,7 +412,7 @@ export default function PublicCertificateVerificationPage({
       </main>
 
       {/* Footer (Hidden on Print) */}
-      <footer className="print:hidden border-t border-border py-4 text-center text-xs text-muted-foreground">
+      <footer className="print-hidden border-t border-border py-4 text-center text-xs text-muted-foreground">
         <p>
           © {new Date().getFullYear()} Chandigarh University · Department of Computer Science & Engineering. All rights reserved.
         </p>

@@ -18,7 +18,7 @@ export function Footer() {
   if (isHidden) return null;
 
   return (
-    <div className="w-full bg-background mt-auto print:hidden">
+    <div className="w-full bg-background mt-auto print-hidden">
       <CodeSkillFooterAnimation
         brandName="CodeSkill"
         showGiantText={pathname === "/"}

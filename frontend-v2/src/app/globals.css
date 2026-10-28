@@ -11,6 +11,25 @@ body {
   max-width: 100%;
 }
 
+@media print {
+  .print-hidden {
+    display: none !important;
+  }
+
+  .candidate-report {
+    background: white !important;
+    color: black !important;
+  }
+
+  .candidate-report-title {
+    color: black !important;
+  }
+
+  .candidate-report-admin-badge {
+    border: 1px solid #ef4444 !important;
+  }
+}
+
 /* Visible, contained scrolling for long questions in the fullscreen exam. */
 .assessment-scroll {
   scrollbar-width: auto;
@@ -1325,7 +1344,7 @@ html.dark .codeskill-home > section:not(:first-child) :is([class*="text-slate-40
   header,
   footer,
   aside,
-  .print\\:hidden,
+  .print-hidden,
   [data-print-hidden="true"] {
     display: none !important;
     height: 0 !important;

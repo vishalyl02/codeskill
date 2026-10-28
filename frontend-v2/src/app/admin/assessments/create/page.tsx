@@ -704,6 +704,27 @@ function AssessmentBuilder() {
               </label>
             </div>
           )}
+          {store.proctoring.mode !== 'non_proctored' && store.proctoring.useCamera && (
+            <div className="rounded-xl border border-border bg-background p-4 space-y-2">
+              <label htmlFor="assessment-camera-policy" className="block text-sm font-semibold text-foreground">
+                Camera selection
+              </label>
+              <select
+                id="assessment-camera-policy"
+                value={store.proctoring.cameraSelectionPolicy || 'student_select'}
+                onChange={(event) => store.setProctoring({ cameraSelectionPolicy: event.target.value as ProctoringSettings['cameraSelectionPolicy'] })}
+                className="w-full max-w-xl rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground focus:ring-2 focus:ring-primary"
+              >
+                <option value="student_select">Allow student to choose a camera</option>
+                <option value="system_default">Use only the system default camera</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {store.proctoring.cameraSelectionPolicy === 'system_default'
+                  ? "The browser's default camera is used; students won't see a camera picker."
+                  : 'Students can choose an available camera before starting the assessment.'}
+              </p>
+            </div>
+          )}
         </section>
 
         {/* Audience and availability */}

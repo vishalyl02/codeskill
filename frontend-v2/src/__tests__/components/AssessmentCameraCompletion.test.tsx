@@ -54,9 +54,26 @@ it("keeps the attempt and media available when forced submission fails", async (
   expect(studentAssessmentsAPI.submitAttempt).toHaveBeenCalledTimes(3);
   expect(await screen.findByRole("alert")).toHaveTextContent("Your saved answers are still here");
   expect(screen.getByRole("button", { name: "Retry submission" })).toBeInTheDocument();
+  const dismissBtn = screen.getByRole("button", { name: "Dismiss alert" });
+  expect(dismissBtn).toBeInTheDocument();
+  fireEvent.click(dismissBtn);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   expect(replace).not.toHaveBeenCalled();
   expect(videoStop).not.toHaveBeenCalled(); expect(audioStop).not.toHaveBeenCalled();
   expect(getUserMedia).toHaveBeenCalledTimes(1);
+});
+it("automatically dismisses the submission error alert after timeout", async () => {
+  jest.mocked(studentAssessmentsAPI.submitAttempt).mockRejectedValue(new Error("Network failure"));
+  jest.spyOn(console, "error").mockImplementation(() => {});
+  await renderAssessmentPage(); fireEvent.click(await screen.findByRole("button", { name: "Enter Fullscreen" })); await screen.findByRole("button", { name: "Force termination" });
+  await waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(1));
+  jest.useFakeTimers();
+  fireEvent.click(screen.getByRole("button", { name: "Force termination" }));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  await act(async () => { await jest.runAllTimersAsync(); });
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  await act(async () => { jest.advanceTimersByTime(8000); });
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 it("stops media when the countdown reaches zero", async () => {
   jest.useFakeTimers();

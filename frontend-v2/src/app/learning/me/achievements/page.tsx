@@ -12,7 +12,9 @@ import {
   Flame,
   Star,
   CheckCircle2,
+  LogIn,
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -42,12 +44,17 @@ interface AchievementsData {
 }
 
 export default function AchievementsPage() {
+  const { user, loading: authLoading } = useAuth();
   const [data, setData] = useState<AchievementsData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadAchievements();
-  }, []);
+    if (user) {
+      loadAchievements();
+    } else if (!authLoading) {
+      setLoading(false);
+    }
+  }, [user, authLoading]);
 
   const loadAchievements = async () => {
     try {
@@ -69,10 +76,38 @@ export default function AchievementsPage() {
     legendary: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Spinner className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center pt-24 p-6 font-sans text-center max-w-md mx-auto">
+        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-5 text-amber-500">
+          <Trophy className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl font-bold tracking-tight mb-2">Track Your XP & Badges</h2>
+        <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+          Sign in to view your earned skill badges, experience points (XP), and campus leaderboard standing.
+        </p>
+        <Link
+          href="/login?redirect=/learning/me/achievements"
+          className="w-full inline-flex items-center justify-center gap-2 h-11 px-6 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm shadow-md transition-all hover:shadow-lg"
+        >
+          <LogIn className="w-4 h-4" />
+          <span>Log In to View Achievements</span>
+        </Link>
+        <Link
+          href="/learning"
+          className="mt-4 text-xs font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back to Learning Catalog</span>
+        </Link>
       </div>
     );
   }

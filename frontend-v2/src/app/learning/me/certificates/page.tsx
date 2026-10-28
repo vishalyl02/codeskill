@@ -11,7 +11,9 @@ import {
   ArrowLeft,
   Calendar,
   Sparkles,
+  LogIn,
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
@@ -32,13 +34,18 @@ interface CertificateItem {
 }
 
 export default function MyCertificatesPage() {
+  const { user, loading: authLoading } = useAuth();
   const [certificates, setCertificates] = useState<CertificateItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadCertificates();
-  }, []);
+    if (user) {
+      loadCertificates();
+    } else if (!authLoading) {
+      setLoading(false);
+    }
+  }, [user, authLoading]);
 
   const loadCertificates = async () => {
     try {
@@ -65,10 +72,38 @@ export default function MyCertificatesPage() {
     setTimeout(() => setCopiedId(null), 2500);
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Spinner className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center pt-24 p-6 font-sans text-center max-w-md mx-auto">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-5 text-primary">
+          <Award className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl font-bold tracking-tight mb-2">My Verified Certificates</h2>
+        <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+          Sign in to access, verify, and share your official Chandigarh University Department of Skill Development certificates.
+        </p>
+        <Link
+          href="/login?redirect=/learning/me/certificates"
+          className="w-full inline-flex items-center justify-center gap-2 h-11 px-6 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm shadow-md transition-all hover:shadow-lg"
+        >
+          <LogIn className="w-4 h-4" />
+          <span>Log In to View Certificates</span>
+        </Link>
+        <Link
+          href="/learning"
+          className="mt-4 text-xs font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back to Learning Catalog</span>
+        </Link>
       </div>
     );
   }

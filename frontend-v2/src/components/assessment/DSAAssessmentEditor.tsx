@@ -2,7 +2,7 @@
 
 import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { ResizableAssessmentPanels } from "./ResizableAssessmentPanels";
 import { useTheme } from "@/context/ThemeContext";
@@ -207,15 +207,43 @@ export default function DSAAssessmentEditor({
   blockCopyPaste = true,
 }: DSAAssessmentEditorProps) {
   const { resolvedTheme } = useTheme();
+  const executionRuntimes = useExecutionRuntimes();
+
+  const isLanguageAllowed = (lang: string) => {
+    const canonical = canonicalEditorLanguage(lang);
+    const matchesSupported =
+      !question.supportedLanguages?.length ||
+      question.supportedLanguages.some(
+        (value) => canonicalEditorLanguage(value) === canonical,
+      );
+    const matchesRuntime =
+      !executionRuntimes.length ||
+      executionRuntimes.some(
+        (runtime) =>
+          canonicalEditorLanguage(runtime.language) === canonical &&
+          runtime.enabled,
+      );
+    return matchesSupported && matchesRuntime;
+  };
+
   const initialLang = (() => {
-    // The candidate's saved language preference wins over the author's default.
+    // The candidate's saved language preference wins over the author's default if allowed.
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem(`codeskill_lang_q_${question._id}`);
-      if (saved) return saved;
+      if (saved && isLanguageAllowed(saved)) return saved;
     }
-    return savedResponse?.language || question.language || "python";
+    if (savedResponse?.language && isLanguageAllowed(savedResponse.language)) {
+      return savedResponse.language;
+    }
+    if (question.language && isLanguageAllowed(question.language)) {
+      return question.language;
+    }
+    if (isLanguageAllowed("python")) {
+      return "python";
+    }
+    const firstAllowed = LANGUAGES.find((l) => isLanguageAllowed(l.value))?.value;
+    return firstAllowed || "python";
   })();
-  const executionRuntimes = useExecutionRuntimes();
   const [language, setLanguage] = useState(initialLang);
 
   const getQuestionStarterCode = (lang: string): string | undefined => {
@@ -259,6 +287,12 @@ export default function DSAAssessmentEditor({
   const [copied, setCopied] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
   const activeExecutionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (savedResponse?.language && !isLanguageAllowed(savedResponse.language)) {
+      onDraftChange?.(code, initialLang, codeByLang);
+    }
+  }, []);
 
 
 
@@ -627,7 +661,7 @@ export default function DSAAssessmentEditor({
 
               {showLangDropdown && (
                 <div className="absolute left-0 top-full mt-1 w-44 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 py-1 overflow-hidden">
-                  {LANGUAGES.filter(option => (!question.supportedLanguages?.length || question.supportedLanguages.some(value => canonicalEditorLanguage(value) === canonicalEditorLanguage(option.value))) && (!executionRuntimes.length || executionRuntimes.some(runtime => canonicalEditorLanguage(runtime.language) === canonicalEditorLanguage(option.value) && runtime.enabled))).map((l) => (
+                  {LANGUAGES.filter((option) => isLanguageAllowed(option.value)).map((l) => (
                     <button
                       key={l.value}
                       type="button"

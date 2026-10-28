@@ -51,26 +51,26 @@ function CandidateReportContent() {
   const { user, stats, recentSubmissions } = report;
 
   return (
-    <div className="p-8 font-sans max-w-5xl mx-auto print:bg-white print:text-black">
+    <div className="candidate-report p-8 font-sans max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <Link 
             href="/admin/candidates" 
-            className="p-2 bg-card border border-border hover:bg-muted text-muted-foreground rounded-lg transition-colors print:hidden"
+            className="print-hidden p-2 bg-card border border-border hover:bg-muted text-muted-foreground rounded-lg transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-foreground print:text-black flex items-center gap-2">
+            <h1 className="candidate-report-title text-2xl font-bold text-foreground flex items-center gap-2">
               Assessment Report
               {user.isAdmin && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-500/10 text-red-500 ml-2 print:border print:border-red-500">
+                <span className="candidate-report-admin-badge inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-500/10 text-red-500 ml-2">
                   <ShieldCheck className="w-3 h-3" /> Admin
                 </span>
               )}
             </h1>
-            <p className="text-muted-foreground text-sm mt-1 print:text-muted-foreground">Detailed performance analytics and submission history.</p>
+            <p className="text-muted-foreground text-sm mt-1">Detailed performance analytics and submission history.</p>
           </div>
         </div>
         <PDFDownloadButton 

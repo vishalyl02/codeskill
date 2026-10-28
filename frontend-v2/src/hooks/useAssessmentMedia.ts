@@ -21,7 +21,12 @@ function playVideo(video: HTMLVideoElement) {
   }
 }
 
-export function useAssessmentMedia(sessionId: string, enabled: boolean, onViolation: ViolationHandler) {
+export function useAssessmentMedia(
+  sessionId: string,
+  enabled: boolean,
+  onViolation: ViolationHandler,
+  cameraSelectionPolicy: 'system_default' | 'student_select' = 'student_select',
+) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const violationRef = useRef(onViolation);
   useEffect(() => { violationRef.current = onViolation; }, [onViolation]);
@@ -110,11 +115,14 @@ export function useAssessmentMedia(sessionId: string, enabled: boolean, onViolat
           violationRef.current("media_unsupported", "Browser does not support getUserMedia proctoring");
           return;
         }
-        const preferredCamera = getPreferredAssessmentCamera(sessionId);
+        const systemDefaultCamera = cameraSelectionPolicy === 'system_default';
+        const preferredCamera = systemDefaultCamera ? undefined : getPreferredAssessmentCamera(sessionId);
         const stream = takeAssessmentStream(sessionId, preferredCamera) || await navigator.mediaDevices.getUserMedia({
           video: preferredCamera
             ? { deviceId: { exact: preferredCamera }, width: { ideal: 320 }, height: { ideal: 240 } }
-            : { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: "user" },
+            : systemDefaultCamera
+              ? true
+              : { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: "user" },
           audio: true,
         });
         // A permission prompt may settle after submission, navigation or a StrictMode cleanup.
@@ -251,7 +259,7 @@ export function useAssessmentMedia(sessionId: string, enabled: boolean, onViolat
       window.removeEventListener("pagehide", onPageHide);
       releaseMedia();
     };
-  }, [enabled, sessionId, releaseMedia, stopCamera]);
+  }, [cameraSelectionPolicy, enabled, sessionId, releaseMedia, stopCamera]);
 
   useEffect(() => {
     const session = sessionRef.current;
