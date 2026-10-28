@@ -757,6 +757,101 @@ export const adminLearningAPI = {
   revokeCertificate: (id: string, reason: string) => api.post(`/admin/learning/certificates/${id}/revoke`, { reason }),
 };
 
+export const examSchedulingAPI = {
+  getSchedules: (params?: any) => api.get("/admin/exam-scheduling/schedules", { params }),
+  getSchedule: (id: string) => api.get(`/admin/exam-scheduling/schedules/${id}`),
+  createSchedule: (data: any) => api.post("/admin/exam-scheduling/schedules", data),
+  updateSchedule: (id: string, data: any) => api.patch(`/admin/exam-scheduling/schedules/${id}`, data),
+  publishSchedule: (id: string) => api.post(`/admin/exam-scheduling/schedules/${id}/publish`),
+  cancelSchedule: (id: string, reason: string) => api.post(`/admin/exam-scheduling/schedules/${id}/cancel`, { reason }),
+  deleteSchedule: (id: string) => api.delete(`/admin/exam-scheduling/schedules/${id}`),
+
+  searchStudents: (criteria: any, page = 1, limit = 50) =>
+    api.post("/admin/exam-scheduling/students/search", { criteria, page, limit }),
+  previewStudentCount: (criteria: any) =>
+    api.post("/admin/exam-scheduling/students/count", { criteria }),
+  importCsv: (scheduleId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post(`/admin/exam-scheduling/schedules/${scheduleId}/import-csv`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+
+  matchIdentifiers: (
+    scheduleId: string,
+    payload: {
+      file?: File | null;
+      rawText?: string;
+      identifiers?: Array<{ uid?: string; email?: string }>;
+    },
+  ) => {
+    if (payload.file) {
+      const formData = new FormData();
+      formData.append("file", payload.file);
+      if (payload.rawText) formData.append("rawText", payload.rawText);
+      return api.post(`/admin/exam-scheduling/schedules/${scheduleId}/match-identifiers`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    }
+    return api.post(`/admin/exam-scheduling/schedules/${scheduleId}/match-identifiers`, {
+      rawText: payload.rawText,
+      identifiers: payload.identifiers,
+    });
+  },
+
+  exportMatchErrors: (scheduleId: string, errors: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/export-match-errors`, errors, {
+      responseType: "blob",
+    }),
+
+  createSlot: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/slots`, data),
+  autoGenerateSlots: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/slots/auto-generate`, data),
+  updateSlot: (scheduleId: string, slotId: string, data: any) =>
+    api.patch(`/admin/exam-scheduling/schedules/${scheduleId}/slots/${slotId}`, data),
+  deleteSlot: (scheduleId: string, slotId: string) =>
+    api.delete(`/admin/exam-scheduling/schedules/${scheduleId}/slots/${slotId}`),
+
+  bulkAssign: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/assignments/bulk`, data),
+  allocateSlots: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/allocate-slots`, data),
+  reassignSlot: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/reassign-slot`, data),
+
+  getAssignments: (scheduleId: string, params?: any) =>
+    api.get(`/admin/exam-scheduling/schedules/${scheduleId}/assignments`, { params }),
+  revokeAccess: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/access/revoke`, data),
+  grantException: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/access/grant-exception`, data),
+  reinstateAccess: (scheduleId: string, data: any) =>
+    api.post(`/admin/exam-scheduling/schedules/${scheduleId}/access/reinstate`, data),
+
+  getAttendance: (scheduleId: string) =>
+    api.get(`/admin/exam-scheduling/schedules/${scheduleId}/attendance`),
+  exportAssignmentsCsvUrl: (scheduleId: string) =>
+    `/api/admin/exam-scheduling/schedules/${scheduleId}/export-csv`,
+
+  getAuditLogs: (params?: any) =>
+    api.get("/admin/exam-scheduling/audit-logs", { params }),
+
+  getSavedGroups: () =>
+    api.get("/admin/exam-scheduling/saved-groups"),
+  createSavedGroup: (data: any) =>
+    api.post("/admin/exam-scheduling/saved-groups", data),
+  deleteSavedGroup: (id: string) =>
+    api.delete(`/admin/exam-scheduling/saved-groups/${id}`),
+
+  // Student endpoints
+  getMySchedule: () =>
+    api.get("/exam-scheduling/my-schedule"),
+  verifyAccess: (assessmentId: string) =>
+    api.get(`/exam-scheduling/verify-access/${assessmentId}`),
+};
+
 export const certificateVerificationAPI = {
   verify: (credentialId: string) => api.get(`/certificates/verify/${credentialId}`),
 };

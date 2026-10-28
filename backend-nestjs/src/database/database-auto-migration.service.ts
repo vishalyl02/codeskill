@@ -11,6 +11,7 @@ import { applyBugReportsMigration } from './migrations/bug-reports';
 import { applyContestSecurityReattemptMigration } from './migrations/contest-security-reattempt';
 import { applyAnalyticsOptimizationIndexesMigration } from './migrations/analytics-optimization-indexes';
 import { applyLearningModuleMigration } from './migrations/learning-module';
+import { applyExamSchedulingSchemaMigration } from './migrations/exam-scheduling-schema';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -119,6 +120,11 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
           ALTER TABLE "lesson_progress" ADD COLUMN IF NOT EXISTS "timeSpentSeconds" integer NOT NULL DEFAULT 0;
         `);
       });
+
+      // 14. Exam scheduling, student eligibility & batch management schema
+      await this.executeStep('exam-scheduling-schema', () =>
+        applyExamSchedulingSchemaMigration(queryRunner),
+      );
     } finally {
       await queryRunner.release();
     }
@@ -139,6 +145,9 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
 
       // 2. Seed Default Academic Certificate Templates
       await this.seedCertificateTemplatesIfNotExist(queryRunner);
+
+      // 3. Seed Default Baseline Exam Schedule & Test Data Entry
+      await this.seedExamScheduleIfNotExist(queryRunner);
     } finally {
       await queryRunner.release();
     }
@@ -248,6 +257,173 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       this.logger.log('✨ Seeded default Chandigarh University Certificate template.');
     } catch (err: any) {
       this.logger.warn(`Certificate template seed check: ${err?.message}`);
+    }
+  }
+
+  private async seedExamScheduleIfNotExist(queryRunner: any): Promise<void> {
+    try {
+      const existing = await queryRunner.query(
+        `SELECT id FROM "exam_schedules" LIMIT 1;`,
+      );
+      if (existing && existing.length > 0) {
+        this.logger.log('✓ Exam schedule already exists — skipping baseline exam schedule seed.');
+        return;
+      }
+
+      const assessments = await queryRunner.query(
+        `SELECT id, title, code FROM "assessments" ORDER BY "createdAt" DESC LIMIT 1;`,
+      );
+      if (!assessments || assessments.length === 0) {
+        this.logger.log('No assessments available for exam schedule seed — skipping.');
+        return;
+      }
+
+      const assessment = assessments[0];
+      const adminUsers = await queryRunner.query(
+        `SELECT id, email FROM "users" WHERE "role" IN ('super_admin', 'admin') LIMIT 1;`,
+      );
+      const adminId = adminUsers[0]?.id || null;
+      const adminEmail = adminUsers[0]?.email || 'admin@codeskill.ac.in';
+
+      // 1. Insert schedule with Academic Session 2025-2026, Semester 5, Academic Year 3, Program B.E. Computer Science & Engineering
+      const schedResult = await queryRunner.query(
+        `INSERT INTO "exam_schedules" (
+          "assessment_id", "title", "code", "description",
+          "academicSession", "semester", "program", "academicYear",
+          "status", "timezone", "maxConcurrentSessions", "config", "created_by_id"
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+        ) RETURNING id;`,
+        [
+          assessment.id,
+          'Semester 5 Mid-Term DSA Examination',
+          'CSE-MID-2025',
+          'Predefined baseline mid-semester examination for Semester 5 B.E. Computer Science & Engineering.',
+          '2025-2026',
+          5,
+          'B.E. Computer Science & Engineering',
+          3,
+          'published',
+          'Asia/Kolkata',
+          500,
+          JSON.stringify({
+            earlyAccessMinutes: 10,
+            lateStartAllowanceMinutes: 15,
+            gracePeriodMinutes: 5,
+            maxDurationMinutes: 60,
+            allowedAttempts: 1,
+            allowResume: true,
+            allowDisconnectionReentry: true,
+            strictTimeBoundary: true,
+          }),
+          adminId,
+        ],
+      );
+      const scheduleId = schedResult[0].id;
+
+      // 2. Insert 2 slots
+      const today = new Date().toISOString().split('T')[0];
+      const slot1Res = await queryRunner.query(
+        `INSERT INTO "exam_slots" (
+          "schedule_id", "name", "slotCode", "date", "startTime", "endTime", "capacity", "assignedCount", "status", "roomOrLab"
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        ) RETURNING id;`,
+        [
+          scheduleId,
+          'Slot 1 - Morning Batch (09:00 - 10:30)',
+          'SLOT-01-AM',
+          today,
+          new Date(`${today}T09:00:00+05:30`),
+          new Date(`${today}T10:30:00+05:30`),
+          300,
+          3,
+          'scheduled',
+          'Lab 1-A / Online',
+        ],
+      );
+      const slot1Id = slot1Res[0].id;
+
+      const slot2Res = await queryRunner.query(
+        `INSERT INTO "exam_slots" (
+          "schedule_id", "name", "slotCode", "date", "startTime", "endTime", "capacity", "assignedCount", "status", "roomOrLab"
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        ) RETURNING id;`,
+        [
+          scheduleId,
+          'Slot 2 - Afternoon Batch (11:00 - 12:30)',
+          'SLOT-02-PM',
+          today,
+          new Date(`${today}T11:00:00+05:30`),
+          new Date(`${today}T12:30:00+05:30`),
+          300,
+          2,
+          'scheduled',
+          'Lab 2-B / Online',
+        ],
+      );
+      const slot2Id = slot2Res[0].id;
+
+      // 3. Assign students
+      const students = await queryRunner.query(
+        `SELECT id, email, uid, name FROM "users" WHERE "role" = 'student' LIMIT 5;`,
+      );
+
+      for (let i = 0; i < students.length; i++) {
+        const stu = students[i];
+        const slotId = i < 3 ? slot1Id : slot2Id;
+        const slotStart = i < 3 ? `${today}T09:00:00+05:30` : `${today}T11:00:00+05:30`;
+        const slotEnd = i < 3 ? `${today}T10:30:00+05:30` : `${today}T12:30:00+05:30`;
+
+        await queryRunner.query(
+          `INSERT INTO "exam_eligibility_assignments" (
+            "schedule_id", "slot_id", "assessment_id", "student_id",
+            "studentUid", "studentEmail", "studentName", "academicSnapshot",
+            "status", "assignmentSource", "accessWindowStart", "accessWindowEnd"
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+          ) ON CONFLICT DO NOTHING;`,
+          [
+            scheduleId,
+            slotId,
+            assessment.id,
+            stu.id,
+            stu.uid || `STU${i + 1}`,
+            stu.email,
+            stu.name || `Student ${i + 1}`,
+            JSON.stringify({
+              department: 'B.E. Computer Science & Engineering',
+              semester: 5,
+              year: 3,
+              batch: '2025-2026',
+            }),
+            'assigned',
+            'manual',
+            new Date(slotStart),
+            new Date(slotEnd),
+          ],
+        );
+      }
+
+      // 4. Audit log
+      await queryRunner.query(
+        `INSERT INTO "exam_access_audit_logs" (
+          "schedule_id", "actor_id", "actor_email", "actor_role", "action", "reason"
+        ) VALUES ($1, $2, $3, $4, $5, $6);`,
+        [
+          scheduleId,
+          adminId,
+          adminEmail,
+          'admin',
+          'SCHEDULE_PUBLISHED',
+          'Baseline test exam schedule created and published',
+        ],
+      );
+
+      this.logger.log('🎉 Seeded baseline test Exam Schedule: CSE-MID-2025 with 2 slots and assigned students.');
+    } catch (err: any) {
+      this.logger.warn(`Exam schedule baseline seed check: ${err?.message}`);
     }
   }
 

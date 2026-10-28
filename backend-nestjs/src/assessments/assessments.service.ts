@@ -28,6 +28,10 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EvaluateAssessmentCodeDto } from './dto/evaluate-code.dto';
 import { normalizeSectionIdentifier } from '../common/constants/sections.constant';
+import { ExamSchedule } from '../database/entities/exam-schedule.entity';
+import { ExamSlot } from '../database/entities/exam-slot.entity';
+import { ExamEligibilityAssignment } from '../database/entities/exam-eligibility-assignment.entity';
+import { ExamAccessAuditLog } from '../database/entities/exam-access-audit-log.entity';
 
 function codingTestCases(question: Question): Array<{ id: string | number; input: string; expected: string; isHidden: boolean }> {
   const cases = question.testCases?.length ? question.testCases : (question.metadata as any)?.testCases || [];
@@ -57,6 +61,18 @@ export class AssessmentsService {
     @Optional()
     private readonly s3Service?: S3Service,
     @Optional() @InjectQueue('submissions') private readonly codeQueue?: Queue,
+    @Optional()
+    @InjectRepository(ExamSchedule)
+    private readonly scheduleRepo?: Repository<ExamSchedule>,
+    @Optional()
+    @InjectRepository(ExamSlot)
+    private readonly slotRepo?: Repository<ExamSlot>,
+    @Optional()
+    @InjectRepository(ExamEligibilityAssignment)
+    private readonly assignmentRepo?: Repository<ExamEligibilityAssignment>,
+    @Optional()
+    @InjectRepository(ExamAccessAuditLog)
+    private readonly examAuditRepo?: Repository<ExamAccessAuditLog>,
   ) {}
 
   private attemptExpiresAt(assessment: Assessment, attempt: AssessmentAttempt): Date {
@@ -1142,6 +1158,24 @@ export class AssessmentsService {
         })
       : [];
 
+    const studentAssignmentsMap = new Map<string, ExamEligibilityAssignment>();
+    if (this.assignmentRepo) {
+      const studentKeys = [studentUser.id, studentUser._id, studentUser.uid].filter(Boolean);
+      if (studentKeys.length > 0) {
+        const studentAssignments = await this.assignmentRepo
+          .createQueryBuilder('a')
+          .leftJoinAndSelect('a.slot', 's')
+          .leftJoinAndSelect('a.schedule', 'sch')
+          .where('(a.studentId IN (:...keys) OR a.studentUid IN (:...keys))', {
+            keys: studentKeys.map(String),
+          })
+          .getMany();
+        studentAssignments.forEach((sa) => {
+          studentAssignmentsMap.set(sa.assessmentId, sa);
+        });
+      }
+    }
+
     const items = filteredAssessments.map((a) => {
       const allForAssessment = existingAttempts.filter(
         (att) => att.assessmentId === a.id || att.assessmentId === a.mongoId,
@@ -1170,9 +1204,20 @@ export class AssessmentsService {
       const canRetake =
         allowedAttempts === 0 ? true : completedCount < allowedAttempts;
 
+      const assignment =
+        studentAssignmentsMap.get(a.id) || studentAssignmentsMap.get(a.mongoId || '');
+      const isScheduled = !!assignment?.schedule;
+      const slot = assignment?.slot;
+
       return {
         ...a,
         _id: a.id,
+        startTime: slot?.startTime || a.startTime,
+        endTime: slot?.endTime || a.endTime,
+        isScheduled,
+        scheduledSlotName: slot?.name || null,
+        scheduledSlotCode: slot?.slotCode || null,
+        eligibilityStatus: assignment?.status || (isScheduled ? 'not_assigned' : 'eligible'),
         allowedAttempts,
         completedAttemptsCount: completedCount,
         questionCount: a.questions?.length || 0,
@@ -1266,23 +1311,86 @@ export class AssessmentsService {
     let isAvailable =
       assessment.status === 'published' || assessment.status === 'ongoing';
     let unavailabilityReason = '';
+    let scheduledSlotInfo: any = null;
+    let examScheduleInfo: any = null;
 
-    if (assessment.status === 'draft') {
-      isAvailable = false;
-      unavailabilityReason =
-        'Assessment is currently in draft mode (disabled by administrator).';
-    } else if (
-      assessment.status === 'completed' ||
-      assessment.status === 'archived'
-    ) {
-      isAvailable = false;
-      unavailabilityReason = 'Assessment has concluded and is closed.';
-    } else if (assessment.startTime && now < new Date(assessment.startTime)) {
-      isAvailable = false;
-      unavailabilityReason = `Assessment window has not opened yet. Scheduled to open at ${new Date(assessment.startTime).toLocaleString()}.`;
-    } else if (assessment.endTime && now > new Date(assessment.endTime)) {
-      isAvailable = false;
-      unavailabilityReason = 'Assessment submission deadline has passed.';
+    // Authoritative check if assessment is governed by an active published ExamSchedule
+    if (this.scheduleRepo && this.assignmentRepo) {
+      const activeSchedule = await this.scheduleRepo.findOne({
+        where: { assessmentId: assessment.id, status: 'published' },
+      });
+      if (activeSchedule) {
+        examScheduleInfo = activeSchedule;
+        const studentKeys = [studentUser.id, studentUser._id, studentUser.uid].filter(Boolean);
+        const assignment = await this.assignmentRepo
+          .createQueryBuilder('a')
+          .leftJoinAndSelect('a.slot', 's')
+          .where('a.scheduleId = :scheduleId', { scheduleId: activeSchedule.id })
+          .andWhere('(a.studentId IN (:...keys) OR a.studentUid IN (:...keys))', {
+            keys: studentKeys.map(String),
+          })
+          .getOne();
+
+        if (!assignment) {
+          isAvailable = false;
+          unavailabilityReason =
+            'This assessment is managed by an administrative exam schedule, but your student account is not on the eligibility roster.';
+        } else if (assignment.status === 'revoked') {
+          isAvailable = false;
+          unavailabilityReason = `Your examination eligibility has been revoked: ${assignment.overrideReason || 'Administrative restriction'}`;
+        } else if (!assignment.slotId || !assignment.slot) {
+          isAvailable = false;
+          unavailabilityReason =
+            'Your examination slot has not yet been assigned by the administrator. Please check back shortly.';
+        } else {
+          scheduledSlotInfo = assignment.slot;
+          const earlyAccess = activeSchedule.config?.earlyAccessMinutes ?? 5;
+          const lateStart = activeSchedule.config?.lateStartAllowanceMinutes ?? 15;
+          const gracePeriod = activeSchedule.config?.gracePeriodMinutes ?? 5;
+
+          const effectiveStart = new Date(scheduledSlotInfo.startTime.getTime() - earlyAccess * 60_000);
+          const lateStartLimit = new Date(scheduledSlotInfo.startTime.getTime() + lateStart * 60_000);
+          const effectiveEnd = assignment.accessWindowEnd || new Date(scheduledSlotInfo.endTime.getTime() + gracePeriod * 60_000);
+
+          if (now < effectiveStart) {
+            isAvailable = false;
+            unavailabilityReason = `Your scheduled exam slot starts at ${new Date(scheduledSlotInfo.startTime).toLocaleTimeString()} on ${scheduledSlotInfo.date} (Early access opens at ${effectiveStart.toLocaleTimeString()}).`;
+          } else if (!inProgressAttempt && now > lateStartLimit) {
+            isAvailable = false;
+            unavailabilityReason = `The late-start entry window of ${lateStart} minutes closed at ${lateStartLimit.toLocaleTimeString()}.`;
+          } else if (now > effectiveEnd) {
+            isAvailable = false;
+            unavailabilityReason = 'Your scheduled exam slot has expired and is now closed.';
+          } else {
+            isAvailable = true;
+            unavailabilityReason = '';
+          }
+
+          // Use the candidate's exact scheduled slot timings
+          assessment.startTime = scheduledSlotInfo.startTime;
+          assessment.endTime = scheduledSlotInfo.endTime;
+        }
+      }
+    }
+
+    if (!examScheduleInfo) {
+      if (assessment.status === 'draft') {
+        isAvailable = false;
+        unavailabilityReason =
+          'Assessment is currently in draft mode (disabled by administrator).';
+      } else if (
+        assessment.status === 'completed' ||
+        assessment.status === 'archived'
+      ) {
+        isAvailable = false;
+        unavailabilityReason = 'Assessment has concluded and is closed.';
+      } else if (assessment.startTime && now < new Date(assessment.startTime)) {
+        isAvailable = false;
+        unavailabilityReason = `Assessment window has not opened yet. Scheduled to open at ${new Date(assessment.startTime).toLocaleString()}.`;
+      } else if (assessment.endTime && now > new Date(assessment.endTime)) {
+        isAvailable = false;
+        unavailabilityReason = 'Assessment submission deadline has passed.';
+      }
     }
 
     return {
@@ -1307,6 +1415,18 @@ export class AssessmentsService {
         allowedAttempts,
         proctoring: assessment.proctoring,
         instructions: assessment.instructions,
+        isScheduled: !!examScheduleInfo,
+        scheduledSlot: scheduledSlotInfo
+          ? {
+              id: scheduledSlotInfo.id,
+              name: scheduledSlotInfo.name,
+              slotCode: scheduledSlotInfo.slotCode,
+              date: scheduledSlotInfo.date,
+              startTime: scheduledSlotInfo.startTime,
+              endTime: scheduledSlotInfo.endTime,
+              capacity: scheduledSlotInfo.capacity,
+            }
+          : null,
       },
       attempt: latestAttempt
         ? {
@@ -1344,15 +1464,97 @@ export class AssessmentsService {
       );
     }
     const now = new Date();
-    if (assessment.startTime && now < new Date(assessment.startTime)) {
-      throw new BadRequestException(
-        `Assessment has not started yet. Scheduled to begin at ${new Date(assessment.startTime).toLocaleString()}.`,
-      );
+
+    const studentId = String(studentUser.id || studentUser._id);
+    let activeSchedule: ExamSchedule | null = null;
+    let studentAssignment: ExamEligibilityAssignment | null = null;
+
+    // Authoritative check if assessment is governed by an active published ExamSchedule
+    if (this.scheduleRepo && this.assignmentRepo) {
+      activeSchedule = await this.scheduleRepo.findOne({
+        where: { assessmentId: assessment.id, status: 'published' },
+      });
+      if (activeSchedule) {
+        const studentKeys = [studentUser.id, studentUser._id, studentUser.uid].filter(Boolean);
+        studentAssignment = await this.assignmentRepo
+          .createQueryBuilder('a')
+          .leftJoinAndSelect('a.slot', 's')
+          .where('a.scheduleId = :scheduleId', { scheduleId: activeSchedule.id })
+          .andWhere('(a.studentId IN (:...keys) OR a.studentUid IN (:...keys))', {
+            keys: studentKeys.map(String),
+          })
+          .getOne();
+
+        if (!studentAssignment) {
+          throw new ForbiddenException(
+            'This assessment is managed by an administrative exam schedule, but your student account is not on the eligibility roster.',
+          );
+        }
+        if (studentAssignment.status === 'revoked') {
+          throw new ForbiddenException(
+            `Your examination eligibility has been revoked: ${studentAssignment.overrideReason || 'Administrative restriction'}`,
+          );
+        }
+        if (!studentAssignment.slotId || !studentAssignment.slot) {
+          throw new BadRequestException(
+            'Your examination slot has not yet been assigned by the administrator.',
+          );
+        }
+
+        const slot = studentAssignment.slot;
+        const earlyAccess = activeSchedule.config?.earlyAccessMinutes ?? 5;
+        const lateStart = activeSchedule.config?.lateStartAllowanceMinutes ?? 15;
+        const gracePeriod = activeSchedule.config?.gracePeriodMinutes ?? 5;
+
+        const effectiveStart = new Date(slot.startTime.getTime() - earlyAccess * 60_000);
+        const lateStartLimit = new Date(slot.startTime.getTime() + lateStart * 60_000);
+        const effectiveEnd = studentAssignment.accessWindowEnd || new Date(slot.endTime.getTime() + gracePeriod * 60_000);
+
+        const existingInProgress = await this.attemptRepo.findOne({
+          where: { assessmentId: assessment.id, studentId, status: 'in_progress' },
+        });
+
+        if (!existingInProgress) {
+          if (now < effectiveStart) {
+            throw new BadRequestException(
+              `Your scheduled exam slot begins at ${slot.startTime.toLocaleTimeString()} on ${slot.date}. Early entry opens at ${effectiveStart.toLocaleTimeString()}.`,
+            );
+          }
+          if (now > lateStartLimit) {
+            throw new ForbiddenException(
+              `The late-start window of ${lateStart} minutes closed at ${lateStartLimit.toLocaleTimeString()}. You cannot begin a new attempt.`,
+            );
+          }
+        }
+
+        if (now > effectiveEnd) {
+          throw new ForbiddenException('Your scheduled exam slot has concluded.');
+        }
+
+        if (activeSchedule.maxConcurrentSessions > 0 && !existingInProgress) {
+          const currentActive = await this.attemptRepo.count({
+            where: { assessmentId: assessment.id, status: 'in_progress' },
+          });
+          if (currentActive >= activeSchedule.maxConcurrentSessions) {
+            throw new ServiceUnavailableException(
+              'Examination concurrency limit reached on the server. Please wait a moment and try entering again.',
+            );
+          }
+        }
+      }
     }
-    if (assessment.endTime && now > new Date(assessment.endTime)) {
-      throw new BadRequestException(
-        'Assessment window has expired. Submissions are closed.',
-      );
+
+    if (!activeSchedule) {
+      if (assessment.startTime && now < new Date(assessment.startTime)) {
+        throw new BadRequestException(
+          `Assessment has not started yet. Scheduled to begin at ${new Date(assessment.startTime).toLocaleString()}.`,
+        );
+      }
+      if (assessment.endTime && now > new Date(assessment.endTime)) {
+        throw new BadRequestException(
+          'Assessment window has expired. Submissions are closed.',
+        );
+      }
     }
 
     const questionIds = assessment.questions || [];
@@ -1364,7 +1566,6 @@ export class AssessmentsService {
         : [];
     const qMap = new Map(questionsList.map((q) => [q.id, q]));
 
-    const studentId = String(studentUser.id || studentUser._id);
     let attempt = await this.attemptRepo.findOne({
       where: [
         { assessmentId: assessment.id, studentId, status: 'in_progress' },
@@ -1431,6 +1632,27 @@ export class AssessmentsService {
       });
 
       await this.attemptRepo.save(attempt);
+
+      if (this.assignmentRepo && studentAssignment) {
+        studentAssignment.attemptId = attempt.id;
+        studentAssignment.status = 'in_progress';
+        await this.assignmentRepo.save(studentAssignment);
+
+        if (this.examAuditRepo) {
+          const audit = this.examAuditRepo.create({
+            scheduleId: activeSchedule?.id,
+            slotId: studentAssignment.slotId,
+            studentId,
+            studentUid: studentUser.uid,
+            actorId: studentId,
+            actorEmail: studentUser.email || '',
+            actorRole: 'student',
+            action: 'ATTEMPT_STARTED',
+            reason: `Student started examination attempt #${attemptNum}`,
+          });
+          await this.examAuditRepo.save(audit);
+        }
+      }
     } else {
       if (now.getTime() >= this.attemptExpiresAt(assessment, attempt).getTime()) {
         throw new BadRequestException('This assessment attempt has run out of time.');
@@ -2184,6 +2406,32 @@ export class AssessmentsService {
         : 'auto';
 
     await this.attemptRepo.save(attempt);
+
+    if (this.assignmentRepo) {
+      await this.assignmentRepo
+        .createQueryBuilder()
+        .update(ExamEligibilityAssignment)
+        .set({ status: 'completed' })
+        .where('assessmentId = :assessmentId AND (studentId = :studentId OR studentUid = :uid)', {
+          assessmentId: assessment.id,
+          studentId,
+          uid: studentUser?.uid || '',
+        })
+        .execute();
+
+      if (this.examAuditRepo) {
+        const audit = this.examAuditRepo.create({
+          studentId,
+          studentUid: studentUser?.uid,
+          actorId: studentId,
+          actorEmail: studentUser?.email || '',
+          actorRole: 'student',
+          action: 'ATTEMPT_SUBMITTED',
+          reason: `Assessment submitted with score ${finalScore}/${maxScore} (${percentage}%)`,
+        });
+        await this.examAuditRepo.save(audit);
+      }
+    }
 
     this.logger.log({
       event: 'ASSESSMENT_ATTEMPT_SUBMITTED',

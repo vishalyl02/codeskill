@@ -12,6 +12,17 @@ export interface AssignedAssessment {
   targetSemesters?: string[]; targetSections?: string[]; targetGroups?: string[];
   targetCourses?: string[]; targetDepartments?: string[]; targetBatches?: string[];
   proctoring?: Record<string, unknown>;
+  assignedSlot?: {
+    id?: string;
+    slotCode?: string;
+    name?: string;
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+  };
+  scheduleCode?: string;
+  scheduleTitle?: string;
+  unavailabilityReason?: string;
 }
 export function formatSemesterScope(semesters?: string[]): string {
   if (!semesters || semesters.length === 0) return "All Semesters";
