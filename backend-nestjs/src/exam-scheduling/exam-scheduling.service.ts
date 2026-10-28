@@ -849,7 +849,7 @@ export class ExamSchedulingService {
     scheduleId: string,
     dto: BulkAssignStudentsDto,
     user: any,
-  ): Promise<{ assignedCount: number; totalEligible: number }> {
+  ): Promise<{ assigned: number; assignedCount: number; totalEligible: number }> {
     const schedule = await this.scheduleRepo.findOne({
       where: { id: scheduleId },
       relations: { assessment: true },
@@ -859,12 +859,13 @@ export class ExamSchedulingService {
     }
 
     let candidateStudents: User[] = [];
+    const source = dto.source || dto.selectionType || 'manual';
+    const idsOrUids = dto.studentIds || dto.studentUids || [];
 
-    if (dto.source === 'filter' && dto.filterCriteria) {
-      const qb = this.buildStudentFilterQueryBuilder(dto.filterCriteria);
+    if (source === 'filter') {
+      const qb = this.buildStudentFilterQueryBuilder(dto.filterCriteria || {});
       candidateStudents = await qb.getMany();
-    } else if (dto.source === 'manual' || dto.source === 'csv') {
-      const idsOrUids = dto.studentIds || [];
+    } else if (source === 'manual' || source === 'csv') {
       if (idsOrUids.length === 0) {
         throw new BadRequestException('No student IDs or UIDs provided for assignment');
       }
@@ -872,7 +873,7 @@ export class ExamSchedulingService {
         .createQueryBuilder('u')
         .where('u.id IN (:...ids) OR u.uid IN (:...ids)', { ids: idsOrUids })
         .getMany();
-    } else if (dto.source === 'saved_group' && dto.savedGroupId) {
+    } else if (source === 'saved_group' && dto.savedGroupId) {
       const group = await this.savedGroupRepo.findOne({
         where: { id: dto.savedGroupId },
       });
@@ -981,7 +982,7 @@ export class ExamSchedulingService {
       newState: { newlyAssigned, totalEligible },
     });
 
-    return { assignedCount: newlyAssigned, totalEligible };
+    return { assigned: newlyAssigned, assignedCount: newlyAssigned, totalEligible };
   }
 
   async allocateStudentsToSlots(

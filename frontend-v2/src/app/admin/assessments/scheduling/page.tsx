@@ -478,10 +478,12 @@ export default function AdminExamSchedulingPage() {
     setActionLoading(true);
     try {
       const res = await examSchedulingAPI.bulkAssign(selectedScheduleId, {
+        source: "filter",
         selectionType: "filter",
         filterCriteria,
       });
-      showNotification(`Successfully assigned ${res.data.assigned} students!`);
+      const count = res.data?.assigned ?? res.data?.assignedCount ?? 0;
+      showNotification(`Successfully assigned ${count} students!`);
       loadScheduleDetails(selectedScheduleId);
       loadAssignments();
     } catch (err: any) {
@@ -496,10 +498,13 @@ export default function AdminExamSchedulingPage() {
     setActionLoading(true);
     try {
       const res = await examSchedulingAPI.bulkAssign(selectedScheduleId, {
+        source: "manual",
         selectionType: "manual",
+        studentIds: selectedStudentUids,
         studentUids: selectedStudentUids,
       });
-      showNotification(`Assigned ${res.data.assigned} selected students!`);
+      const count = res.data?.assigned ?? res.data?.assignedCount ?? selectedStudentUids.length;
+      showNotification(`Assigned ${count} selected students!`);
       setSelectedStudentUids([]);
       loadScheduleDetails(selectedScheduleId);
       loadAssignments();
@@ -530,10 +535,13 @@ export default function AdminExamSchedulingPage() {
     setActionLoading(true);
     try {
       const res = await examSchedulingAPI.bulkAssign(selectedScheduleId, {
+        source: "csv",
         selectionType: "csv",
+        studentIds: uids,
         studentUids: uids,
       });
-      showNotification(`Committed ${res.data.assigned} students from CSV!`);
+      const count = res.data?.assigned ?? res.data?.assignedCount ?? uids.length;
+      showNotification(`Committed ${count} students from CSV!`);
       setCsvValidationResult(null);
       setCsvFile(null);
       loadScheduleDetails(selectedScheduleId);
@@ -628,10 +636,13 @@ export default function AdminExamSchedulingPage() {
     setActionLoading(true);
     try {
       const res = await examSchedulingAPI.bulkAssign(selectedScheduleId, {
+        source: "manual",
         selectionType: "manual",
+        studentIds: studentUids,
         studentUids,
       });
-      showNotification(`Committed & assigned ${res.data.assigned} matched students to schedule!`);
+      const count = res.data?.assigned ?? res.data?.assignedCount ?? studentUids.length;
+      showNotification(`Committed & assigned ${count} matched students to schedule!`);
       loadScheduleDetails(selectedScheduleId);
       loadAssignments();
     } catch (err: any) {

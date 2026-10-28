@@ -78,17 +78,28 @@ export class BulkAssignStudentsDto {
     enum: ['filter', 'manual', 'csv', 'saved_group'],
     description: 'Source mode for assigning students to eligibility pool',
   })
+  @Transform(({ value, obj }) => value || obj?.selectionType)
   @IsEnum(['filter', 'manual', 'csv', 'saved_group'])
   source: 'filter' | 'manual' | 'csv' | 'saved_group';
+
+  @ApiPropertyOptional({ enum: ['filter', 'manual', 'csv', 'saved_group'] })
+  @IsOptional()
+  selectionType?: 'filter' | 'manual' | 'csv' | 'saved_group';
 
   @ApiPropertyOptional({ type: StudentFilterCriteriaDto, description: 'Used when source=filter' })
   @IsOptional()
   filterCriteria?: StudentFilterCriteriaDto;
 
   @ApiPropertyOptional({ type: [String], description: 'Used when source=manual or csv (array of user UUIDs or UIDs)' })
+  @Transform(({ value, obj }) => value || obj?.studentUids || obj?.uids)
   @IsOptional()
   @IsArray()
   studentIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  studentUids?: string[];
 
   @ApiPropertyOptional({ description: 'Used when source=saved_group (UUID of saved cohort)' })
   @IsOptional()
