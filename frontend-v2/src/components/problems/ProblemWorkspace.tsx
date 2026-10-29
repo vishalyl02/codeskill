@@ -81,7 +81,38 @@ const CONTEST_SIDEBAR_TABS = SIDEBAR_TABS.filter((t) =>
   ["description", "samples", "submissions", "notes"].includes(t.id),
 );
 
-export default function ProblemWorkspace({ params, embedded = false }: { params: Promise<{ id: string }>; embedded?: boolean }) {
+function formatInitialProblem(item: any) {
+  if (!item) return null;
+  if (item.statement && item.config) return item;
+  return {
+    ...item,
+    slug: item.slug || item.id,
+    statement: {
+      description: item.problemStatement || item.description || item.question || item.title || "",
+      inputFormat: item.inputFormat || "",
+      outputFormat: item.outputFormat || "",
+      constraints: item.constraints || "",
+      samples: item.samples || [],
+    },
+    config: item.config || {
+      timeLimit: 2000,
+      memoryLimit: 256,
+      supportedLanguages: ["c", "cpp", "java", "javascript", "python"],
+      starterCode: item.codeSnippet ? { javascript: item.codeSnippet } : {},
+    },
+    testCases: item.testCases || { cases: [] },
+  };
+}
+
+export default function ProblemWorkspace({
+  params,
+  embedded = false,
+  initialProblem,
+}: {
+  params: Promise<{ id: string }>;
+  embedded?: boolean;
+  initialProblem?: any;
+}) {
   const unwrappedParams = use(params);
   const problemId = unwrappedParams.id;
   const { theme } = useTheme();
@@ -165,12 +196,63 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
   const [askLoading, setAskLoading] = useState(false);
 
   useEffect(() => {
+    let active = true;
+    if (!problemId && initialProblem) {
+      setProblem(formatInitialProblem(initialProblem));
+      setLoading(false);
+      return;
+    }
+    if (!problemId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    problemsAPI.getBySlug(problemId)
-      .then(res => setProblem(res.data.data))
-      .catch(() => setProblem(null))
-      .finally(() => setLoading(false));
-  }, [problemId]);
+    problemsAPI
+      .getBySlug(problemId)
+      .then((res) => {
+        if (!active) return;
+        if (res?.data?.data) {
+          setProblem(res.data.data);
+        } else if (initialProblem) {
+          setProblem(formatInitialProblem(initialProblem));
+        } else {
+          setProblem(null);
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        if (initialProblem?.id && initialProblem.id !== problemId) {
+          problemsAPI
+            .getBySlug(initialProblem.id)
+            .then((res2) => {
+              if (!active) return;
+              if (res2?.data?.data) {
+                setProblem(res2.data.data);
+              } else {
+                setProblem(formatInitialProblem(initialProblem));
+              }
+            })
+            .catch(() => {
+              if (active) setProblem(formatInitialProblem(initialProblem));
+            })
+            .finally(() => {
+              if (active) setLoading(false);
+            });
+          return;
+        }
+        if (initialProblem) {
+          setProblem(formatInitialProblem(initialProblem));
+        } else {
+          setProblem(null);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [problemId, initialProblem]);
 
   // Draft Restoration
   useEffect(() => {

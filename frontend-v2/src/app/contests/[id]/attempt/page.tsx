@@ -128,7 +128,10 @@ function ContestSession({ id }: { id: string }) {
     return () => clearInterval(timer);
   }, [context, ended, finish]);
   const problem = context?.problems[selected];
-  const workspaceParams = useMemo(() => Promise.resolve({ id: problem?.slug || "" }), [problem?.slug]);
+  const workspaceParams = useMemo(
+    () => Promise.resolve({ id: problem?.slug || problem?.id || "" }),
+    [problem?.slug, problem?.id]
+  );
   if (authLoading || (!preview && !error && user)) return <div role="status" className="min-h-screen flex justify-center items-center gap-3"><Spinner />Loading contest session...</div>;
   if (!user) return <div className="pt-28 p-8 text-center space-y-4"><h1 className="text-2xl font-bold">Sign in to participate</h1><Link href="/login" className="text-primary hover:underline">Log In</Link></div>;
   if (!preview) return <div className="pt-28 p-8 text-center space-y-4"><h1 className="text-2xl font-bold">Contest unavailable</h1><p role="alert">{error}</p><Button onClick={() => setRetry(value => value + 1)}>Try again</Button><Link href="/contests" className="block text-primary">Browse contests</Link></div>;
@@ -206,7 +209,12 @@ function ContestSession({ id }: { id: string }) {
                 embedded
               />
             ) : (
-              <ProblemWorkspace key={problem.id} params={workspaceParams} embedded />
+              <ProblemWorkspace
+                key={problem.id}
+                params={workspaceParams}
+                embedded
+                initialProblem={problem}
+              />
             )}
           </Suspense>
         </div>

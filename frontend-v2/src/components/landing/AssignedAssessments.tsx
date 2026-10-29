@@ -40,11 +40,13 @@ export function AssignedAssessments() {
               : <div className="grid gap-4 md:grid-cols-3">{current.items.slice(0, 3).map(item => {
                 const id = item.id || item._id;
                 const status = assessmentCompleted(item) ? "Completed" : assessmentWindow(item);
-                return <article key={id} className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5">
-                  <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs text-muted-foreground">{item.code}</span><span className="rounded-lg bg-muted px-2 py-1 text-xs text-muted-foreground">{status}</span></div>
-                  <h4 className="text-lg font-semibold">{item.title}</h4>
-                  <p className="text-sm text-muted-foreground line-clamp-2">{item.description || "A technical assessment assigned to your account."}</p>
-                  <p className="flex items-center gap-2 text-sm text-muted-foreground"><Clock className="h-4 w-4" /><span className="font-mono">{item.durationMinutes}</span> mins · <span className="font-mono">{item.questionCount}</span> questions</p>
+                return <article key={id} className="flex flex-col justify-between h-full min-h-[250px] gap-4 rounded-xl border border-border bg-card p-5">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs text-muted-foreground">{item.code}</span><span className="rounded-lg bg-muted px-2 py-1 text-xs text-muted-foreground">{status}</span></div>
+                    <h4 className="text-lg font-semibold min-h-[3.5rem] line-clamp-2">{item.title}</h4>
+                    <p className="text-sm text-muted-foreground line-clamp-2 min-h-[2.5rem]">{item.description || "A technical assessment assigned to your account."}</p>
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground"><Clock className="h-4 w-4" /><span className="font-mono">{item.durationMinutes}</span> mins · <span className="font-mono">{item.questionCount}</span> questions</p>
+                  </div>
                   <Link href={`/assessments/${id}`} className="mt-auto inline-flex items-center gap-2 text-sm font-semibold text-primary">{item.attemptStatus === "in_progress" ? "Review attempt" : status === "Completed" ? "View result" : "View assessment"}<ArrowRight className="h-4 w-4" /></Link>
                 </article>;
               })}</div>}
