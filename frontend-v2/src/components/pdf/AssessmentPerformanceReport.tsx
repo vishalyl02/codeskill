@@ -851,60 +851,55 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
                 <Text style={[styles.tableHeaderCell, styles.qColPoints]}>Score</Text>
               </View>
 
-{questions.map((q, idx) => {
-                const cleanTitle = formatQuestionTitle(q.title, 72);
-                const isEasy = q.difficulty.toLowerCase() === "easy";
-                const isMed = q.difficulty.toLowerCase() === "medium";
-                return (
-                  <View
-                    key={q.id || idx}
-                    style={[
-                      styles.tableRow,
-                      idx === questions.length - 1 ? { borderBottomWidth: 0 } : {},
-                    ]}
-                    wrap={false}
-                  >
-                    <Text style={[styles.tableCell, styles.qColIndex, { color: BRAND_COLORS.slateMuted }]}>{idx + 1}</Text>
-                    <Text style={[styles.tableCell, styles.qColTitle, { fontWeight: "bold", color: BRAND_COLORS.navyDark }]}>
-                      {cleanTitle}
-                    </Text>
-                    <View style={styles.qColDiff}>
-                      <Text
-                        style={[
-                          styles.diffBadge,
-                          isEasy
-                            ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
-                            : isMed
-                            ? { backgroundColor: BRAND_COLORS.warningBg, color: BRAND_COLORS.warningAmber }
-                            : { backgroundColor: BRAND_COLORS.dangerBg, color: BRAND_COLORS.dangerRed },
-                        ]}
-                      >
-                        {q.difficulty}
-                      </Text>
-                    </View>
+              {questions.map((q, idx) => (
+                <View
+                  key={q.id || idx}
+                  style={[
+                    styles.tableRow,
+                    idx === questions.length - 1 ? { borderBottomWidth: 0 } : {},
+                  ]}
+                  wrap={false}
+                >
+                  <Text style={[styles.tableCell, styles.qColIndex, { color: BRAND_COLORS.slateMuted }]}>{idx + 1}</Text>
+                  <Text style={[styles.tableCell, styles.qColTitle, { fontWeight: "bold", color: BRAND_COLORS.navyDark }]}>
+                    {formatQuestionTitle(q.title, 65)}
+                  </Text>
+                  <View style={styles.qColDiff}>
                     <Text
                       style={[
-                        styles.tableCell,
-                        styles.qColStatus,
-                        {
-                          fontWeight: "bold",
-                          color:
-                            q.status === "Passed"
-                              ? BRAND_COLORS.successGreen
-                              : q.status === "Failed"
-                              ? BRAND_COLORS.dangerRed
-                              : BRAND_COLORS.warningAmber,
-                        },
+                        styles.diffBadge,
+                        q.difficulty.toLowerCase() === "easy"
+                          ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
+                          : q.difficulty.toLowerCase() === "medium"
+                          ? { backgroundColor: BRAND_COLORS.warningBg, color: BRAND_COLORS.warningAmber }
+                          : { backgroundColor: BRAND_COLORS.dangerBg, color: BRAND_COLORS.dangerRed },
                       ]}
                     >
-                      {q.status}
-                    </Text>
-                    <Text style={[styles.tableCell, styles.qColPoints, { fontWeight: "bold" }]}>
-                      {q.points} pts
+                      {q.difficulty}
                     </Text>
                   </View>
-                );
-              })}
+                  <Text
+                    style={[
+                      styles.tableCell,
+                      styles.qColStatus,
+                      {
+                        fontWeight: "bold",
+                        color:
+                          q.status === "Passed"
+                            ? BRAND_COLORS.successGreen
+                            : q.status === "Failed"
+                            ? BRAND_COLORS.dangerRed
+                            : BRAND_COLORS.warningAmber,
+                      },
+                    ]}
+                  >
+                    {q.status}
+                  </Text>
+                  <Text style={[styles.tableCell, styles.qColPoints, { fontWeight: "bold" }]}>
+                    {q.points} pts
+                  </Text>
+                </View>
+              ))}
             </View>
           </View>
         )}

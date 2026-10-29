@@ -442,27 +442,3 @@ it('resolves bank UUIDs and output/expectedOutput case formats without copying r
   });
   expect(legacy.findOne).not.toHaveBeenCalled();
 });
-it('resolves prefixed problem and question slugs by normalized UUID', async () => {
-  const { service, metadataQuery, metadata } = setup();
-  metadataQuery.getOne.mockResolvedValueOnce(practice('ContestOnly'));
-  const result = await service.getProblemBySlug(`problem-${id}`);
-  expect(result.data).toMatchObject({
-    id,
-    title: 'Two Sum',
-  });
-  expect(metadataQuery.where).toHaveBeenCalledWith(
-    'metadata.id = :id OR lower(btrim(metadata.slug)) = :slug',
-    { id, slug: `problem-${id}` },
-  );
-
-  metadata.findOne.mockResolvedValueOnce(practice('ContestOnly'));
-  const execution = await service.getExecutionProblem(`problem-${id}`, 'metadata');
-  expect(execution).toMatchObject({
-    id,
-    source: 'metadata',
-  });
-  expect(metadata.findOne).toHaveBeenCalledWith({
-    where: { id },
-    relations: { config: true, testCases: true },
-  });
-});

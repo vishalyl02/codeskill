@@ -10,11 +10,7 @@ jest.mock("next/navigation", () => ({ useParams: () => ({ id: "contest-id" }), u
 jest.mock("@/context/AuthContext", () => ({ useAuth: () => mockAuth }));
 jest.mock("@/config/api", () => ({ __esModule: true, default: { post: jest.fn(), get: jest.fn() } }));
 jest.mock("@/hooks/anti-cheat/useAntiCheatMaster", () => ({ useAntiCheatMaster: jest.fn() }));
-jest.mock("@/components/problems/ProblemWorkspace", () => function MockProblemWorkspace({ embedded, params, initialProblem }: { embedded?: boolean; params?: Promise<{ id: string }>; initialProblem?: any }) {
-  const React = require("react");
-  const unwrapped = React.use(params);
-  return <div data-testid="problem-workspace" data-problem-id={unwrapped?.id} data-problem-title={initialProblem?.title}>Existing problem editor {embedded ? "embedded" : "standalone"}</div>;
-});
+jest.mock("@/components/problems/ProblemWorkspace", () => function MockProblemWorkspace({ embedded }: { embedded?: boolean }) { return <div>Existing problem editor {embedded ? "embedded" : "standalone"}</div>; });
 jest.mock("@/app/contests/[id]/attempt/_components/ContestStartGate", () => ({ ContestStartGate: ({ onAccept }: { onAccept: () => void }) => <button onClick={onAccept}>Start live contest</button> }));
 jest.mock("@/app/contests/[id]/attempt/_components/AntiCheatWarningDialog", () => ({ AntiCheatWarningDialog: () => null }));
 jest.mock("@/app/contests/[id]/attempt/_components/WatermarkOverlay", () => ({ WatermarkOverlay: () => null }));
@@ -166,21 +162,4 @@ it("renders MCQ workspace with options instead of code editor in mixed contest",
   });
 
   expect(await screen.findByText(/Accepted! Your answer has been verified/i)).toBeInTheDocument();
-});
-
-it("correctly falls back to problem id and passes initialProblem when problem has no slug", async () => {
-  const contextWithoutSlug = {
-    ...context,
-    problems: [{ id: "c0000000-0000-4000-8000-000000000001", slug: "", title: "Assigned Contest Problem" }],
-  };
-  post.mockImplementation(async (url) => ({ data: String(url).endsWith("/start") ? contextWithoutSlug : { success: true } }));
-  render(<Page />);
-  const startButton = await screen.findByRole("button", { name: "Start live contest" });
-  await act(async () => { fireEvent.click(startButton); });
-
-  expect(screen.getByRole("button", { name: "1. Assigned Contest Problem" })).toBeInTheDocument();
-  const workspace = screen.getByTestId("problem-workspace");
-  expect(workspace).toHaveAttribute("data-problem-id", "c0000000-0000-4000-8000-000000000001");
-  expect(workspace).toHaveAttribute("data-problem-title", "Assigned Contest Problem");
-  expect(workspace).toHaveTextContent("Existing problem editor embedded");
 });

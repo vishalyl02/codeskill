@@ -668,8 +668,6 @@ export const studentAssessmentsAPI = {
   saveProgress: (id: string, data: any) => api.post(`/assessments/${id}/save-progress`, data),
   submitAttempt: (id: string, data: any) => api.post(`/assessments/${id}/submit`, data),
   getResult: (id: string) => api.get(`/assessments/${id}/result`),
-  getAttemptReport: (attemptId: string) =>
-    api.get(`/reports/assessment-attempt/${encodeURIComponent(attemptId)}`, { responseType: "blob" }),
   retakeAttempt: (id: string) => api.post(`/assessments/${id}/retake`),
   recordProctorCapture: (id: string, data: { type: string; image: string; filename: string; timestamp: string }) =>
     api.post(`/assessments/${id}/proctor-capture`, data),
