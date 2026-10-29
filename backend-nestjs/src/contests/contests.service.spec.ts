@@ -8,7 +8,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ContestsService } from './contests.service';
-import { Problem } from '../database/entities/problem.entity';
 const id = '00000000-0000-4000-8000-000000000001';
 const userId = '00000000-0000-4000-8000-000000000002';
 const contest = {
@@ -44,16 +43,10 @@ function setup(submissions?: unknown) {
     'where',
   ] as const)
     builder[key].mockReturnValue(builder);
-  const legacy = {
-    findOne: jest.fn().mockResolvedValue(null),
-  };
   const contests = {
     find: jest.fn().mockResolvedValue([contest]),
     findOne: jest.fn().mockResolvedValue(contest),
     save: jest.fn().mockResolvedValue(contest),
-    manager: {
-      getRepository: jest.fn((entity) => (entity === Problem ? legacy : null)),
-    },
   };
   const attempts = {
     query: jest
@@ -93,7 +86,6 @@ function setup(submissions?: unknown) {
     problems,
     questions,
     metadata,
-    legacy,
     builder,
   };
 }
@@ -243,23 +235,6 @@ it('resolves ProblemMetadata questions when execution and Question lookups fail'
     problems: [{ id, title: 'Metadata Problem', slug: 'metadata-problem' }],
   });
   expect(metadata.findOne).toHaveBeenCalled();
-});
-it('resolves legacy Problem repository questions when execution, Question, and metadata lookups fail', async () => {
-  const { service, problems, legacy } = setup();
-  problems.getExecutionProblem.mockRejectedValue(new NotFoundException('Problem not found'));
-  legacy.findOne.mockResolvedValue({
-    id,
-    title: 'Legacy Problem',
-    slug: 'legacy-problem',
-    difficulty: 'Hard',
-    description: 'Solve this legacy challenge',
-  });
-  const result = await service.startAttempt(id, userId);
-  expect(result).toMatchObject({
-    sessionId: 'real-session',
-    problems: [{ id, title: 'Legacy Problem', slug: 'legacy-problem', questionType: 'coding' }],
-  });
-  expect(legacy.findOne).toHaveBeenCalled();
 });
 it.each(['upcoming', 'ended', 'unregistered', 'unpublished'])(
   'blocks unavailable attempts: %s',

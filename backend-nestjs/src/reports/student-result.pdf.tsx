@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
   page: {
     paddingHorizontal: 28,
     paddingTop: 20,
-    paddingBottom: 48, // Reserves ample space so content never collides with fixed footer
+    paddingBottom: 45, // Reserves ample space so content never collides with fixed footer
     backgroundColor: "#FFFFFF",
     fontFamily: "Helvetica",
     color: BRAND_COLORS.navyDark,
@@ -405,8 +405,8 @@ const styles = StyleSheet.create({
     bottom: 14,
     left: 28,
     right: 28,
-    borderTopWidth: 1.5,
-    borderTopColor: BRAND_COLORS.cuRed,
+    borderTopWidth: 1,
+    borderTopColor: BRAND_COLORS.borderLight,
     paddingTop: 5,
   },
   footerSecurityText: {
