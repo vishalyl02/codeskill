@@ -82,8 +82,7 @@ export default function AssessmentResultsPage({
     setIsLoading(true);
     try {
       const res = await adminAssessmentsAPI.getResults(id);
-      const resData = res.data?.data || res.data;
-      if (request === resultsRequest.current) setData(resData);
+      if (request === resultsRequest.current) setData(res.data);
     } catch (err) {
       console.error("Failed to load results:", err);
       if (request === resultsRequest.current) setData(null);

@@ -66,7 +66,6 @@ const adminNavItems = [
     subItems: [
       { name: "All Assessments", href: "/admin/assessments" },
       { name: "Create Assessment", href: "/admin/assessments/create" },
-      { name: "Scheduling & Eligibility", href: "/admin/assessments/scheduling" },
     ],
   },
   {

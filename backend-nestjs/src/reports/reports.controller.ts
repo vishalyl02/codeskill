@@ -15,7 +15,7 @@ import { Assessment } from '../database/entities/assessment.entity';
 import { Question } from '../database/entities/question.entity';
 import type { Response } from 'express';
 import { renderToStream } from '@react-pdf/renderer';
-import { StudentResultReport, StudentResult, formatQuestionTitle } from './student-result.pdf';
+import { StudentResultReport, StudentResult } from './student-result.pdf';
 import * as React from 'react';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -193,11 +193,6 @@ export class ReportsController {
 
     const questions = responses.map((resp: any) => {
       const q = resp.questionId ? questionMap.get(resp.questionId) || null : null;
-      const rawTitle = (q as any)?.title || q?.question || 'Assessment Question';
-      const cleanTitle = formatQuestionTitle(rawTitle, 75);
-      const diffRaw = q?.difficulty || 'Medium';
-      const difficulty = diffRaw.charAt(0).toUpperCase() + diffRaw.slice(1).toLowerCase();
-
       const item: {
         id: string;
         title: string;
@@ -206,8 +201,8 @@ export class ReportsController {
         points: number;
       } = {
         id: String(resp.questionId || 'unknown'),
-        title: cleanTitle,
-        difficulty,
+        title: q?.title ? q.title : 'Assessment Question',
+        difficulty: q?.difficulty ? q.difficulty : 'Medium',
         status: resp.isCorrect ? 'Passed' : resp.marksAwarded > 0 ? 'Partial' : 'Failed',
         points: Number(resp.marksAwarded || 0),
       };
@@ -224,13 +219,13 @@ export class ReportsController {
       examName: assessment.title,
       attemptId: attempt.id,
       attemptStatus: attempt.status,
-      dateTaken: new Date(
-        attempt.startedAt || (attempt as any).submittedAt || (attempt as any).createdAt || new Date(),
-      ).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      }),
+      dateTaken: attempt.startedAt
+        ? new Date(attempt.startedAt).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })
+        : 'Unknown Date',
       score: attempt.score || 0,
       maxScore: attempt.maxScore || 100,
       duration: `${Math.floor((attempt.timeSpentSeconds || 0) / 60)}m ${(attempt.timeSpentSeconds || 0) % 60}s`,

@@ -53,11 +53,11 @@ export const StudentResultReport = ({ result }: { result: StudentResult }) => {
     reportId: `CU-CS-${new Date().getFullYear()}-${Math.abs(
       (result.studentEmail || "").split("").reduce((a, b) => ((a << 5) - a + b.charCodeAt(0)) | 0, 0) % 90000 + 10000
     )}`,
-    generatedAt: result.dateTaken || new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
-    generatedTime: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+    generatedAt: result.dateTaken,
+    generatedTime: "11:45 AM",
     assessmentName: result.examName,
     assessmentId: "CS-ALGO-2026",
-    assessmentDate: result.dateTaken || new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
+    assessmentDate: result.dateTaken,
     assessmentTime: result.duration ? `Duration: ${result.duration}` : "1h 45m",
     status: totalSolved > 0 ? "Completed" : "In Progress",
     student: {
