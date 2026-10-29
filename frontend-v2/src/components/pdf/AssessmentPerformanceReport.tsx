@@ -64,41 +64,11 @@ export interface AssessmentPerformanceReportProps {
   };
 }
 
-export function formatQuestionTitle(title?: string, maxLength: number = 72): string {
-  if (!title || typeof title !== 'string') return 'Assessment Question';
-
-  let text = title;
-  if (text.includes('```')) {
-    const parts = text.split('```');
-    const beforeCode = parts[0].trim();
-    if (beforeCode.length > 0) {
-      text = beforeCode;
-    } else {
-      const afterCode = parts.slice(2).join(' ').trim();
-      text = afterCode.length > 0 ? afterCode : (parts[1] || 'Code snippet evaluation').replace(/^[a-z]+\s+/i, '');
-    }
-  }
-
-  text = text.replace(/[*_`#~]/g, ' ');
-  text = text.replace(/\s+/g, ' ').trim();
-
-  if (!text) return 'Assessment Question';
-
-  if (text.length > maxLength) {
-    const sliced = text.substring(0, maxLength);
-    const lastSpace = sliced.lastIndexOf(' ');
-    const boundary = lastSpace > 35 ? lastSpace : maxLength;
-    return sliced.substring(0, boundary).trim() + '...';
-  }
-
-  return text;
-}
-
 const styles = StyleSheet.create({
   page: {
     paddingHorizontal: 28,
     paddingTop: 22,
-    paddingBottom: 48,
+    paddingBottom: 26,
     backgroundColor: "#FFFFFF",
     fontFamily: "Helvetica",
     color: BRAND_COLORS.navyDark,
@@ -463,13 +433,10 @@ const styles = StyleSheet.create({
 
   // 9. Verification Footer
   footerSeparator: {
-    position: "absolute",
-    bottom: 14,
-    left: 28,
-    right: 28,
     borderTopWidth: 1.5,
     borderTopColor: BRAND_COLORS.cuRed,
-    paddingTop: 6,
+    paddingTop: 8,
+    marginTop: "auto",
   },
   footerSecurityText: {
     fontSize: 7.2,
@@ -836,14 +803,14 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
 
         {/* 6. Question Details Table */}
         {questions.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionTitleWithBar} wrap={false}>
+          <View style={styles.section} wrap={false}>
+            <View style={styles.sectionTitleWithBar}>
               <View style={styles.redAccentBar} />
               <Text style={styles.sectionTitleText}>Problem-Level Assessment Breakdown</Text>
             </View>
 
             <View style={styles.questionTable}>
-              <View style={styles.tableHeader} fixed>
+              <View style={styles.tableHeader}>
                 <Text style={[styles.tableHeaderCell, styles.qColIndex]}>#</Text>
                 <Text style={[styles.tableHeaderCell, styles.qColTitle]}>Problem Title</Text>
                 <Text style={[styles.tableHeaderCell, styles.qColDiff]}>Difficulty</Text>
@@ -862,7 +829,7 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
                 >
                   <Text style={[styles.tableCell, styles.qColIndex, { color: BRAND_COLORS.slateMuted }]}>{idx + 1}</Text>
                   <Text style={[styles.tableCell, styles.qColTitle, { fontWeight: "bold", color: BRAND_COLORS.navyDark }]}>
-                    {formatQuestionTitle(q.title, 65)}
+                    {q.title.length > 40 ? `${q.title.substring(0, 38)}...` : q.title}
                   </Text>
                   <View style={styles.qColDiff}>
                     <Text

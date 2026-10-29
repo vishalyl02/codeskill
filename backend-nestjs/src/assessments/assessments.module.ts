@@ -12,11 +12,6 @@ import { AssessmentsStudentController } from './assessments-student.controller';
 import { ExecutionModule } from '../execution/execution.module';
 import { S3Module } from '../s3/s3.module';
 
-import { ExamSchedule } from '../database/entities/exam-schedule.entity';
-import { ExamSlot } from '../database/entities/exam-slot.entity';
-import { ExamEligibilityAssignment } from '../database/entities/exam-eligibility-assignment.entity';
-import { ExamAccessAuditLog } from '../database/entities/exam-access-audit-log.entity';
-
 @Module({
   imports: [
     ExecutionModule,
@@ -27,10 +22,6 @@ import { ExamAccessAuditLog } from '../database/entities/exam-access-audit-log.e
       AssessmentAttempt,
       Question,
       AuditLog,
-      ExamSchedule,
-      ExamSlot,
-      ExamEligibilityAssignment,
-      ExamAccessAuditLog,
     ]),
   ],
   controllers: [AssessmentsAdminController, AssessmentsStudentController],

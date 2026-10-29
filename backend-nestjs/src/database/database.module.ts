@@ -55,11 +55,6 @@ import {
   Certificate,
   CertificateEvent,
 } from '../learning/entities';
-import { ExamSchedule } from './entities/exam-schedule.entity';
-import { ExamSlot } from './entities/exam-slot.entity';
-import { ExamEligibilityAssignment } from './entities/exam-eligibility-assignment.entity';
-import { ExamAccessAuditLog } from './entities/exam-access-audit-log.entity';
-import { ExamSavedGroup } from './entities/exam-saved-group.entity';
 
 const entities = [
   User,
@@ -111,11 +106,6 @@ const entities = [
   CertificateTemplate,
   Certificate,
   CertificateEvent,
-  ExamSchedule,
-  ExamSlot,
-  ExamEligibilityAssignment,
-  ExamAccessAuditLog,
-  ExamSavedGroup,
 ];
 
 @Module({
