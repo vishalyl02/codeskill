@@ -253,6 +253,13 @@ export class UpdateQuestionDto {
   @IsString({ each: true })
   supportedLanguages?: string[];
 
+  @ApiPropertyOptional({
+    description: 'Whether to hide the main method/driver from student editor',
+  })
+  @IsOptional()
+  @IsBoolean()
+  hideMainMethod?: boolean;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

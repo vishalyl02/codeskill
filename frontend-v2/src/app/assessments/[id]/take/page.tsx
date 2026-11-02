@@ -72,6 +72,7 @@ interface Question {
   language?: string;
   constraints?: string | string[];
   supportedLanguages?: string[];
+  hideMainMethod?: boolean;
   timeLimit?: number;
   memoryLimit?: number;
   testCases?: TestCase[];

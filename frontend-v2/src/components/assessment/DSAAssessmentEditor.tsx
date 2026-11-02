@@ -175,6 +175,7 @@ interface DSAAssessmentEditorProps {
     codeSnippet?: string;
     language?: string;
     supportedLanguages?: string[];
+    hideMainMethod?: boolean;
     constraints?: string | string[];
     timeLimit?: number;
     memoryLimit?: number;
@@ -338,10 +339,12 @@ export default function DSAAssessmentEditor({
     (tc) => !tc.isHidden && hasSampleContent(tc),
   );
 
+  const shouldHideEntryPoint = Boolean(question.hideMainMethod);
+
   // The parent keys this workspace by question ID. Drafts are restored from
   // attempt state on each mount; saving does not reset the active editor model.
   const updateCode = (value: string) => {
-    const hiddenEntryPoint = hideEntryPoint(code, language);
+    const hiddenEntryPoint = shouldHideEntryPoint ? hideEntryPoint(code, language) : undefined;
     const nextCode = hiddenEntryPoint
       ? restoreEntryPoint(
           value,
@@ -399,17 +402,24 @@ export default function DSAAssessmentEditor({
 
   // Reset starter code
   const handleResetCode = (forceDefault: boolean = false) => {
-    let template = DEFAULT_STARTER_CODE[language] || DEFAULT_STARTER_CODE.python;
     const starterCode = getQuestionStarterCode(language);
-    if (!forceDefault && starterCode !== undefined) {
-      template = starterCode;
-    }
+    const template =
+      !forceDefault && starterCode !== undefined && starterCode.trim().length > 0
+        ? starterCode
+        : (DEFAULT_STARTER_CODE[language] || DEFAULT_STARTER_CODE.python);
+    const targetLang = canonicalEditorLanguage(language);
+    const updatedCache = { ...codeByLang, [targetLang]: template };
+
     setCode(template);
-    onDraftChange?.(template, language);
-    setCodeByLang((prev) => ({ ...prev, [language]: template }));
+    setCodeByLang(updatedCache);
+    onDraftChange?.(template, language, updatedCache);
     setRunResult(null);
     const langLabel = LANGUAGES.find((l) => l.value === language)?.label || language;
-    setSaveSuccessNotice(`Boilerplate template for ${langLabel} restored.`);
+    setSaveSuccessNotice(
+      starterCode && !forceDefault
+        ? `Starter code for ${langLabel} restored.`
+        : `Boilerplate template for ${langLabel} restored.`
+    );
     setTimeout(() => setSaveSuccessNotice(null), 3000);
   };
 
@@ -420,7 +430,7 @@ export default function DSAAssessmentEditor({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const editorCode = hideEntryPoint(code, language)?.visibleCode ?? code;
+  const editorCode = shouldHideEntryPoint ? (hideEntryPoint(code, language)?.visibleCode ?? code) : code;
   const lineCount = Math.max(1, editorCode.split("\n").length);
 
   // Run Test (Single or Sample cases)
@@ -728,9 +738,9 @@ export default function DSAAssessmentEditor({
             <button
               type="button"
               disabled={isRunning || isSubmitting}
-              onClick={() => handleResetCode(true)}
+              onClick={() => handleResetCode(false)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 text-[11px] font-semibold transition-colors"
-              title="Reset and load default runnable boilerplate starter template for this language"
+              title="Reset and restore starter code for this question"
             >
               <RotateCcw className="w-3 h-3 text-amber-400" />
               <span>Reset Boilerplate</span>
