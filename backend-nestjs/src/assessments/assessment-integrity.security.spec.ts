@@ -614,4 +614,61 @@ describe('Assessment Integrity & Server-Side Scoring (AUD-002, NEW-001, NEW-002,
       expect.objectContaining({ status: 'in_progress' }),
     );
   });
+
+  it('delivers normalized starter code and supported languages to students for coding questions', async () => {
+    mockAssessmentRepo.findOne.mockResolvedValue({
+      ...mockAssessment,
+      questions: ['q-code-array', 'q-code-map'],
+    });
+    mockAttemptRepo.findOne.mockResolvedValue(null);
+    mockAttemptRepo.find.mockResolvedValue([]);
+    mockQuestionRepo.find.mockResolvedValue([
+      {
+        id: 'q-code-array',
+        questionType: 'coding',
+        question: 'Array Starter Code Problem',
+        language: 'cpp',
+        supportedLanguages: ['cpp', 'java'],
+        starterCode: [
+          { language: 'cpp', code: '// CPP Starter Code' },
+          { language: 'java', code: '// Java Starter Code' },
+        ],
+        marks: 10,
+        testCases: [{ input: '1', output: '1', isHidden: false }],
+      },
+      {
+        id: 'q-code-map',
+        questionType: 'coding',
+        question: 'Map Starter Code Problem',
+        starterCode: {
+          python: '# Python Map Starter',
+          javascript: '// JS Map Starter',
+        },
+        marks: 10,
+        testCases: [{ input: '2', output: '2', isHidden: false }],
+      },
+    ]);
+
+    const result = await service.startStudentAttempt(assessmentId, studentUser);
+    expect(result.success).toBe(true);
+    expect(result.questions).toHaveLength(2);
+
+    // First question (array format with explicit supportedLanguages)
+    const q1 = result.questions.find((q: any) => q.id === 'q-code-array');
+    expect(q1.supportedLanguages).toEqual(['cpp', 'java']);
+    expect(q1.language).toBe('cpp');
+    expect(q1.starterCode).toEqual([
+      { language: 'cpp', code: '// CPP Starter Code' },
+      { language: 'java', code: '// Java Starter Code' },
+    ]);
+
+    // Second question (object map format with inferred supportedLanguages)
+    const q2 = result.questions.find((q: any) => q.id === 'q-code-map');
+    expect(q2.supportedLanguages).toEqual(['python', 'javascript']);
+    expect(q2.language).toBe('python');
+    expect(q2.starterCode).toEqual([
+      { language: 'python', code: '# Python Map Starter' },
+      { language: 'javascript', code: '// JS Map Starter' },
+    ]);
+  });
 });
