@@ -279,6 +279,7 @@ function UnifiedQuestionForm() {
         payload.memoryLimit = store.execution.memoryLimit;
         payload.supportedLanguages = store.languages.supported;
         payload.language = store.languages.default;
+        payload.hideMainMethod = store.hideMainMethod;
       }
 
       await adminQuestionsAPI.create(payload);

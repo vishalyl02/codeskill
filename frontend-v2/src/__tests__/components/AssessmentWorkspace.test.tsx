@@ -134,6 +134,7 @@ it("hides C++ main from editing but sends the original driver with the edited so
     questions: [{
       _id: "driver-question", question: "Edit solve", questionType: "coding", topic: "C++",
       language: "cpp", supportedLanguages: ["cpp"], options: [], marks: 5,
+      hideMainMethod: true,
       starterCode: [{ language: "cpp", code: starterCode }], testCases: [],
     }],
     savedResponses: [{ questionId: "driver-question", code: "", language: "cpp", status: "unvisited" }],
@@ -177,6 +178,7 @@ it("hides a Python main guard while retaining it in run and submission source", 
     questions: [{
       _id: "python-driver-question", question: "Edit solve", questionType: "coding", topic: "Python",
       language: "python", supportedLanguages: ["python"], options: [], marks: 5,
+      hideMainMethod: true,
       starterCode: [{ language: "python", code: starterCode }], testCases: [],
     }],
     savedResponses: [{ questionId: "python-driver-question", code: "", language: "python", status: "unvisited" }],
@@ -205,6 +207,32 @@ it("hides a Python main guard while retaining it in run and submission source", 
     code: runSource,
     language: "python",
   })));
+});
+
+it("leaves main method visible and editable when hideMainMethod is false or undefined", async () => {
+  const starterCode = [
+    "#include <iostream>",
+    "int main() {",
+    "  std::cout << 42;",
+    "  return 0;",
+    "}",
+  ].join("\n");
+  jest.mocked(studentAssessmentsAPI.startAttempt).mockResolvedValueOnce({ data: {
+    title: "Driver visible", durationMinutes: 60, startedAt: new Date().toISOString(),
+    questions: [{
+      _id: "visible-driver-question", question: "Full code", questionType: "coding", topic: "C++",
+      language: "cpp", supportedLanguages: ["cpp"], options: [], marks: 5,
+      hideMainMethod: false,
+      starterCode: [{ language: "cpp", code: starterCode }], testCases: [],
+    }],
+    savedResponses: [{ questionId: "visible-driver-question", code: "", language: "cpp", status: "unvisited" }],
+  } } as any);
+
+  render(<Page params={Promise.resolve({ id: "workspace" })} />);
+  fireEvent.click(screen.getByRole("button", { name: "Start workspace" }));
+  const editor = await screen.findByRole("textbox", { name: "Assessment code editor" });
+  expect(editor).toHaveValue(starterCode);
+  expect((editor as HTMLTextAreaElement).value).toContain("int main()");
 });
 
 it("runs custom input, saves a coding solution, and submits the latest code with the attempt", async () => {

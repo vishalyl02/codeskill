@@ -153,6 +153,7 @@ export interface QuestionState {
 
   starterCode: Record<string, string>;
   referenceSolution: Record<string, string>;
+  hideMainMethod: boolean;
   testCases: TestCase[];
   customChecker: CustomChecker;
   solutionExplanation: SolutionExplanation;
@@ -175,6 +176,7 @@ export interface QuestionState {
 
   setStarterCode: (lang: string, code: string) => void;
   setReferenceSolution: (lang: string, code: string) => void;
+  setHideMainMethod: (hide: boolean) => void;
 
   addTestCase: () => void;
   updateTestCase: (id: string, updates: Partial<TestCase>) => void;
@@ -298,6 +300,7 @@ const initialState = {
   },
   starterCode: {},
   referenceSolution: {},
+  hideMainMethod: false,
   testCases: [],
   customChecker: {
     enabled: false,
@@ -435,6 +438,8 @@ export const createQuestionStore = () => create<QuestionState>((set, get) => ({
 
   setReferenceSolution: (lang, code) =>
     set((s) => ({ referenceSolution: { ...s.referenceSolution, [lang]: code } })),
+
+  setHideMainMethod: (hide) => set({ hideMainMethod: hide }),
 
   addTestCase: () =>
     set((s) => ({
@@ -578,6 +583,7 @@ export const createQuestionStore = () => create<QuestionState>((set, get) => ({
       mcqOptions: nextMcqOptions,
       starterCode: { ...state.starterCode, ...toCodeMap(data.starterCode) },
       referenceSolution: { ...state.referenceSolution, ...toCodeMap(data.referenceSolution) },
+      hideMainMethod: (data as any).hideMainMethod !== undefined ? Boolean((data as any).hideMainMethod) : state.hideMainMethod,
       testCases: migrateExamplesIntoTestCases(
         data.testCases || state.testCases,
         data.examples || data.sampleExamples || [],

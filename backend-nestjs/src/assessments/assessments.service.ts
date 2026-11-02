@@ -1565,6 +1565,7 @@ export class AssessmentsService {
           codeSnippet: q.codeSnippet,
           language: resolvedLanguage,
           supportedLanguages,
+          hideMainMethod: Boolean(q.hideMainMethod ?? (q.metadata as any)?.hideMainMethod ?? false),
           constraints:
             Array.isArray(q.constraints) && q.constraints.length > 0
               ? q.constraints

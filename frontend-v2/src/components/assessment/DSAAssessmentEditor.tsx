@@ -175,6 +175,7 @@ interface DSAAssessmentEditorProps {
     codeSnippet?: string;
     language?: string;
     supportedLanguages?: string[];
+    hideMainMethod?: boolean;
     constraints?: string | string[];
     timeLimit?: number;
     memoryLimit?: number;
@@ -338,10 +339,12 @@ export default function DSAAssessmentEditor({
     (tc) => !tc.isHidden && hasSampleContent(tc),
   );
 
+  const shouldHideEntryPoint = Boolean(question.hideMainMethod);
+
   // The parent keys this workspace by question ID. Drafts are restored from
   // attempt state on each mount; saving does not reset the active editor model.
   const updateCode = (value: string) => {
-    const hiddenEntryPoint = hideEntryPoint(code, language);
+    const hiddenEntryPoint = shouldHideEntryPoint ? hideEntryPoint(code, language) : undefined;
     const nextCode = hiddenEntryPoint
       ? restoreEntryPoint(
           value,
@@ -427,7 +430,7 @@ export default function DSAAssessmentEditor({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const editorCode = hideEntryPoint(code, language)?.visibleCode ?? code;
+  const editorCode = shouldHideEntryPoint ? (hideEntryPoint(code, language)?.visibleCode ?? code) : code;
   const lineCount = Math.max(1, editorCode.split("\n").length);
 
   // Run Test (Single or Sample cases)

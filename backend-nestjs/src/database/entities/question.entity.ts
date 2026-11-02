@@ -151,6 +151,9 @@ export class Question {
   @Column('text', { array: true, default: '{}' })
   supportedLanguages?: string[];
 
+  @Column({ type: 'boolean', default: false })
+  hideMainMethod?: boolean;
+
   @Column({ type: 'text', nullable: true })
   functionSignature?: string;
 

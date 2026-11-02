@@ -150,6 +150,7 @@ function EditQuestionContent() {
           : "";
 
         const mappedState: any = {
+          hideMainMethod: Boolean(data.hideMainMethod ?? data.metadata?.hideMainMethod),
           metadata: {
             title: data.title || data.question || "",
             slug: savedSlug || (isMcq ? slugFromTitle : ""),
@@ -378,12 +379,14 @@ function EditQuestionContent() {
         memoryLimit: store.execution.memoryLimit,
         supportedLanguages: store.languages.supported,
         language: store.languages.default,
+        hideMainMethod: store.hideMainMethod,
         timeComplexity: store.solutionExplanation?.timeComplexity || "",
         spaceComplexity: store.solutionExplanation?.spaceComplexity || "",
         // Legacy problem structure compatibility
         metadata: {
           ...store.metadata,
           visibility,
+          hideMainMethod: store.hideMainMethod,
         },
         languages: store.languages.supported || store.languages,
         execution: store.execution,

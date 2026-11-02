@@ -9,7 +9,7 @@ import { Code2 } from "lucide-react";
 import { ProgrammingLanguageIcon } from "@/components/ui/ProgrammingLanguageIcon";
 
 export default function StarterCode() {
-  const { languages, starterCode, setStarterCode, isDarkMode } = useQuestionEditorStore();
+  const { languages, starterCode, setStarterCode, hideMainMethod, setHideMainMethod, isDarkMode } = useQuestionEditorStore();
   const [activeTab, setActiveTab] = useState(languages.supported[0] || "javascript");
 
   const supportedLangs = ALL_LANGUAGES.filter((l) => languages.supported.includes(l.id));
@@ -58,6 +58,40 @@ export default function StarterCode() {
               renderLineHighlightOnlyWhenFocus: true,
             }}
           />
+        </div>
+
+        {/* Hide Main Method Option */}
+        <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-muted/40 hover:bg-muted/60 transition-colors">
+          <div className="space-y-0.5 pr-4">
+            <div className="flex items-center gap-2">
+              <label htmlFor="hide-main-method-toggle" className="text-sm font-semibold text-foreground cursor-pointer">
+                Hide Main Method / Driver Code
+              </label>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                Optional
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              When enabled, the entry point function (such as <code>main()</code> in C, C++, Java, Go, or <code>if __name__ == &apos;__main__&apos;:</code> in Python) will be hidden from the candidate&apos;s editor while running the full code in the background.
+            </p>
+          </div>
+          <button
+            id="hide-main-method-toggle"
+            role="switch"
+            aria-checked={Boolean(hideMainMethod)}
+            aria-label="Hide main method in starter code"
+            type="button"
+            onClick={() => setHideMainMethod(!hideMainMethod)}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+              hideMainMethod ? "bg-primary" : "bg-muted-foreground/30"
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                hideMainMethod ? "translate-x-5" : "translate-x-0"
+              }`}
+            />
+          </button>
         </div>
 
         {supportedLangs.length === 0 && (
