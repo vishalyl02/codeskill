@@ -399,17 +399,24 @@ export default function DSAAssessmentEditor({
 
   // Reset starter code
   const handleResetCode = (forceDefault: boolean = false) => {
-    let template = DEFAULT_STARTER_CODE[language] || DEFAULT_STARTER_CODE.python;
     const starterCode = getQuestionStarterCode(language);
-    if (!forceDefault && starterCode !== undefined) {
-      template = starterCode;
-    }
+    const template =
+      !forceDefault && starterCode !== undefined && starterCode.trim().length > 0
+        ? starterCode
+        : (DEFAULT_STARTER_CODE[language] || DEFAULT_STARTER_CODE.python);
+    const targetLang = canonicalEditorLanguage(language);
+    const updatedCache = { ...codeByLang, [targetLang]: template };
+
     setCode(template);
-    onDraftChange?.(template, language);
-    setCodeByLang((prev) => ({ ...prev, [language]: template }));
+    setCodeByLang(updatedCache);
+    onDraftChange?.(template, language, updatedCache);
     setRunResult(null);
     const langLabel = LANGUAGES.find((l) => l.value === language)?.label || language;
-    setSaveSuccessNotice(`Boilerplate template for ${langLabel} restored.`);
+    setSaveSuccessNotice(
+      starterCode && !forceDefault
+        ? `Starter code for ${langLabel} restored.`
+        : `Boilerplate template for ${langLabel} restored.`
+    );
     setTimeout(() => setSaveSuccessNotice(null), 3000);
   };
 
@@ -728,9 +735,9 @@ export default function DSAAssessmentEditor({
             <button
               type="button"
               disabled={isRunning || isSubmitting}
-              onClick={() => handleResetCode(true)}
+              onClick={() => handleResetCode(false)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 text-[11px] font-semibold transition-colors"
-              title="Reset and load default runnable boilerplate starter template for this language"
+              title="Reset and restore starter code for this question"
             >
               <RotateCcw className="w-3 h-3 text-amber-400" />
               <span>Reset Boilerplate</span>

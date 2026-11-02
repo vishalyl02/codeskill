@@ -114,6 +114,9 @@ it("loads each question's uploaded language templates and keeps edits question-l
   fireEvent.click(screen.getByRole("button", { name: /Java \(OpenJDK\)/ }));
   fireEvent.click(screen.getByRole("button", { name: "C++ (GCC)" }));
   expect(restoredEditor).toHaveValue("MY_CPP_DRAFT");
+
+  fireEvent.click(screen.getByRole("button", { name: "Reset Boilerplate" }));
+  expect(restoredEditor).toHaveValue("CUSTOM_CPP_ONE");
 });
 
 it("hides C++ main from editing but sends the original driver with the edited solution", async () => {
