@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, use, useCallback } from "react";
+import { useEffect, useState, useRef, use, useCallback, Fragment } from "react";
 import { enterDocumentFullscreen, fullscreenEvents, isDocumentFullscreen } from "@/lib/fullscreen";
 import { useRouter } from "next/navigation";
 import {
@@ -73,6 +73,9 @@ interface Question {
   constraints?: string | string[];
   supportedLanguages?: string[];
   hideMainMethod?: boolean;
+  sectionId?: string;
+  sectionTitle?: string;
+  sectionOrder?: number;
   timeLimit?: number;
   memoryLimit?: number;
   testCases?: TestCase[];
@@ -1171,19 +1174,44 @@ export default function TakeAssessmentPage({
           </div>
           <nav aria-label="Assessment questions" className="assessment-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1">
             {questions.map((q, index) => {
+              const prevQ = questions[index - 1];
+              const showSectionHeader = Boolean(
+                q.sectionTitle && (!prevQ || prevQ.sectionTitle !== q.sectionTitle)
+              );
               const response = responses[q._id];
               const answered = response?.status === "answered" && (((response.selectedAnswers && response.selectedAnswers.length > 0) || response.selectedAnswer >= 0) || Boolean(response.code?.trim()));
               const review = response?.status === "marked_for_review";
               const current = index === currentIndex;
               const coding = ["coding", "algorithmic", "dsa"].includes(q.questionType?.toLowerCase()) || (!q.options?.length && Boolean(q.starterCode || q.codeSnippet));
-              return <button key={q._id} type="button" aria-current={current ? "step" : undefined}
-                aria-label={`Question ${index + 1}${current ? ", current" : ""}${answered ? ", answered" : ""}${review ? ", marked for review" : ""}`}
-                onClick={() => {setCurrentIndex(index); setMobileSidebarOpen(false);}}
-                className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-colors ${current ? "border-primary bg-primary/10 ring-1 ring-inset ring-primary/30" : "border-transparent hover:bg-muted/60"}`}>
-                <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${answered ? "border-emerald-500 bg-emerald-500 text-slate-950" : review ? "border-amber-500/50 bg-amber-500/15 text-amber-500" : "border-border bg-muted text-muted-foreground"}`}>{answered ? <Check className="size-4" /> : index + 1}</span>
-                <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-foreground" title={q.question}>{index + 1}. {q.question}</span><span className="mt-1 block text-[10px] text-muted-foreground">{coding ? "Coding" : "MCQ"} · {review ? "Review" : answered ? "Answered" : response?.code?.trim() ? "Draft" : "Not answered"}</span></span>
-                {review && <Bookmark className="size-3 shrink-0 text-amber-500" />}
-              </button>;
+              const sectionQuestionsCount = q.sectionTitle
+                ? questions.filter((item) => item.sectionTitle === q.sectionTitle).length
+                : 0;
+
+              return (
+                <Fragment key={q._id}>
+                  {showSectionHeader && (
+                    <div className="pt-3 pb-1 px-2.5 first:pt-1">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                        <span className="truncate">{q.sectionTitle}</span>
+                        {sectionQuestionsCount > 0 && (
+                          <span className="text-[10px] font-normal text-muted-foreground/70 shrink-0 ml-2">
+                            {sectionQuestionsCount} Qs
+                          </span>
+                        )}
+                      </div>
+                      <div className="h-px bg-border/60 mt-1 mb-1.5" />
+                    </div>
+                  )}
+                  <button type="button" aria-current={current ? "step" : undefined}
+                    aria-label={`Question ${index + 1}${current ? ", current" : ""}${answered ? ", answered" : ""}${review ? ", marked for review" : ""}`}
+                    onClick={() => {setCurrentIndex(index); setMobileSidebarOpen(false);}}
+                    className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-colors ${current ? "border-primary bg-primary/10 ring-1 ring-inset ring-primary/30" : "border-transparent hover:bg-muted/60"}`}>
+                    <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${answered ? "border-emerald-500 bg-emerald-500 text-slate-950" : review ? "border-amber-500/50 bg-amber-500/15 text-amber-500" : "border-border bg-muted text-muted-foreground"}`}>{answered ? <Check className="size-4" /> : index + 1}</span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-foreground" title={q.question}>{index + 1}. {q.question}</span><span className="mt-1 block text-[10px] text-muted-foreground">{coding ? "Coding" : "MCQ"} · {review ? "Review" : answered ? "Answered" : response?.code?.trim() ? "Draft" : "Not answered"}</span></span>
+                    {review && <Bookmark className="size-3 shrink-0 text-amber-500" />}
+                  </button>
+                </Fragment>
+              );
             })}
           </nav>
         </aside>
@@ -1204,6 +1232,11 @@ export default function TakeAssessmentPage({
                   {/* Question Metadata Ribbon */}
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-4">
                     <div className="flex items-center gap-2">
+                      {currentQ.sectionTitle && (
+                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-secondary text-secondary-foreground border border-border">
+                          {currentQ.sectionTitle}
+                        </span>
+                      )}
                       <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold uppercase bg-primary/10 text-primary border border-primary/20">
                         {currentQ.questionType === "multiple_choice" ? "Multiple Choice" : "Single Choice"}
                       </span>

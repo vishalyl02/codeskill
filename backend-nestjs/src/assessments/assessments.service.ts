@@ -315,6 +315,164 @@ export class AssessmentsService {
     return finalSelected.map((question) => question.id);
   }
 
+  private isCodingQuestion(q: Question): boolean {
+    const qType = (q.questionType || '').toLowerCase();
+    if (['coding', 'algorithmic', 'dsa'].includes(qType)) return true;
+    if ((!q.options || q.options.length === 0) && Boolean(q.starterCode || q.codeSnippet)) return true;
+    return false;
+  }
+
+  private buildSectionOrderedQuestionIds(
+    assessment: Assessment,
+    questionsList: Question[],
+  ): {
+    orderedIds: string[];
+    questionSectionMap: Map<string, { sectionId: string; sectionTitle: string; sectionOrder: number }>;
+    resolvedSections: Array<{ id: string; title: string; order: number; questionCount: number }>;
+  } {
+    const qMap = new Map(questionsList.map((q) => [String(q.id), q]));
+    const shouldShuffle = assessment.shuffleQuestions !== false;
+    const questionSectionMap = new Map<string, { sectionId: string; sectionTitle: string; sectionOrder: number }>();
+    const resolvedSections: Array<{ id: string; title: string; order: number; questionCount: number }> = [];
+    const orderedIds: string[] = [];
+
+    const rawSections = Array.isArray(assessment.sections) ? assessment.sections : [];
+    const validSections = rawSections
+      .filter((s) => s && Array.isArray(s.questions) && s.questions.length > 0)
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+
+    if (validSections.length > 0) {
+      // 1. Explicit sections defined on the assessment:
+      // Questions remain segregated within their owning section. Shuffling stays strictly within each section.
+      validSections.forEach((sec, idx) => {
+        const secTitle = sec.title?.trim() || `Section ${String.fromCharCode(65 + idx)}`;
+        const secId = String(sec.order !== undefined ? sec.order : idx);
+        const secOrder = Number(sec.order !== undefined ? sec.order : idx);
+        const secQuestionIds = (sec.questions || [])
+          .map((q: any) => String(q.questionId))
+          .filter((qId: string) => qMap.has(qId));
+
+        if (secQuestionIds.length > 0) {
+          const sectionOrderedIds = shouldShuffle
+            ? this.shuffleList(secQuestionIds)
+            : secQuestionIds;
+
+          sectionOrderedIds.forEach((qId) => {
+            questionSectionMap.set(qId, {
+              sectionId: secId,
+              sectionTitle: secTitle,
+              sectionOrder: secOrder,
+            });
+            orderedIds.push(qId);
+          });
+
+          resolvedSections.push({
+            id: secId,
+            title: secTitle,
+            order: secOrder,
+            questionCount: sectionOrderedIds.length,
+          });
+        }
+      });
+
+      // Handle any assessment questions not explicitly mapped to a section
+      const unassigned = questionsList.filter((q) => !questionSectionMap.has(String(q.id)));
+      if (unassigned.length > 0) {
+        const unassignedIds = shouldShuffle
+          ? this.shuffleList(unassigned.map((q) => String(q.id)))
+          : unassigned.map((q) => String(q.id));
+        const extraSectionTitle = 'General';
+        const extraSectionOrder = resolvedSections.length;
+        unassignedIds.forEach((qId) => {
+          questionSectionMap.set(qId, {
+            sectionId: `sec-${extraSectionOrder}`,
+            sectionTitle: extraSectionTitle,
+            sectionOrder: extraSectionOrder,
+          });
+          orderedIds.push(qId);
+        });
+        resolvedSections.push({
+          id: `sec-${extraSectionOrder}`,
+          title: extraSectionTitle,
+          order: extraSectionOrder,
+          questionCount: unassignedIds.length,
+        });
+      }
+    } else {
+      // 2. No explicit multi-section structure.
+      // If assessment contains both MCQ and coding questions, keep sections segregated so shuffling does not mix them.
+      const mcqs = questionsList.filter((q) => !this.isCodingQuestion(q));
+      const codings = questionsList.filter((q) => this.isCodingQuestion(q));
+
+      if (mcqs.length > 0 && codings.length > 0) {
+        const mcqOrderedIds = shouldShuffle
+          ? this.shuffleList(mcqs.map((q) => String(q.id)))
+          : mcqs.map((q) => String(q.id));
+
+        mcqOrderedIds.forEach((qId) => {
+          questionSectionMap.set(qId, {
+            sectionId: 'sec-mcq',
+            sectionTitle: 'Multiple Choice Questions',
+            sectionOrder: 0,
+          });
+          orderedIds.push(qId);
+        });
+        resolvedSections.push({
+          id: 'sec-mcq',
+          title: 'Multiple Choice Questions',
+          order: 0,
+          questionCount: mcqOrderedIds.length,
+        });
+
+        const codingOrderedIds = shouldShuffle
+          ? this.shuffleList(codings.map((q) => String(q.id)))
+          : codings.map((q) => String(q.id));
+
+        codingOrderedIds.forEach((qId) => {
+          questionSectionMap.set(qId, {
+            sectionId: 'sec-coding',
+            sectionTitle: 'Coding Challenges',
+            sectionOrder: 1,
+          });
+          orderedIds.push(qId);
+        });
+        resolvedSections.push({
+          id: 'sec-coding',
+          title: 'Coding Challenges',
+          order: 1,
+          questionCount: codingOrderedIds.length,
+        });
+      } else {
+        // Purely single-type assessment without explicit sections:
+        // Use difficulty-balanced selection or section-local shuffle.
+        const allIds = shouldShuffle
+          ? this.buildDifficultyBalancedQuestionIds(
+              questionsList,
+              Math.min(questionsList.length, assessment.questions?.length || questionsList.length),
+            )
+          : questionsList.map((q) => String(q.id));
+
+        const singleSectionTitle = codings.length > 0 ? 'Coding Challenges' : 'Questions';
+        allIds.forEach((qId) => {
+          questionSectionMap.set(qId, {
+            sectionId: 'sec-1',
+            sectionTitle: singleSectionTitle,
+            sectionOrder: 0,
+          });
+          orderedIds.push(qId);
+        });
+        resolvedSections.push({
+          id: 'sec-1',
+          title: singleSectionTitle,
+          order: 0,
+          questionCount: allIds.length,
+        });
+      }
+    }
+
+    return { orderedIds, questionSectionMap, resolvedSections };
+  }
+
   private async selectQuestionsForCreation(
     selection: {
       topic: string;
@@ -1454,9 +1612,9 @@ export class AssessmentsService {
         previousSubmitted.length > 0 ? previousSubmitted[0].score || 0 : 0;
       const attemptNum = previousSubmitted.length + 1;
 
-      const orderedIds = this.buildDifficultyBalancedQuestionIds(
+      const { orderedIds } = this.buildSectionOrderedQuestionIds(
+        assessment,
         questionsList,
-        Math.min(questionsList.length, assessment.questions?.length || questionsList.length),
       );
 
       attempt = this.attemptRepo.create({
@@ -1515,10 +1673,16 @@ export class AssessmentsService {
       );
     }
 
+    const { questionSectionMap, resolvedSections } = this.buildSectionOrderedQuestionIds(
+      assessment,
+      questionsList,
+    );
+
     const sanitizedQuestions = (attempt.questionOrder || [])
       .map((qId, index) => {
         const q = qMap.get(String(qId));
         if (!q) return null;
+        const sectionMeta = questionSectionMap.get(String(q.id));
         const options = Array.isArray(q.options)
           ? q.options.map((opt: any) =>
             typeof opt === 'string' ? opt : opt?.text || String(opt || ''),
@@ -1555,6 +1719,9 @@ export class AssessmentsService {
           question: q.question,
           description: q.problemStatement || q.description || '',
           questionType: q.questionType,
+          sectionId: sectionMeta?.sectionId,
+          sectionTitle: sectionMeta?.sectionTitle,
+          sectionOrder: sectionMeta?.sectionOrder,
           topic: q.topic,
           subtopic: q.subtopic,
           difficulty: q.difficulty,
@@ -1600,6 +1767,7 @@ export class AssessmentsService {
       durationMinutes: assessment.durationMinutes,
       ...this.resumeDetails(assessment, attempt),
       proctoring: assessment.proctoring,
+      sections: resolvedSections,
       questions: sanitizedQuestions,
       savedResponses: attempt.responses,
     };

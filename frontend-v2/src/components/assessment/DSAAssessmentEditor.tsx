@@ -176,6 +176,7 @@ interface DSAAssessmentEditorProps {
     language?: string;
     supportedLanguages?: string[];
     hideMainMethod?: boolean;
+    sectionTitle?: string;
     constraints?: string | string[];
     timeLimit?: number;
     memoryLimit?: number;
@@ -603,6 +604,11 @@ export default function DSAAssessmentEditor({
             </h2>
             {question.question.includes("\n") && <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-foreground/85">{question.question.split("\n").slice(1).join("\n").trim()}</p>}
             <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+              {question.sectionTitle && (
+                <span className="rounded-md bg-secondary text-secondary-foreground px-2 py-0.5 text-[11px] font-semibold border border-border">
+                  {question.sectionTitle}
+                </span>
+              )}
               <span>{question.topic}</span>
               {question.subtopic && <span>• {question.subtopic}</span>}
             </div>
