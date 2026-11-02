@@ -1220,9 +1220,34 @@ export default function TakeAssessmentPage({
           return <AssessmentReadingZoom>{readingScale => <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden p-3 gap-3">
             {isCodingQuestion ? <>
               <DSAAssessmentEditor assessmentId={id} readingScale={readingScale} key={currentQ._id} question={currentQ} savedResponse={responses[currentQ._id]} onDraftChange={handleCodingDraft} onSave={handleSaveCodingQuestion} blockCopyPaste={proctoring?.blockCopyPaste !== false} />
-              <div className="shrink-0 flex items-center justify-between rounded-xl border border-border bg-card px-4 py-2">
-                <button onClick={handleMarkForReview} className="inline-flex items-center gap-2 text-xs font-semibold text-amber-500"><Bookmark className="size-4" />{currentResponse?.status === "marked_for_review" ? "Unreview" : "Review later"}</button>
-                <div className="flex gap-3"><button onClick={() => setCurrentIndex(i => Math.max(0, i - 1))} disabled={currentIndex === 0} className="text-xs font-medium disabled:opacity-30">Previous</button><button onClick={handleSaveAndNext} className="rounded-lg border border-border bg-muted px-4 py-2 text-xs font-semibold">{isLastQuestion ? "Review & finish" : "Next question"}</button></div>
+              <div className="shrink-0 z-20 flex flex-wrap items-center justify-between gap-3 bg-card/95 backdrop-blur-xl border border-border p-3 sm:p-4 rounded-2xl shadow-lg">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleMarkForReview}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-600 dark:text-amber-400 transition-colors"
+                    title={currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review"}
+                  >
+                    <Bookmark className="w-3.5 h-3.5" /> {currentResponse?.status === "marked_for_review" ? "Unreview" : "Review later"}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
+                    disabled={currentIndex === 0}
+                    className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-4 h-4" /> Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveAndNext}
+                    className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20"
+                  >
+                    {isLastQuestion ? "Review & finish" : "Next question"} <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </> : <>
               <ResizableAssessmentPanels key={currentQ._id} className="rounded-2xl border border-border bg-card">
@@ -1246,11 +1271,11 @@ export default function TakeAssessmentPage({
                     </div>
 
                     <div className="flex items-center gap-3 text-xs">
-                      <div className="flex items-center gap-1 text-emerald-400 font-mono font-bold">
+                      <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-mono font-bold">
                         <span>+{currentQ.marks || 1} mark</span>
                       </div>
                       {currentQ.negativeMarks > 0 && (
-                        <div className="flex items-center gap-1 text-rose-400 font-mono font-bold">
+                        <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-mono font-bold">
                           <span>-{currentQ.negativeMarks} negative</span>
                         </div>
                       )}
@@ -1278,7 +1303,7 @@ export default function TakeAssessmentPage({
                       {isMultiChoice ? "Choose all that apply" : "Choose your answer"}
                     </h2>
                     {isMultiChoice && (
-                      <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                      <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
                         Multiple Choice
                       </span>
                     )}
@@ -1326,7 +1351,7 @@ export default function TakeAssessmentPage({
 
                           {/* Checkmark when chosen */}
                           {isSelected && (
-                            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 self-center" />
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 self-center" />
                           )}
                         </button>
                       );
@@ -1356,7 +1381,7 @@ export default function TakeAssessmentPage({
                     <button
                       type="button"
                       onClick={handleMarkForReview}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-400 transition-colors"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-600 dark:text-amber-400 transition-colors"
                       title={currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review"}
                     >
                       <Bookmark className="w-3.5 h-3.5" /> {currentResponse?.status === "marked_for_review" ? "Unreview" : "Review"}
@@ -1535,11 +1560,11 @@ export default function TakeAssessmentPage({
             <div className="p-4 bg-muted/40 border border-border rounded-2xl grid grid-cols-3 gap-2 text-center text-xs font-mono">
               <div className="space-y-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Answered</span>
-                <div className="text-xl font-bold text-emerald-400">{answeredCount}</div>
+                <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{answeredCount}</div>
               </div>
               <div className="space-y-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Review</span>
-                <div className="text-xl font-bold text-amber-400">{reviewCount}</div>
+                <div className="text-xl font-bold text-amber-600 dark:text-amber-400">{reviewCount}</div>
               </div>
               <div className="space-y-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Unattempted</span>
@@ -1548,7 +1573,7 @@ export default function TakeAssessmentPage({
             </div>
 
             {violations.length > 0 && (
-              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] text-amber-400 flex items-center gap-2">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 shrink-0" />
                 <span>Notice: {violations.length} proctoring event(s) logged and submitted with attempt.</span>
               </div>

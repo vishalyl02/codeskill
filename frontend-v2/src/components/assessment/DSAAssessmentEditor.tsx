@@ -571,16 +571,16 @@ export default function DSAAssessmentEditor({
         {/* Problem Header Ribbon */}
         <div className="p-4 sm:p-5 border-b border-border bg-muted/20 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1.5">
+            <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold uppercase bg-primary/10 text-primary border border-primary/20 flex items-center gap-1.5">
               <Code2 className="w-3.5 h-3.5" /> Algorithmic Coding
             </span>
             <span
               className={`px-2 py-0.5 rounded-md text-[11px] font-bold uppercase border ${
                 question.difficulty === "hard"
-                  ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                  ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
                   : question.difficulty === "medium"
-                  ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                  : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                  : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
               }`}
             >
               {question.difficulty || "medium"}
@@ -588,7 +588,7 @@ export default function DSAAssessmentEditor({
           </div>
 
           <div className="flex items-center gap-3 text-xs font-mono">
-            <span className="text-emerald-400 font-bold">+{question.marks || 5} marks</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold">+{question.marks || 5} marks</span>
             <span className="text-muted-foreground flex items-center gap-1">
               <Clock className="w-3 h-3 text-primary" /> {question.timeLimit ? `${question.timeLimit / 1000}s` : "2.0s"}
             </span>
@@ -647,7 +647,7 @@ export default function DSAAssessmentEditor({
               sampleCases.map((tc, idx) => (
                 <div
                   key={idx}
-                  className="rounded-xl border border-border/80 bg-zinc-950/60 p-4 space-y-2.5 font-mono text-xs"
+                  className="rounded-xl border border-border bg-muted/30 p-4 space-y-2.5 font-mono text-xs"
                 >
                   <div className="font-sans font-bold text-foreground text-xs flex items-center justify-between">
                     <span>Example {idx + 1}</span>
@@ -665,20 +665,20 @@ export default function DSAAssessmentEditor({
 
                   <div>
                     <span className="text-muted-foreground font-semibold">Input:</span>
-                    <pre className="mt-1 p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 overflow-x-auto whitespace-pre-wrap">
+                    <pre className="mt-1 p-2.5 rounded-lg bg-background border border-border text-foreground font-mono overflow-x-auto whitespace-pre-wrap">
                       {tc.input}
                     </pre>
                   </div>
 
                   <div>
                     <span className="text-muted-foreground font-semibold">Expected Output:</span>
-                    <pre className="mt-1 p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-emerald-400 font-bold overflow-x-auto whitespace-pre-wrap">
+                    <pre className="mt-1 p-2.5 rounded-lg bg-background border border-border text-emerald-600 dark:text-emerald-400 font-bold font-mono overflow-x-auto whitespace-pre-wrap">
                       {tc.expected || tc.output}
                     </pre>
                   </div>
 
                   {tc.explanation && (
-                    <div className="text-[11px] text-muted-foreground font-sans pt-1 border-t border-zinc-800/80">
+                    <div className="text-[11px] text-muted-foreground font-sans pt-1 border-t border-border">
                       <strong className="text-foreground">Explanation:</strong> {tc.explanation}
                     </div>
                   )}
@@ -696,24 +696,24 @@ export default function DSAAssessmentEditor({
       {/* ─────────────────────────────────────────────────────────── */}
       {/* RIGHT PANE: Code Editor & Interactive Test Runner Console   */}
       {/* ─────────────────────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-zinc-950 border border-border rounded-2xl overflow-hidden shadow-sm">
+      <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
         {/* Editor Toolbar */}
-        <div className="flex items-center justify-between shrink-0 flex-wrap gap-2 px-4 py-2.5 bg-zinc-900 border-b border-zinc-800">
+        <div className="flex items-center justify-between shrink-0 flex-wrap gap-2 px-4 py-2.5 bg-muted/40 border-b border-border">
           <div className="flex items-center gap-3">
             {/* Language Selector Dropdown */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setShowLangDropdown((p) => !p)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700 rounded-lg text-xs font-semibold text-zinc-200 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 bg-background hover:bg-muted border border-border rounded-lg text-xs font-semibold text-foreground transition-colors"
               >
-                <Code2 className="w-3.5 h-3.5 text-amber-400" />
+                <Code2 className="w-3.5 h-3.5 text-primary" />
                 <span>{LANGUAGES.find((l) => l.value === language)?.label || language}</span>
-                <ChevronDown className="w-3 h-3 text-zinc-400" />
+                <ChevronDown className="w-3 h-3 text-muted-foreground" />
               </button>
 
               {showLangDropdown && (
-                <div className="absolute left-0 top-full mt-1 w-44 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 py-1 overflow-hidden">
+                <div className="absolute left-0 top-full mt-1 w-44 bg-popover border border-border rounded-xl shadow-xl z-50 py-1 overflow-hidden">
                   {LANGUAGES.filter((option) => isLanguageAllowed(option.value)).map((l) => (
                     <button
                       key={l.value}
@@ -722,19 +722,19 @@ export default function DSAAssessmentEditor({
                       onClick={() => handleLanguageChange(l.value)}
                       className={`w-full text-left px-3.5 py-2 text-xs font-medium flex items-center justify-between transition-colors ${
                         language === l.value
-                          ? "text-amber-400 bg-amber-500/10 font-bold"
-                          : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                          ? "text-primary bg-primary/10 font-bold"
+                          : "text-foreground hover:bg-muted"
                       }`}
                     >
                       <span>{l.label}</span>
-                      {language === l.value && <Check className="w-3.5 h-3.5" />}
+                      {language === l.value && <Check className="w-3.5 h-3.5 text-primary" />}
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            <span className="text-[11px] text-zinc-500 hidden sm:inline font-mono">
+            <span className="text-[11px] text-muted-foreground hidden sm:inline font-mono">
               {lineCount} lines • {editorCode.length} chars
             </span>
           </div>
@@ -745,10 +745,10 @@ export default function DSAAssessmentEditor({
               type="button"
               disabled={isRunning || isSubmitting}
               onClick={() => handleResetCode(false)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 text-[11px] font-semibold transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background hover:bg-muted text-foreground border border-border text-[11px] font-semibold transition-colors"
               title="Reset and restore starter code for this question"
             >
-              <RotateCcw className="w-3 h-3 text-amber-400" />
+              <RotateCcw className="w-3 h-3 text-muted-foreground" />
               <span>Reset Boilerplate</span>
             </button>
 
@@ -756,10 +756,10 @@ export default function DSAAssessmentEditor({
               <button
                 type="button"
                 onClick={handleCopyCode}
-                className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors"
+                className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                 title="Copy code"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
             )}
           </div>
@@ -781,20 +781,20 @@ export default function DSAAssessmentEditor({
               padding: { top: 12, bottom: 12 }, tabSize: 4,
               readOnly: isRunning || isSubmitting, ariaLabel: "Assessment code editor",
             }}
-            loading={<div className="p-4 h-full text-sm text-zinc-400">Loading code editor…</div>}
+            loading={<div className="p-4 h-full text-sm text-muted-foreground">Loading code editor…</div>}
           />
         </div>
 
         {/* Save Notice Banner */}
         {saveSuccessNotice && (
-          <div className="px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center justify-between animate-in fade-in">
+          <div className="px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center justify-between animate-in fade-in">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{saveSuccessNotice}</span>
             </div>
             <button
               onClick={() => setSaveSuccessNotice(null)}
-              className="text-emerald-400/80 hover:text-emerald-300"
+              className="text-emerald-600/80 dark:text-emerald-400/80 hover:text-emerald-700 dark:hover:text-emerald-300"
             >
               ✕
             </button>
@@ -804,23 +804,23 @@ export default function DSAAssessmentEditor({
         {/* ─────────────────────────────────────────────────────────── */}
         {/* BOTTOM PANEL: Test Cases, Custom Input, Output Console      */}
         {/* ─────────────────────────────────────────────────────────── */}
-        <div className="shrink-0 max-h-[45%] min-h-0 border-t border-zinc-800 bg-zinc-900/90 flex flex-col">
+        <div className="shrink-0 max-h-[45%] min-h-0 border-t border-border bg-card flex flex-col">
           {/* Console Tabs */}
-          <div className="flex items-center justify-between px-4 pt-2 border-b border-zinc-800">
+          <div className="flex items-center justify-between px-4 pt-2 border-b border-border bg-muted/20">
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => setBottomTab("testcases")}
                 className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors flex items-center gap-1.5 ${
                   bottomTab === "testcases"
-                    ? "bg-zinc-800 text-zinc-100 border-t-2 border-primary"
-                    : "text-zinc-400 hover:text-zinc-200"
+                    ? "bg-card text-foreground border-t-2 border-primary shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
                 <span>Test Cases</span>
                 {sampleCases.length > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-700 text-zinc-300">
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-muted text-muted-foreground border border-border">
                     {sampleCases.length}
                   </span>
                 )}
@@ -831,8 +831,8 @@ export default function DSAAssessmentEditor({
                 onClick={() => setBottomTab("custom_input")}
                 className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors flex items-center gap-1.5 ${
                   bottomTab === "custom_input"
-                    ? "bg-zinc-800 text-zinc-100 border-t-2 border-primary"
-                    : "text-zinc-400 hover:text-zinc-200"
+                    ? "bg-card text-foreground border-t-2 border-primary shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <Terminal className="w-3.5 h-3.5" />
@@ -844,8 +844,8 @@ export default function DSAAssessmentEditor({
                 onClick={() => setBottomTab("output")}
                 className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors flex items-center gap-1.5 ${
                   bottomTab === "output"
-                    ? "bg-zinc-800 text-zinc-100 border-t-2 border-primary"
-                    : "text-zinc-400 hover:text-zinc-200"
+                    ? "bg-card text-foreground border-t-2 border-primary shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <Cpu className="w-3.5 h-3.5" />
@@ -853,7 +853,9 @@ export default function DSAAssessmentEditor({
                 {resultsList.length > 0 && (
                   <span
                     className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                      allPassed ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+                      allPassed
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                        : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
                     }`}
                   >
                     {runResult.passedCount ?? resultsList.filter((r: any) => r.passed).length}/{runResult.totalCount ?? resultsList.length}
@@ -864,7 +866,7 @@ export default function DSAAssessmentEditor({
 
             {/* Micro execution status */}
             {isRunning && (
-              <span className="text-[11px] text-amber-400 flex items-center gap-1.5 font-mono animate-pulse">
+              <span className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1.5 font-mono animate-pulse">
                 <Spinner className="w-3 h-3 animate-spin" /> Compiling & Running...
               </span>
             )}
@@ -888,8 +890,8 @@ export default function DSAAssessmentEditor({
                           }}
                           className={`px-3 py-1 rounded-lg text-xs font-mono font-bold transition-all ${
                             selectedTestCaseIndex === idx
-                              ? "bg-primary text-primary-foreground shadow-sm"
-                              : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+                              ? "bg-primary text-primary-foreground shadow-xs"
+                              : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground border border-border"
                           }`}
                         >
                           Case {idx + 1}
@@ -900,14 +902,14 @@ export default function DSAAssessmentEditor({
                     {sampleCases[selectedTestCaseIndex] && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                         <div>
-                          <div className="text-[11px] font-bold uppercase text-zinc-400 mb-1">Input</div>
-                          <pre className="p-2.5 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-xs text-zinc-200 whitespace-pre-wrap overflow-x-auto">
+                          <div className="text-[11px] font-bold uppercase text-muted-foreground mb-1">Input</div>
+                          <pre className="p-2.5 rounded-lg bg-background border border-border font-mono text-xs text-foreground whitespace-pre-wrap overflow-x-auto">
                             {sampleCases[selectedTestCaseIndex].input}
                           </pre>
                         </div>
                         <div>
-                          <div className="text-[11px] font-bold uppercase text-zinc-400 mb-1">Expected Output</div>
-                          <pre className="p-2.5 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-xs text-emerald-400 font-bold whitespace-pre-wrap overflow-x-auto">
+                          <div className="text-[11px] font-bold uppercase text-muted-foreground mb-1">Expected Output</div>
+                          <pre className="p-2.5 rounded-lg bg-background border border-border font-mono text-xs text-emerald-600 dark:text-emerald-400 font-bold whitespace-pre-wrap overflow-x-auto">
                             {sampleCases[selectedTestCaseIndex].expected || sampleCases[selectedTestCaseIndex].output}
                           </pre>
                         </div>
@@ -915,7 +917,7 @@ export default function DSAAssessmentEditor({
                     )}
                   </>
                 ) : (
-                  <p className="text-xs text-zinc-500">No predefined test cases for this question. Use Custom Input to test.</p>
+                  <p className="text-xs text-muted-foreground">No predefined test cases for this question. Use Custom Input to test.</p>
                 )}
               </div>
             )}
@@ -923,13 +925,13 @@ export default function DSAAssessmentEditor({
             {/* TAB 2: Custom Input */}
             {bottomTab === "custom_input" && (
               <div className="space-y-2">
-                <div className="text-[11px] font-bold uppercase text-zinc-400">Standard Input (stdin)</div>
+                <div className="text-[11px] font-bold uppercase text-muted-foreground">Standard Input (stdin)</div>
                 <textarea
                   value={customInput}
                   onChange={(e) => setCustomInput(e.target.value)}
                   rows={4}
                   placeholder="Enter custom input lines here..."
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-xs font-mono text-zinc-200 focus:outline-none focus:border-primary resize-none"
+                  className="w-full bg-background border border-border rounded-lg p-3 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary resize-none"
                 />
               </div>
             )}
@@ -951,11 +953,11 @@ export default function DSAAssessmentEditor({
           </div>
 
           {/* Action Button Bar */}
-          <div className="shrink-0 px-4 py-3 bg-zinc-950 border-t border-zinc-800 flex flex-wrap items-center justify-between gap-3">
+          <div className="shrink-0 px-4 py-3 bg-card border-t border-border flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-zinc-500 hidden sm:inline">
+              <span className="text-[11px] text-muted-foreground hidden sm:inline">
                 {savedResponse?.status === "answered" ? (
-                  <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
                     <Check className="w-3.5 h-3.5" /> Solution Saved
                   </span>
                 ) : (
@@ -970,12 +972,12 @@ export default function DSAAssessmentEditor({
                 type="button"
                 onClick={handleRunTest}
                 disabled={isRunning || isSubmitting}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-xs font-bold border border-zinc-700 transition-all disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-background hover:bg-muted text-foreground text-xs font-bold border border-border shadow-xs transition-all disabled:opacity-50"
               >
                 {isRunning ? (
                   <Spinner className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <Play className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                  <Play className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 fill-amber-600 dark:fill-amber-400" />
                 )}
                 <span>Run Code</span>
               </button>
