@@ -671,4 +671,80 @@ describe('Assessment Integrity & Server-Side Scoring (AUD-002, NEW-001, NEW-002,
       { language: 'javascript', code: '// JS Map Starter' },
     ]);
   });
+
+  it('keeps questions segregated by section so shuffling stays strictly within each section', async () => {
+    mockAssessmentRepo.findOne.mockResolvedValue({
+      ...mockAssessment,
+      shuffleQuestions: true,
+      questions: ['q-m1', 'q-m2', 'q-c1', 'q-c2'],
+      sections: [
+        {
+          title: 'Section A - MCQs',
+          order: 0,
+          questions: [{ questionId: 'q-m1' }, { questionId: 'q-m2' }],
+        },
+        {
+          title: 'Section B - Coding',
+          order: 1,
+          questions: [{ questionId: 'q-c1' }, { questionId: 'q-c2' }],
+        },
+      ],
+    });
+    mockAttemptRepo.findOne.mockResolvedValue(null);
+    mockAttemptRepo.find.mockResolvedValue([]);
+    mockQuestionRepo.find.mockResolvedValue([
+      { id: 'q-m1', questionType: 'MCQ', options: ['A', 'B'], question: 'MCQ 1' },
+      { id: 'q-m2', questionType: 'MCQ', options: ['C', 'D'], question: 'MCQ 2' },
+      { id: 'q-c1', questionType: 'coding', options: [], question: 'Code 1', starterCode: 'print(1)' },
+      { id: 'q-c2', questionType: 'coding', options: [], question: 'Code 2', starterCode: 'print(2)' },
+    ]);
+
+    const result = await service.startStudentAttempt(assessmentId, studentUser);
+    expect(result.success).toBe(true);
+    expect(result.questions).toHaveLength(4);
+
+    const qIds = result.questions.map((q: any) => q.id);
+    // Section A questions must be first 2 questions
+    expect(qIds.slice(0, 2).sort()).toEqual(['q-m1', 'q-m2']);
+    // Section B questions must be last 2 questions
+    expect(qIds.slice(2, 4).sort()).toEqual(['q-c1', 'q-c2']);
+
+    // Check section labels
+    expect(result.questions[0].sectionTitle).toBe('Section A - MCQs');
+    expect(result.questions[1].sectionTitle).toBe('Section A - MCQs');
+    expect(result.questions[2].sectionTitle).toBe('Section B - Coding');
+    expect(result.questions[3].sectionTitle).toBe('Section B - Coding');
+  });
+
+  it('automatically segregates MCQs and Coding questions into separate sections when explicit sections are omitted', async () => {
+    mockAssessmentRepo.findOne.mockResolvedValue({
+      ...mockAssessment,
+      shuffleQuestions: true,
+      questions: ['q-mcq-1', 'q-code-1', 'q-mcq-2', 'q-code-2'],
+      sections: [],
+    });
+    mockAttemptRepo.findOne.mockResolvedValue(null);
+    mockAttemptRepo.find.mockResolvedValue([]);
+    mockQuestionRepo.find.mockResolvedValue([
+      { id: 'q-mcq-1', questionType: 'MCQ', options: ['A', 'B'], question: 'MCQ 1' },
+      { id: 'q-mcq-2', questionType: 'MCQ', options: ['C', 'D'], question: 'MCQ 2' },
+      { id: 'q-code-1', questionType: 'coding', options: [], question: 'Code 1', starterCode: 'def solve(): pass' },
+      { id: 'q-code-2', questionType: 'coding', options: [], question: 'Code 2', starterCode: 'def test(): pass' },
+    ]);
+
+    const result = await service.startStudentAttempt(assessmentId, studentUser);
+    expect(result.success).toBe(true);
+    expect(result.questions).toHaveLength(4);
+
+    const qIds = result.questions.map((q: any) => q.id);
+    // MCQ questions must be the first 2
+    expect(qIds.slice(0, 2).sort()).toEqual(['q-mcq-1', 'q-mcq-2']);
+    // Coding questions must be the last 2
+    expect(qIds.slice(2, 4).sort()).toEqual(['q-code-1', 'q-code-2']);
+
+    expect(result.questions[0].sectionTitle).toBe('Multiple Choice Questions');
+    expect(result.questions[1].sectionTitle).toBe('Multiple Choice Questions');
+    expect(result.questions[2].sectionTitle).toBe('Coding Challenges');
+    expect(result.questions[3].sectionTitle).toBe('Coding Challenges');
+  });
 });
