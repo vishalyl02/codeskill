@@ -11,6 +11,7 @@ import { applyBugReportsMigration } from './migrations/bug-reports';
 import { applyContestSecurityReattemptMigration } from './migrations/contest-security-reattempt';
 import { applyAnalyticsOptimizationIndexesMigration } from './migrations/analytics-optimization-indexes';
 import { applyLearningModuleMigration } from './migrations/learning-module';
+import { applyQuestionHideMainMethodMigration } from './migrations/question-hide-main-method';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -119,6 +120,11 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
           ALTER TABLE "lesson_progress" ADD COLUMN IF NOT EXISTS "timeSpentSeconds" integer NOT NULL DEFAULT 0;
         `);
       });
+
+      // 14. Question hide main method column
+      await this.executeStep('question-hide-main-method', () =>
+        applyQuestionHideMainMethodMigration(queryRunner),
+      );
     } finally {
       await queryRunner.release();
     }
