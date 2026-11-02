@@ -37,6 +37,59 @@ function codingTestCases(question: Question): Array<{ id: string | number; input
   }));
 }
 
+function normalizeStarterCode(
+  starterCode: any,
+  metadata?: any,
+  codeSnippet?: string,
+  code?: string,
+  language?: string,
+): Array<{ language: string; code: string }> {
+  if (Array.isArray(starterCode) && starterCode.length > 0) {
+    return starterCode.map((item: any) => ({
+      language: String(item.language || item.lang || 'python'),
+      code: String(item.code ?? item.sourceCode ?? item.starterCode ?? ''),
+    }));
+  }
+
+  if (starterCode && typeof starterCode === 'object' && !Array.isArray(starterCode)) {
+    const entries = Object.entries(starterCode).filter(([_, c]) => typeof c === 'string' && c.trim().length > 0);
+    if (entries.length > 0) {
+      return entries.map(([lang, c]) => ({
+        language: lang,
+        code: String(c),
+      }));
+    }
+  }
+
+  const metaStarter = metadata?.starterCode;
+  if (Array.isArray(metaStarter) && metaStarter.length > 0) {
+    return metaStarter.map((item: any) => ({
+      language: String(item.language || item.lang || 'python'),
+      code: String(item.code ?? item.sourceCode ?? item.starterCode ?? ''),
+    }));
+  }
+  if (metaStarter && typeof metaStarter === 'object') {
+    const entries = Object.entries(metaStarter).filter(([_, c]) => typeof c === 'string' && c.trim().length > 0);
+    if (entries.length > 0) {
+      return entries.map(([lang, c]) => ({
+        language: lang,
+        code: String(c),
+      }));
+    }
+  }
+
+  if (typeof starterCode === 'string' && starterCode.trim().length > 0) {
+    return [{ language: language || 'python', code: starterCode }];
+  }
+
+  const singleCode = codeSnippet || code || metadata?.codeSnippet || metadata?.code;
+  if (singleCode && typeof singleCode === 'string' && singleCode.trim().length > 0) {
+    return [{ language: language || 'python', code: singleCode }];
+  }
+
+  return [];
+}
+
 const MAX_RESUME_ATTEMPTS = 3;
 
 @Injectable()
@@ -1472,6 +1525,29 @@ export class AssessmentsService {
           )
           : [];
         const optionOrder = this.getQuestionOptionOrderByQuestionId(attempt, q.id);
+        const normalizedStarters = normalizeStarterCode(
+          q.starterCode,
+          q.metadata,
+          q.codeSnippet,
+          q.code,
+          q.language,
+        );
+        const rawSupported =
+          Array.isArray(q.supportedLanguages) && q.supportedLanguages.length > 0
+            ? q.supportedLanguages
+            : (q.metadata as any)?.supportedLanguages;
+        const supportedLanguages =
+          Array.isArray(rawSupported) && rawSupported.length > 0
+            ? rawSupported
+            : normalizedStarters.length > 0
+              ? [...new Set(normalizedStarters.map((s) => s.language))]
+              : (q.language ? [q.language] : []);
+        const preferredLang = q.language || (q.metadata as any)?.language;
+        const resolvedLanguage =
+          preferredLang && (supportedLanguages.length === 0 || supportedLanguages.some((l) => canonicalLanguage(l) === canonicalLanguage(preferredLang)))
+            ? preferredLang
+            : supportedLanguages[0] || 'python';
+
         return {
           _id: q.id,
           id: q.id,
@@ -1485,11 +1561,10 @@ export class AssessmentsService {
           marks: q.marks || 1,
           negativeMarks: assessment.negativeMarking ? q.negativeMarks || 0 : 0,
           options: optionOrder ? optionOrder.map((index) => options[index]) : options,
-          starterCode: Array.isArray(q.starterCode)
-            ? q.starterCode
-            : (q.metadata as any)?.starterCode || [],
+          starterCode: normalizedStarters,
           codeSnippet: q.codeSnippet,
-          language: q.language || 'python',
+          language: resolvedLanguage,
+          supportedLanguages,
           constraints:
             Array.isArray(q.constraints) && q.constraints.length > 0
               ? q.constraints
@@ -1568,7 +1643,11 @@ export class AssessmentsService {
     if (!question || !['coding', 'dsa', 'algorithmic'].includes(question.questionType.toLowerCase()))
       throw new BadRequestException('Coding question not found');
     const language = canonicalLanguage(dto.language);
-    if (!language || (question.supportedLanguages?.length && !question.supportedLanguages.some(value => canonicalLanguage(value) === language)))
+    const effectiveSupported =
+      Array.isArray(question.supportedLanguages) && question.supportedLanguages.length > 0
+        ? question.supportedLanguages
+        : (question.metadata as any)?.supportedLanguages || [];
+    if (!language || (effectiveSupported.length && !effectiveSupported.some((value: string) => canonicalLanguage(value) === language)))
       throw new BadRequestException('This language is not enabled for the assessment question');
     const testCases = codingTestCases(question);
     if (!testCases.length) throw new BadRequestException('No test cases configured for this question');
@@ -1942,11 +2021,15 @@ export class AssessmentsService {
             isAttempted = true;
 
             const submittedLanguage = canonicalLanguage(r.language || 'python');
+            const effectiveSupported =
+              Array.isArray(q.supportedLanguages) && q.supportedLanguages.length > 0
+                ? q.supportedLanguages
+                : (q.metadata as any)?.supportedLanguages || [];
             if (
               !submittedLanguage ||
-              (q.supportedLanguages?.length &&
-                !q.supportedLanguages.some(
-                  (lang) => canonicalLanguage(lang) === submittedLanguage,
+              (effectiveSupported.length &&
+                !effectiveSupported.some(
+                  (lang: string) => canonicalLanguage(lang) === submittedLanguage,
                 ))
             ) {
               throw new BadRequestException(

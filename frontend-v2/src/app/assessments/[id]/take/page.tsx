@@ -359,8 +359,8 @@ export default function TakeAssessmentPage({
                 ? [r.selectedAnswer]
                 : [],
             code: r.code || "",
-            language: r.language || "python",
-            codeByLanguage: r.code && r.language ? { [r.language]: r.code } : {},
+            language: r.language || undefined,
+            codeByLanguage: r.code && r.language ? { [r.language]: r.code } : (r.codeByLanguage || {}),
             testCasesPassed: r.testCasesPassed || 0,
             totalTestCases: r.totalTestCases || 0,
             status:

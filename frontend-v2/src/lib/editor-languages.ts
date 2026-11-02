@@ -15,7 +15,7 @@ export function canonicalEditorLanguage(value: string): string {
 }
 
 export function questionStarterCode(
-  source: string | Array<{ language: string; code: string }> | Record<string, string> | undefined,
+  source: string | Array<{ language?: string; lang?: string; code?: string; sourceCode?: string; starterCode?: string }> | Record<string, unknown> | undefined,
   language: string,
   questionLanguage?: string,
 ): string | undefined {
@@ -25,11 +25,21 @@ export function questionStarterCode(
       : undefined;
   }
   if (Array.isArray(source)) {
-    return source.find((entry) => canonicalEditorLanguage(entry.language) === canonicalEditorLanguage(language))?.code;
+    const entry = source.find((item: any) =>
+      canonicalEditorLanguage(item.language || item.lang || "") === canonicalEditorLanguage(language)
+    );
+    return entry ? (entry.code ?? (entry as any).sourceCode ?? (entry as any).starterCode) : undefined;
   }
-  return Object.entries(source ?? {}).find(
-    ([key, code]) => canonicalEditorLanguage(key) === canonicalEditorLanguage(language) && typeof code === "string",
-  )?.[1];
+  const entry = Object.entries(source ?? {}).find(
+    ([key]) => canonicalEditorLanguage(key) === canonicalEditorLanguage(language),
+  );
+  if (!entry) return undefined;
+  const val = entry[1];
+  if (typeof val === "string") return val;
+  if (val && typeof val === "object") {
+    return (val as any).code ?? (val as any).sourceCode ?? (val as any).starterCode;
+  }
+  return undefined;
 }
 
 /** Imported Python templates use python3; Monaco uses python. */

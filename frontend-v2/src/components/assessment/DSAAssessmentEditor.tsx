@@ -209,11 +209,20 @@ export default function DSAAssessmentEditor({
   const { resolvedTheme } = useTheme();
   const executionRuntimes = useExecutionRuntimes();
 
+  const supportedLanguagesList =
+    question.supportedLanguages && question.supportedLanguages.length > 0
+      ? question.supportedLanguages
+      : Array.isArray(question.starterCode) && question.starterCode.length > 0
+        ? question.starterCode.map((s) => s.language)
+        : typeof question.starterCode === "object" && question.starterCode !== null
+          ? Object.keys(question.starterCode)
+          : [];
+
   const isLanguageAllowed = (lang: string) => {
     const canonical = canonicalEditorLanguage(lang);
     const matchesSupported =
-      !question.supportedLanguages?.length ||
-      question.supportedLanguages.some(
+      !supportedLanguagesList.length ||
+      supportedLanguagesList.some(
         (value) => canonicalEditorLanguage(value) === canonical,
       );
     const matchesRuntime =
@@ -227,27 +236,55 @@ export default function DSAAssessmentEditor({
   };
 
   const initialLang = (() => {
-    // The candidate's saved language preference wins over the author's default if allowed.
+    // 1. The candidate's explicitly saved local preference for this specific question
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem(`codeskill_lang_q_${question._id}`);
-      if (saved && isLanguageAllowed(saved)) return saved;
+      if (saved && isLanguageAllowed(saved)) return canonicalEditorLanguage(saved);
     }
-    if (savedResponse?.language && isLanguageAllowed(savedResponse.language)) {
-      return savedResponse.language;
+    // 2. Saved response code if the candidate actually wrote/saved code for this question
+    if (savedResponse?.code && savedResponse?.language && isLanguageAllowed(savedResponse.language)) {
+      return canonicalEditorLanguage(savedResponse.language);
     }
-    if (question.language && isLanguageAllowed(question.language)) {
-      return question.language;
+    // 3. Question author's configured default language
+    const canonicalQuestionLang = question.language ? canonicalEditorLanguage(question.language) : undefined;
+    if (canonicalQuestionLang && isLanguageAllowed(canonicalQuestionLang)) {
+      return canonicalQuestionLang;
     }
+    // 4. First language from starterCode that has code and is allowed
+    if (Array.isArray(question.starterCode)) {
+      const entry = question.starterCode.find((s) => s.code?.trim() && isLanguageAllowed(s.language));
+      if (entry) return canonicalEditorLanguage(entry.language);
+    } else if (typeof question.starterCode === "object" && question.starterCode !== null) {
+      const entry = Object.entries(question.starterCode).find(
+        ([lang, code]) => typeof code === "string" && code.trim() && isLanguageAllowed(lang),
+      );
+      if (entry) return canonicalEditorLanguage(entry[0]);
+    }
+    // 5. First language from supportedLanguages
+    if (supportedLanguagesList.length > 0) {
+      const firstSupported = supportedLanguagesList.find((l) => isLanguageAllowed(l));
+      if (firstSupported) return canonicalEditorLanguage(firstSupported);
+    }
+    // 6. Python if allowed
     if (isLanguageAllowed("python")) {
       return "python";
     }
+    // 7. First allowed in general
     const firstAllowed = LANGUAGES.find((l) => isLanguageAllowed(l.value))?.value;
     return firstAllowed || "python";
   })();
   const [language, setLanguage] = useState(initialLang);
 
   const getQuestionStarterCode = (lang: string): string | undefined => {
-    return questionStarterCode(question.starterCode, lang, question.language);
+    const starter = questionStarterCode(question.starterCode, lang, question.language);
+    if (starter !== undefined && starter.trim().length > 0) return starter;
+    if (
+      question.codeSnippet &&
+      (!question.language || canonicalEditorLanguage(question.language) === canonicalEditorLanguage(lang))
+    ) {
+      return question.codeSnippet;
+    }
+    return undefined;
   };
 
   // Initialize code from saved response, or question starterCode, or language template
@@ -255,9 +292,9 @@ export default function DSAAssessmentEditor({
     const languageDraft = Object.entries(savedResponse?.codeByLanguage || {}).find(
       ([savedLanguage]) => canonicalEditorLanguage(savedLanguage) === canonicalEditorLanguage(lang),
     )?.[1];
-    if (languageDraft !== undefined) return languageDraft;
-    if (savedResponse?.code !== undefined && (savedResponse.code.trim().length > 0 || savedResponse.status === "draft")) {
-      if (!savedResponse.language || savedResponse.language === lang) {
+    if (languageDraft !== undefined && languageDraft.trim().length > 0) return languageDraft;
+    if (savedResponse?.code !== undefined && savedResponse.code.trim().length > 0) {
+      if (!savedResponse.language || canonicalEditorLanguage(savedResponse.language) === canonicalEditorLanguage(lang)) {
         return savedResponse.code;
       }
     }
