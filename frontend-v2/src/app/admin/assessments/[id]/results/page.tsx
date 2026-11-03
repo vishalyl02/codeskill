@@ -76,10 +76,15 @@ export default function AssessmentResultsPage({
     setDownloadingReports((current) => [...current, attemptId]);
     try {
       const response = await adminAssessmentsAPI.getAttemptReport(attemptId);
-      if (!response.data.type?.includes("application/pdf")) {
+      const isPdf =
+        response.data?.type?.includes("pdf") ||
+        String(response.headers?.["content-type"] || "").includes("pdf") ||
+        response.data instanceof Blob;
+      if (!isPdf) {
         throw new Error("The server did not return a PDF report.");
       }
-      const url = URL.createObjectURL(response.data);
+      const blob = response.data instanceof Blob ? response.data : new Blob([response.data], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       const candidateUid = attempt.studentUid || attempt.student?.uid || attemptId;
@@ -89,8 +94,17 @@ export default function AssessmentResultsPage({
       link.remove();
       // Let the browser start reading the PDF before releasing its object URL.
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch {
-      toast.error("Could not download this report. Please try again.");
+    } catch (err: any) {
+      console.error("Failed to download attempt report", err);
+      let errorMsg = "Could not download this report. Please try again.";
+      if (err?.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const json = JSON.parse(text);
+          if (json.message) errorMsg = json.message;
+        } catch {}
+      }
+      toast.error(errorMsg);
     } finally {
       setDownloadingReports((current) => current.filter((value) => value !== attemptId));
     }

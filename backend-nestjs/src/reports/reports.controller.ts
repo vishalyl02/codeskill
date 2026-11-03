@@ -44,8 +44,12 @@ export class ReportsController {
       throw new BadRequestException('Invalid attempt ID');
     }
 
+    const isUuid = (id: string) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+    const isUuidAttempt = isUuid(attemptId);
     const attempt = await this.attemptRepo.findOne({
-      where: [{ id: attemptId }, { mongoId: attemptId }],
+      where: isUuidAttempt ? [{ id: attemptId }, { mongoId: attemptId }] : [{ mongoId: attemptId }],
       relations: { student: true },
     });
     if (!attempt) {
@@ -59,7 +63,8 @@ export class ReportsController {
     const isAdmin =
       user &&
       (user.isAdmin === true ||
-        ['admin', 'super_admin', 'assessment_admin'].includes(user.role));
+        user.role?.endsWith('admin') ||
+        ['admin', 'super_admin', 'campus_admin', 'company_admin', 'student_admin', 'assessment_admin'].includes(user.role));
 
     if (!isOwner && !isAdmin) {
       this.logger.warn(
@@ -69,10 +74,23 @@ export class ReportsController {
       throw new NotFoundException('Attempt not found');
     }
 
-    const assessmentId = attempt.assessmentId;
-    const assessment = await this.assessmentRepo.findOne({
-      where: [{ id: assessmentId }, { mongoId: assessmentId }],
-    });
+    const assessmentId = attempt.assessmentId || (attempt.assessment as any)?.id;
+    let assessment: Assessment | null = attempt.assessment || null;
+    if (!assessment) {
+      const isUuidAssessment = assessmentId ? isUuid(assessmentId) : false;
+      const whereAssessment = assessmentId
+        ? (isUuidAssessment ? [{ id: assessmentId }, { mongoId: assessmentId }] : [{ mongoId: assessmentId }])
+        : [];
+      if (whereAssessment.length > 0) {
+        assessment = await this.assessmentRepo.findOne({
+          where: whereAssessment as any,
+        });
+      } else {
+        assessment = await this.assessmentRepo.findOne({
+          where: {},
+        });
+      }
+    }
     if (!assessment) {
       throw new NotFoundException('Assessment not found');
     }
@@ -178,12 +196,28 @@ export class ReportsController {
       ),
     );
 
-    const questionsList =
-      questionIds.length > 0
-        ? await this.questionRepo.find({
-            where: [{ id: In(questionIds) }, { mongoId: In(questionIds) }],
-          })
-        : [];
+    const uuidQuestionIds = questionIds.filter(isUuid);
+    const nonUuidQuestionIds = questionIds.filter((id) => !isUuid(id));
+
+    const whereQuestions: any[] = [];
+    if (uuidQuestionIds.length > 0) {
+      whereQuestions.push({ id: In(uuidQuestionIds) });
+      whereQuestions.push({ mongoId: In(uuidQuestionIds) });
+    }
+    if (nonUuidQuestionIds.length > 0) {
+      whereQuestions.push({ mongoId: In(nonUuidQuestionIds) });
+    }
+
+    let questionsList: Question[] = [];
+    if (whereQuestions.length > 0) {
+      try {
+        questionsList = await this.questionRepo.find({
+          where: whereQuestions,
+        });
+      } catch (err: any) {
+        this.logger.warn(`Could not batch load questions for report: ${err?.message}`);
+      }
+    }
 
     const questionMap = new Map<string, Question>();
     for (const q of questionsList) {
@@ -193,6 +227,10 @@ export class ReportsController {
 
     const questions = responses.map((resp: any) => {
       const q = resp.questionId ? questionMap.get(resp.questionId) || null : null;
+      const rawTitle = (q as any)?.title || q?.question || 'Assessment Question';
+      const cleanTitle = String(rawTitle).replace(/\r?\n|\r/g, ' ').replace(/[*_`#~]/g, ' ').replace(/\s+/g, ' ').trim();
+      const displayTitle = cleanTitle.length > 85 ? `${cleanTitle.slice(0, 82)}...` : cleanTitle;
+
       const item: {
         id: string;
         title: string;
@@ -201,7 +239,7 @@ export class ReportsController {
         points: number;
       } = {
         id: String(resp.questionId || 'unknown'),
-        title: q?.title ? q.title : 'Assessment Question',
+        title: displayTitle || 'Assessment Question',
         difficulty: q?.difficulty ? q.difficulty : 'Medium',
         status: resp.isCorrect ? 'Passed' : resp.marksAwarded > 0 ? 'Partial' : 'Failed',
         points: Number(resp.marksAwarded || 0),

@@ -228,4 +228,40 @@ describe('ReportsController candidate confidentiality and report generation', ()
       }),
     );
   });
+
+  it('safely handles non-UUID legacy attempt identifiers and question IDs', async () => {
+    const legacyMongoAttemptId = '654321654321654321654321';
+    const legacyAttempt = {
+      ...mockAttempt,
+      id: '11111111-2222-3333-4444-555555555555',
+      mongoId: legacyMongoAttemptId,
+      responses: [{ questionId: '654a123b456c789d012e345f', isCorrect: true, marksAwarded: 5 }],
+    };
+    mockAttemptRepo.findOne.mockResolvedValue(legacyAttempt);
+    mockQuestionRepo.find.mockResolvedValue([
+      { mongoId: '654a123b456c789d012e345f', question: 'What is O(1)?', difficulty: 'Easy' },
+    ]);
+
+    const res = { set: jest.fn(), status: jest.fn().mockReturnThis(), send: jest.fn(), end: jest.fn() };
+    await controller.getStudentResultReport(legacyMongoAttemptId, adminUser, res as never);
+
+    expect(mockAttemptRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: [{ mongoId: legacyMongoAttemptId }],
+      }),
+    );
+    expect(mockQuestionRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: [{ mongoId: expect.anything() }],
+      }),
+    );
+    expect(res.set).toHaveBeenCalled();
+  });
+
+  it('allows institutional campus_admin and role-based administrators to download reports', async () => {
+    const campusAdmin = { id: 'campus-admin-uuid', email: 'campus@test.com', role: 'campus_admin', isAdmin: false };
+    const res = { set: jest.fn(), status: jest.fn().mockReturnThis(), send: jest.fn(), end: jest.fn() };
+    await controller.getStudentResultReport(attemptId, campusAdmin, res as never);
+    expect(res.set).toHaveBeenCalled();
+  });
 });
