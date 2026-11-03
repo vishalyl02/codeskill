@@ -25,7 +25,8 @@ import {
   RotateCcw,
   Layers,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Filter
 } from "lucide-react";
 import { adminAssessmentsAPI } from "@/config/api";
 import toast from "react-hot-toast";
@@ -49,6 +50,22 @@ export default function AssessmentResultsPage({
   const [modalTab, setModalTab] = useState<"proctoring" | "code" | "attempts">("proctoring");
 
   const [downloadingReports, setDownloadingReports] = useState<string[]>([]);
+  const [resultFilter, setResultFilter] = useState<"all" | "passed" | "failed">("all");
+  const [proctoringFilter, setProctoringFilter] = useState<"all" | "clean" | "flagged" | "suspicious">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "submitted" | "timed_out" | "in_progress">("all");
+
+  const isFiltered =
+    search.trim().length > 0 ||
+    resultFilter !== "all" ||
+    proctoringFilter !== "all" ||
+    statusFilter !== "all";
+
+  const resetFilters = () => {
+    setSearch("");
+    setResultFilter("all");
+    setProctoringFilter("all");
+    setStatusFilter("all");
+  };
 
   const downloadReport = async (attempt: any) => {
     const attemptId = attempt.id || attempt._id;
@@ -113,30 +130,47 @@ export default function AssessmentResultsPage({
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
-  const filteredAttempts = (data?.attempts || []).filter((a: any) => {
-    const q = search.toLowerCase();
-    return (
-      (a.studentUid && a.studentUid.toLowerCase().includes(q)) ||
-      (a.studentName && a.studentName.toLowerCase().includes(q)) ||
-      (a.studentEmail && a.studentEmail.toLowerCase().includes(q))
-    );
-  });
+  const filterRecord = (a: any) => {
+    // 1. Search Query
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const matchesSearch =
+        (a.studentUid && a.studentUid.toLowerCase().includes(q)) ||
+        (a.studentName && a.studentName.toLowerCase().includes(q)) ||
+        (a.studentEmail && a.studentEmail.toLowerCase().includes(q));
+      if (!matchesSearch) return false;
+    }
 
-  const filteredRawAttempts = (data?.rawAttempts || []).filter((a: any) => {
-    const q = search.toLowerCase();
-    return (
-      (a.studentUid && a.studentUid.toLowerCase().includes(q)) ||
-      (a.studentName && a.studentName.toLowerCase().includes(q)) ||
-      (a.studentEmail && a.studentEmail.toLowerCase().includes(q))
-    );
-  });
+    // 2. Result Filter
+    if (resultFilter === "passed" && !a.passed) return false;
+    if (resultFilter === "failed" && a.passed) return false;
+
+    // 3. Proctoring Filter
+    const totalV = (a.violations?.length || 0) + (a.tabSwitchCount || 0);
+    if (proctoringFilter === "clean" && totalV > 0) return false;
+    if (proctoringFilter === "flagged" && totalV === 0) return false;
+    if (proctoringFilter === "suspicious" && totalV < 3) return false;
+
+    // 4. Status Filter
+    if (statusFilter !== "all") {
+      const curStatus = a.status || (a.submittedAt ? "submitted" : "in_progress");
+      if (statusFilter === "submitted" && curStatus !== "submitted" && curStatus !== "auto_submitted") return false;
+      if (statusFilter === "timed_out" && curStatus !== "timed_out") return false;
+      if (statusFilter === "in_progress" && curStatus !== "in_progress") return false;
+    }
+
+    return true;
+  };
+
+  const filteredAttempts = (data?.attempts || []).filter(filterRecord);
+  const filteredRawAttempts = (data?.rawAttempts || []).filter(filterRecord);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, viewMode]);
+  }, [search, viewMode, resultFilter, proctoringFilter, statusFilter]);
 
   const currentList = viewMode === "candidates" ? filteredAttempts : filteredRawAttempts;
   const totalItems = currentList.length;
@@ -293,54 +327,114 @@ export default function AssessmentResultsPage({
       {/* Candidate Attempts Table */}
       <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
         {/* Table Filter Bar */}
-        <div className="p-4 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-            <div className="relative w-full sm:w-80">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by student UID or name..."
-                className="w-full pl-9 pr-3 py-1.5 bg-muted/40 border border-border rounded-xl text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
+        <div className="p-4 border-b border-border flex flex-col gap-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+              <div className="relative w-full sm:w-80">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by student UID or name..."
+                  className="w-full pl-9 pr-3 py-1.5 bg-muted/40 border border-border rounded-xl text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              {/* View Mode Switcher */}
+              <div className="inline-flex rounded-xl bg-muted/60 p-1 border border-border text-xs shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("candidates")}
+                  className={`px-3 py-1 rounded-lg font-semibold transition-all ${
+                    viewMode === "candidates"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Candidate Summary ({filteredAttempts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("all_attempts")}
+                  className={`px-3 py-1 rounded-lg font-semibold transition-all ${
+                    viewMode === "all_attempts"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  All Attempts Log ({filteredRawAttempts.length})
+                </button>
+              </div>
             </div>
 
-            {/* View Mode Switcher */}
-            <div className="inline-flex rounded-xl bg-muted/60 p-1 border border-border text-xs shrink-0">
+            <div className="flex items-center gap-2 self-end md:self-auto">
               <button
-                type="button"
-                onClick={() => setViewMode("candidates")}
-                className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-                  viewMode === "candidates"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                onClick={fetchResults}
+                className="p-1.5 border border-border hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg text-xs transition-colors"
+                title="Refresh results"
               >
-                Candidate Summary ({filteredAttempts.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("all_attempts")}
-                className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-                  viewMode === "all_attempts"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                All Attempts Log ({filteredRawAttempts.length})
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
               </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end md:self-auto">
-            <button
-              onClick={fetchResults}
-              className="p-1.5 border border-border hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg text-xs transition-colors"
-              title="Refresh results"
+          {/* Quick Filters Row */}
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/40 text-xs">
+            <span className="text-muted-foreground text-[11px] font-semibold flex items-center gap-1 uppercase tracking-wider mr-1">
+              <Filter className="w-3 h-3 text-primary" /> Filter:
+            </span>
+
+            {/* Result Filter */}
+            <select
+              value={resultFilter}
+              onChange={(e) => setResultFilter(e.target.value as any)}
+              aria-label="Filter by result"
+              className="bg-muted/40 border border-border rounded-lg px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-medium"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            </button>
+              <option value="all">Result: All</option>
+              <option value="passed">Passed Only</option>
+              <option value="failed">Failed Only</option>
+            </select>
+
+            {/* Proctoring Filter */}
+            <select
+              value={proctoringFilter}
+              onChange={(e) => setProctoringFilter(e.target.value as any)}
+              aria-label="Filter by proctoring"
+              className="bg-muted/40 border border-border rounded-lg px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-medium"
+            >
+              <option value="all">Proctoring: All</option>
+              <option value="clean">Clean (0 Flags)</option>
+              <option value="flagged">Flagged (≥1 Incident)</option>
+              <option value="suspicious">Suspicious (≥3 Flags)</option>
+            </select>
+
+            {/* Status Filter */}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              aria-label="Filter by status"
+              className="bg-muted/40 border border-border rounded-lg px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-medium"
+            >
+              <option value="all">Status: All</option>
+              <option value="submitted">Submitted</option>
+              <option value="timed_out">Timed Out</option>
+              <option value="in_progress">In Progress</option>
+            </select>
+
+            {/* Reset Filters Button */}
+            {isFiltered && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="px-2 py-1 rounded-lg border border-border bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground text-[11px] font-medium transition-colors flex items-center gap-1 ml-auto sm:ml-0"
+                title="Reset all filters"
+              >
+                <X className="w-3 h-3" />
+                <span>Reset Filters</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -596,6 +690,7 @@ export default function AssessmentResultsPage({
                 <span>Per page:</span>
                 <select
                   value={pageSize}
+                  aria-label="Rows per page"
                   onChange={(e) => {
                     setPageSize(Number(e.target.value));
                     setCurrentPage(1);

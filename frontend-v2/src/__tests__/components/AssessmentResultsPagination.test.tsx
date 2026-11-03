@@ -119,7 +119,7 @@ describe("AssessmentResultsPage Pagination", () => {
     });
 
     // Change page size to 10
-    const select = screen.getByRole("combobox");
+    const select = screen.getByRole("combobox", { name: "Rows per page" });
     fireEvent.change(select, { target: { value: "10" } });
 
     // Now only 10 students should show
@@ -175,5 +175,31 @@ describe("AssessmentResultsPage Pagination", () => {
 
     window.URL.createObjectURL = originalCreateObjectURL;
     window.URL.revokeObjectURL = originalRevokeObjectURL;
+  });
+
+  it("filters candidates by result (Passed Only / Failed Only) and resets via Reset button", async () => {
+    render(<AssessmentResultsPage params={Promise.resolve({ id: "test-assessment-id" })} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Student 1")).toBeInTheDocument();
+    });
+
+    // In mock data: even index (idx % 2 === 0) passed = true => Student 1 (idx 0), Student 3 (idx 2) passed.
+    // odd index (idx % 2 === 1) passed = false => Student 2 (idx 1), Student 4 (idx 3) failed.
+    const resultFilter = screen.getByRole("combobox", { name: "Filter by result" });
+    fireEvent.change(resultFilter, { target: { value: "passed" } });
+
+    // Passed students show, failed student 2 should not show
+    expect(screen.getByText("Student 1")).toBeInTheDocument();
+    expect(screen.queryByText("Student 2")).not.toBeInTheDocument();
+
+    // Reset button should now be visible
+    const resetButton = screen.getByRole("button", { name: "Reset Filters" });
+    expect(resetButton).toBeInTheDocument();
+    fireEvent.click(resetButton);
+
+    // After reset, Student 2 is back
+    expect(screen.getByText("Student 1")).toBeInTheDocument();
+    expect(screen.getByText("Student 2")).toBeInTheDocument();
   });
 });
