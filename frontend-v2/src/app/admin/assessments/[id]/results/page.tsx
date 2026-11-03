@@ -23,7 +23,10 @@ import {
   Key,
   Code,
   RotateCcw,
-  Layers
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  Filter
 } from "lucide-react";
 import { adminAssessmentsAPI } from "@/config/api";
 import toast from "react-hot-toast";
@@ -47,6 +50,22 @@ export default function AssessmentResultsPage({
   const [modalTab, setModalTab] = useState<"proctoring" | "code" | "attempts">("proctoring");
 
   const [downloadingReports, setDownloadingReports] = useState<string[]>([]);
+  const [resultFilter, setResultFilter] = useState<"all" | "passed" | "failed">("all");
+  const [proctoringFilter, setProctoringFilter] = useState<"all" | "clean" | "flagged" | "suspicious">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "submitted" | "timed_out" | "in_progress">("all");
+
+  const isFiltered =
+    search.trim().length > 0 ||
+    resultFilter !== "all" ||
+    proctoringFilter !== "all" ||
+    statusFilter !== "all";
+
+  const resetFilters = () => {
+    setSearch("");
+    setResultFilter("all");
+    setProctoringFilter("all");
+    setStatusFilter("all");
+  };
 
   const downloadReport = async (attempt: any) => {
     const attemptId = attempt.id || attempt._id;
@@ -111,23 +130,80 @@ export default function AssessmentResultsPage({
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
-  const filteredAttempts = (data?.attempts || []).filter((a: any) => {
-    const q = search.toLowerCase();
-    return (
-      (a.studentUid && a.studentUid.toLowerCase().includes(q)) ||
-      (a.studentName && a.studentName.toLowerCase().includes(q)) ||
-      (a.studentEmail && a.studentEmail.toLowerCase().includes(q))
-    );
-  });
+  const filterRecord = (a: any) => {
+    // 1. Search Query
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const matchesSearch =
+        (a.studentUid && a.studentUid.toLowerCase().includes(q)) ||
+        (a.studentName && a.studentName.toLowerCase().includes(q)) ||
+        (a.studentEmail && a.studentEmail.toLowerCase().includes(q));
+      if (!matchesSearch) return false;
+    }
 
-  const filteredRawAttempts = (data?.rawAttempts || []).filter((a: any) => {
-    const q = search.toLowerCase();
-    return (
-      (a.studentUid && a.studentUid.toLowerCase().includes(q)) ||
-      (a.studentName && a.studentName.toLowerCase().includes(q)) ||
-      (a.studentEmail && a.studentEmail.toLowerCase().includes(q))
-    );
-  });
+    // 2. Result Filter
+    if (resultFilter === "passed" && !a.passed) return false;
+    if (resultFilter === "failed" && a.passed) return false;
+
+    // 3. Proctoring Filter
+    const totalV = (a.violations?.length || 0) + (a.tabSwitchCount || 0);
+    if (proctoringFilter === "clean" && totalV > 0) return false;
+    if (proctoringFilter === "flagged" && totalV === 0) return false;
+    if (proctoringFilter === "suspicious" && totalV < 3) return false;
+
+    // 4. Status Filter
+    if (statusFilter !== "all") {
+      const curStatus = a.status || (a.submittedAt ? "submitted" : "in_progress");
+      if (statusFilter === "submitted" && curStatus !== "submitted" && curStatus !== "auto_submitted") return false;
+      if (statusFilter === "timed_out" && curStatus !== "timed_out") return false;
+      if (statusFilter === "in_progress" && curStatus !== "in_progress") return false;
+    }
+
+    return true;
+  };
+
+  const filteredAttempts = (data?.attempts || []).filter(filterRecord);
+  const filteredRawAttempts = (data?.rawAttempts || []).filter(filterRecord);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, viewMode, resultFilter, proctoringFilter, statusFilter]);
+
+  const currentList = viewMode === "candidates" ? filteredAttempts : filteredRawAttempts;
+  const totalItems = currentList.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalItems);
+
+  const paginatedAttempts =
+    viewMode === "candidates"
+      ? filteredAttempts.slice(startIndex, endIndex)
+      : [];
+
+  const paginatedRawAttempts =
+    viewMode === "all_attempts"
+      ? filteredRawAttempts.slice(startIndex, endIndex)
+      : [];
+
+  const getPageNumbers = (current: number, total: number): (number | string)[] => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    if (current <= 4) {
+      return [1, 2, 3, 4, 5, "...", total];
+    }
+    if (current >= total - 3) {
+      return [1, "...", total - 4, total - 3, total - 2, total - 1, total];
+    }
+    return [1, "...", current - 1, current, current + 1, "...", total];
+  };
+
+  const pageNumbers = getPageNumbers(safePage, totalPages);
 
   const getViolationIcon = (type: string) => {
     switch (type) {
@@ -251,54 +327,114 @@ export default function AssessmentResultsPage({
       {/* Candidate Attempts Table */}
       <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
         {/* Table Filter Bar */}
-        <div className="p-4 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-            <div className="relative w-full sm:w-80">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by student UID or name..."
-                className="w-full pl-9 pr-3 py-1.5 bg-muted/40 border border-border rounded-xl text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
+        <div className="p-4 border-b border-border flex flex-col gap-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+              <div className="relative w-full sm:w-80">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by student UID or name..."
+                  className="w-full pl-9 pr-3 py-1.5 bg-muted/40 border border-border rounded-xl text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              {/* View Mode Switcher */}
+              <div className="inline-flex rounded-xl bg-muted/60 p-1 border border-border text-xs shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("candidates")}
+                  className={`px-3 py-1 rounded-lg font-semibold transition-all ${
+                    viewMode === "candidates"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Candidate Summary ({filteredAttempts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("all_attempts")}
+                  className={`px-3 py-1 rounded-lg font-semibold transition-all ${
+                    viewMode === "all_attempts"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  All Attempts Log ({filteredRawAttempts.length})
+                </button>
+              </div>
             </div>
 
-            {/* View Mode Switcher */}
-            <div className="inline-flex rounded-xl bg-muted/60 p-1 border border-border text-xs shrink-0">
+            <div className="flex items-center gap-2 self-end md:self-auto">
               <button
-                type="button"
-                onClick={() => setViewMode("candidates")}
-                className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-                  viewMode === "candidates"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                onClick={fetchResults}
+                className="p-1.5 border border-border hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg text-xs transition-colors"
+                title="Refresh results"
               >
-                Candidate Summary ({filteredAttempts.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("all_attempts")}
-                className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-                  viewMode === "all_attempts"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                All Attempts Log ({filteredRawAttempts.length})
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
               </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end md:self-auto">
-            <button
-              onClick={fetchResults}
-              className="p-1.5 border border-border hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg text-xs transition-colors"
-              title="Refresh results"
+          {/* Quick Filters Row */}
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/40 text-xs">
+            <span className="text-muted-foreground text-[11px] font-semibold flex items-center gap-1 uppercase tracking-wider mr-1">
+              <Filter className="w-3 h-3 text-primary" /> Filter:
+            </span>
+
+            {/* Result Filter */}
+            <select
+              value={resultFilter}
+              onChange={(e) => setResultFilter(e.target.value as any)}
+              aria-label="Filter by result"
+              className="bg-muted/40 border border-border rounded-lg px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-medium"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            </button>
+              <option value="all">Result: All</option>
+              <option value="passed">Passed Only</option>
+              <option value="failed">Failed Only</option>
+            </select>
+
+            {/* Proctoring Filter */}
+            <select
+              value={proctoringFilter}
+              onChange={(e) => setProctoringFilter(e.target.value as any)}
+              aria-label="Filter by proctoring"
+              className="bg-muted/40 border border-border rounded-lg px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-medium"
+            >
+              <option value="all">Proctoring: All</option>
+              <option value="clean">Clean (0 Flags)</option>
+              <option value="flagged">Flagged (≥1 Incident)</option>
+              <option value="suspicious">Suspicious (≥3 Flags)</option>
+            </select>
+
+            {/* Status Filter */}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              aria-label="Filter by status"
+              className="bg-muted/40 border border-border rounded-lg px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-medium"
+            >
+              <option value="all">Status: All</option>
+              <option value="submitted">Submitted</option>
+              <option value="timed_out">Timed Out</option>
+              <option value="in_progress">In Progress</option>
+            </select>
+
+            {/* Reset Filters Button */}
+            {isFiltered && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="px-2 py-1 rounded-lg border border-border bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground text-[11px] font-medium transition-colors flex items-center gap-1 ml-auto sm:ml-0"
+                title="Reset all filters"
+              >
+                <X className="w-3 h-3" />
+                <span>Reset Filters</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -329,7 +465,7 @@ export default function AssessmentResultsPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredAttempts.map((att: any) => {
+                {paginatedAttempts.map((att: any) => {
                   const totalV = att.violations?.length || 0;
                   const isSuspicious = totalV >= 3 || (att.tabSwitchCount || 0) >= 3;
 
@@ -456,12 +592,12 @@ export default function AssessmentResultsPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredRawAttempts.map((att: any, idx: number) => {
+                {paginatedRawAttempts.map((att: any, idx: number) => {
                   const totalV = att.violations?.length || 0;
                   const isSuspicious = totalV >= 3 || (att.tabSwitchCount || 0) >= 3;
 
                   return (
-                    <tr key={att._id || idx} className="hover:bg-muted/20 transition-colors">
+                    <tr key={att._id || `${safePage}-${idx}`} className="hover:bg-muted/20 transition-colors">
                       <td className="p-3.5">
                         <div className="font-semibold text-foreground">{resultText(att.studentName)}</div>
                         <div className="text-[11px] text-muted-foreground">{resultText(att.studentEmail)}</div>
@@ -471,7 +607,7 @@ export default function AssessmentResultsPage({
                       </td>
                       <td className="p-3.5 text-center font-mono">
                         <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary border border-primary/20">
-                          Attempt #{att.attemptNumber || idx + 1}
+                          Attempt #{att.attemptNumber || startIndex + idx + 1}
                         </span>
                       </td>
                       <td className="p-3.5 text-center">
@@ -537,6 +673,100 @@ export default function AssessmentResultsPage({
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination Footer */}
+        {totalItems > 0 && (
+          <div className="p-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground bg-muted/10">
+            <div className="flex flex-wrap items-center gap-3">
+              <span>
+                Showing <strong className="text-foreground font-mono">{startIndex + 1}</strong> to{" "}
+                <strong className="text-foreground font-mono">{endIndex}</strong> of{" "}
+                <strong className="text-foreground font-mono">{totalItems}</strong>{" "}
+                {viewMode === "candidates" ? "candidates" : "attempts"}
+              </span>
+              <div className="flex items-center gap-1.5 border-l border-border pl-3">
+                <span>Per page:</span>
+                <select
+                  value={pageSize}
+                  aria-label="Rows per page"
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-background border border-border rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-medium shadow-2xs"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={safePage <= 1}
+                className="px-2 py-1 rounded-lg border border-border disabled:opacity-40 hover:bg-muted text-foreground transition-colors disabled:cursor-not-allowed font-medium text-[11px]"
+                title="First page"
+              >
+                First
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="p-1.5 rounded-lg border border-border disabled:opacity-40 hover:bg-muted text-foreground transition-colors disabled:cursor-not-allowed"
+                title="Previous page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-1">
+                {pageNumbers.map((p, idx) =>
+                  p === "..." ? (
+                    <span key={`ellipsis-${idx}`} className="px-1.5 text-muted-foreground select-none">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={`page-${p}`}
+                      type="button"
+                      onClick={() => setCurrentPage(Number(p))}
+                      className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-semibold transition-colors ${
+                        safePage === p
+                          ? "bg-primary text-primary-foreground shadow-xs"
+                          : "border border-border hover:bg-muted text-foreground"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="p-1.5 rounded-lg border border-border disabled:opacity-40 hover:bg-muted text-foreground transition-colors disabled:cursor-not-allowed"
+                title="Next page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safePage >= totalPages}
+                className="px-2 py-1 rounded-lg border border-border disabled:opacity-40 hover:bg-muted text-foreground transition-colors disabled:cursor-not-allowed font-medium text-[11px]"
+                title="Last page"
+              >
+                Last
+              </button>
+            </div>
           </div>
         )}
       </div>

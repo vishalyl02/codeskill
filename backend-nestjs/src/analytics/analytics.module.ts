@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsController } from './analytics.controller';
@@ -9,9 +9,11 @@ import { ExamSecurityEvent } from '../database/entities/exam-security-event.enti
 import { AuditLog } from '../database/entities/audit-log.entity';
 import { User } from '../database/entities/user.entity';
 import { Submission } from '../database/entities/submission.entity';
+import { AssessmentsModule } from '../assessments/assessments.module';
 
 @Module({
   imports: [
+    forwardRef(() => AssessmentsModule),
     TypeOrmModule.forFeature([
       AssessmentAttempt,
       Assessment,

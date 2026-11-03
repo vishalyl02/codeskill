@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { AssessmentAttempt } from '../database/entities/assessment-attempt.entity';
@@ -9,6 +9,7 @@ import { AuditLog } from '../database/entities/audit-log.entity';
 import { User } from '../database/entities/user.entity';
 import { Submission } from '../database/entities/submission.entity';
 import { RedisService } from '../redis/redis.service';
+import { AssessmentsService } from '../assessments/assessments.service';
 import {
   AnalyticsActivityQueryDto,
   AnalyticsLeaderboardQueryDto,
@@ -37,6 +38,9 @@ export class AnalyticsService {
     private readonly submissionRepo: Repository<Submission>,
     @Optional()
     private readonly redisService?: RedisService,
+    @Optional()
+    @Inject(forwardRef(() => AssessmentsService))
+    private readonly assessmentsService?: AssessmentsService,
   ) {}
 
   /**
@@ -125,9 +129,9 @@ export class AnalyticsService {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const activeUsersRaw = await this.userRepo.query(
         `SELECT COUNT(DISTINCT uid)::int AS count FROM (
-          SELECT "userId" AS uid FROM submissions WHERE "createdAt" >= $1
+          SELECT "userId"::text AS uid FROM submissions WHERE "createdAt" >= $1
           UNION
-          SELECT "student_id" AS uid FROM assessment_attempts WHERE "startedAt" >= $1 OR "submittedAt" >= $1
+          SELECT COALESCE("student_id"::text, "studentUid") AS uid FROM assessment_attempts WHERE "startedAt" >= $1 OR "submittedAt" >= $1
         ) active_set WHERE uid IS NOT NULL`,
         [sevenDaysAgo],
       );
@@ -135,6 +139,9 @@ export class AnalyticsService {
 
       // Total assessments and attempts
       const totalAssessments = await this.assessmentRepo.count();
+      const activeAssessments = await this.assessmentRepo.count({
+        where: [{ status: 'published' }, { status: 'ongoing' }],
+      });
       const completedStatuses = ['submitted', 'auto_submitted', 'timed_out'];
       const attemptStats = await this.attemptRepo
         .createQueryBuilder('a')
@@ -186,6 +193,7 @@ export class AnalyticsService {
         failedSubmissions,
         overallAcceptanceRate,
         totalAssessments,
+        activeAssessments,
         totalAttempts,
         completedAttempts,
         averageScore: avgScore,
@@ -757,6 +765,21 @@ export class AnalyticsService {
     const targetId = assessment.id;
     const completedStatuses = ['submitted', 'auto_submitted', 'timed_out'];
 
+    if (this.assessmentsService) {
+      try {
+        const inProgAttempts = await this.attemptRepo.find({
+          where: [{ assessmentId: targetId, status: 'in_progress' }],
+        });
+        for (const att of inProgAttempts) {
+          if (this.assessmentsService.isAttemptExpired(assessment, att)) {
+            await this.assessmentsService.autoFinalizeAttempt(assessment, att, 'timed_out');
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`Auto-finalize check failed during analytics overview: ${err?.message}`);
+      }
+    }
+
     const totalAttempts = await this.attemptRepo.count({
       where: [{ assessmentId: targetId }],
     });
@@ -783,9 +806,12 @@ export class AnalyticsService {
 
     const candidateStats = await this.attemptRepo
       .createQueryBuilder('a')
-      .select('COUNT(DISTINCT a.student_id)', 'totalCandidates')
+      .select(
+        'COUNT(DISTINCT COALESCE(a.student_id::text, a.studentUid))',
+        'totalCandidates',
+      )
       .addSelect(
-        'COUNT(DISTINCT CASE WHEN a.status IN (:...statuses) THEN a.student_id END)',
+        'COUNT(DISTINCT CASE WHEN a.status IN (:...statuses) THEN COALESCE(a.student_id::text, a.studentUid) END)',
         'completedCandidates',
       )
       .where('a.assessmentId = :targetId', { targetId })
@@ -822,6 +848,205 @@ export class AnalyticsService {
         ? Number(((totalPassed / completedAttempts) * 100).toFixed(1))
         : 0;
 
+    const completedAttemptsList = await this.attemptRepo.find({
+      where: [{ assessmentId: targetId, status: In(completedStatuses) }],
+      select: {
+        id: true,
+        studentId: true,
+        studentUid: true,
+        score: true,
+        maxScore: true,
+        percentage: true,
+        passed: true,
+        timeSpentSeconds: true,
+        responses: true,
+        violations: true,
+        tabSwitchCount: true,
+      },
+    });
+
+    const candidateMap = new Map<
+      string,
+      {
+        bestScore: number;
+        bestPercentage: number;
+        hasPassed: boolean;
+        timeSpent: number;
+        violationCount: number;
+      }
+    >();
+
+    let totalCodingAC = 0;
+    let totalCodingPartial = 0;
+    let totalCodingFailed = 0;
+
+    for (const att of completedAttemptsList) {
+      const studentKey = att.studentId
+        ? String(att.studentId)
+        : att.studentUid || att.id;
+      const score = Number(att.score ?? 0);
+      const maxScore = Number(att.maxScore || assessment.totalMarks || 100);
+      const pct =
+        att.percentage != null
+          ? Number(att.percentage)
+          : maxScore > 0
+            ? (score / maxScore) * 100
+            : 0;
+      const passed = Boolean(att.passed);
+      const vCount = (att.violations?.length || 0) + (att.tabSwitchCount || 0);
+
+      const responses = Array.isArray(att.responses) ? att.responses : [];
+      for (const r of responses) {
+        if (
+          r.testCasesPassed !== undefined &&
+          r.totalTestCases !== undefined &&
+          r.totalTestCases > 0
+        ) {
+          if (r.isCorrect || r.testCasesPassed === r.totalTestCases) {
+            totalCodingAC++;
+          } else if (r.partialCredit || r.testCasesPassed > 0) {
+            totalCodingPartial++;
+          } else {
+            totalCodingFailed++;
+          }
+        }
+      }
+
+      const existing = candidateMap.get(studentKey);
+      if (!existing || pct > existing.bestPercentage) {
+        candidateMap.set(studentKey, {
+          bestScore: score,
+          bestPercentage: pct,
+          hasPassed: passed,
+          timeSpent: Number(att.timeSpentSeconds || 0),
+          violationCount: vCount,
+        });
+      } else {
+        if (passed && !existing.hasPassed) existing.hasPassed = true;
+        if (vCount > existing.violationCount) existing.violationCount = vCount;
+      }
+    }
+
+    const uniqueCandidatesCount = candidateMap.size;
+    const candidateScores = Array.from(candidateMap.values())
+      .map((c) => c.bestScore)
+      .sort((a, b) => a - b);
+    const candidatePassedCount = Array.from(candidateMap.values()).filter(
+      (c) => c.hasPassed,
+    ).length;
+
+    let medianScore = 0;
+    if (candidateScores.length > 0) {
+      const mid = Math.floor(candidateScores.length / 2);
+      medianScore =
+        candidateScores.length % 2 !== 0
+          ? candidateScores[mid]
+          : Math.round(((candidateScores[mid - 1] + candidateScores[mid]) / 2) * 10) / 10;
+    }
+
+    const candidateAvg =
+      candidateScores.length > 0
+        ? Number(
+            (
+              candidateScores.reduce((sum, v) => sum + v, 0) /
+              candidateScores.length
+            ).toFixed(1),
+          )
+        : Number(Number(stats?.avgScore || 0).toFixed(1));
+
+    const variance =
+      candidateScores.length > 0
+        ? candidateScores.reduce(
+            (sum, v) => sum + Math.pow(v - candidateAvg, 2),
+            0,
+          ) / candidateScores.length
+        : 0;
+    const stdDevScore = Math.round(Math.sqrt(variance) * 10) / 10;
+
+    let b1 = 0,
+      b2 = 0,
+      b3 = 0,
+      b4 = 0,
+      b5 = 0;
+    for (const c of candidateMap.values()) {
+      const pct = c.bestPercentage;
+      if (pct <= 20) b1++;
+      else if (pct <= 40) b2++;
+      else if (pct <= 60) b3++;
+      else if (pct <= 80) b4++;
+      else b5++;
+    }
+
+    const passingPct =
+      assessment.passingMarks && assessment.totalMarks
+        ? Math.round((assessment.passingMarks / assessment.totalMarks) * 100)
+        : 40;
+
+    const scoreDistribution = [
+      {
+        bracket: '0-20%',
+        count: b1,
+        percentage:
+          uniqueCandidatesCount > 0
+            ? Math.round((b1 / uniqueCandidatesCount) * 100)
+            : 0,
+        passStatus: passingPct <= 20 ? 'pass' : 'fail',
+      },
+      {
+        bracket: '21-40%',
+        count: b2,
+        percentage:
+          uniqueCandidatesCount > 0
+            ? Math.round((b2 / uniqueCandidatesCount) * 100)
+            : 0,
+        passStatus: passingPct <= 40 ? 'pass' : 'fail',
+      },
+      {
+        bracket: '41-60%',
+        count: b3,
+        percentage:
+          uniqueCandidatesCount > 0
+            ? Math.round((b3 / uniqueCandidatesCount) * 100)
+            : 0,
+        passStatus: passingPct <= 60 ? 'pass' : 'fail',
+      },
+      {
+        bracket: '61-80%',
+        count: b4,
+        percentage:
+          uniqueCandidatesCount > 0
+            ? Math.round((b4 / uniqueCandidatesCount) * 100)
+            : 0,
+        passStatus: 'pass',
+      },
+      {
+        bracket: '81-100%',
+        count: b5,
+        percentage:
+          uniqueCandidatesCount > 0
+            ? Math.round((b5 / uniqueCandidatesCount) * 100)
+            : 0,
+        passStatus: 'distinction',
+      },
+    ];
+
+    const candidatePassRate =
+      uniqueCandidatesCount > 0
+        ? Number(((candidatePassedCount / uniqueCandidatesCount) * 100).toFixed(1))
+        : passRate;
+
+    const finalPassedCount =
+      uniqueCandidatesCount > 0 ? candidatePassedCount : totalPassed;
+
+    let cleanCount = 0,
+      minorCount = 0,
+      highRiskCount = 0;
+    for (const c of candidateMap.values()) {
+      if (c.violationCount === 0) cleanCount++;
+      else if (c.violationCount <= 2) minorCount++;
+      else highRiskCount++;
+    }
+
     return {
       assessment: {
         id: assessment.id,
@@ -844,12 +1069,32 @@ export class AnalyticsService {
         ),
       },
       metrics: {
-        avgScore: Number(Number(stats?.avgScore || 0).toFixed(1)),
+        avgScore: candidateAvg,
+        attemptAvgScore: Number(Number(stats?.avgScore || 0).toFixed(1)),
         maxScore: Number(stats?.maxScore || 0),
         minScore: Number(stats?.minScore || 0),
+        medianScore: medianScore || candidateAvg,
+        stdDevScore,
         avgTimeSpent: Math.round(Number(stats?.avgTimeSpent || 0)),
-        totalPassed,
-        passRate,
+        totalPassed: finalPassedCount,
+        passRate: candidatePassRate,
+        attemptPassRate: passRate,
+      },
+      scoreDistribution,
+      codingVerdicts: {
+        ac: totalCodingAC,
+        partial: totalCodingPartial,
+        failed: totalCodingFailed,
+        total: totalCodingAC + totalCodingPartial + totalCodingFailed,
+      },
+      integritySummary: {
+        cleanCandidates: cleanCount,
+        minorRiskCandidates: minorCount,
+        highRiskCandidates: highRiskCount,
+        integrityRate:
+          uniqueCandidatesCount > 0
+            ? Number(((cleanCount / uniqueCandidatesCount) * 100).toFixed(1))
+            : 100,
       },
       proctoring: {
         totalViolations:
@@ -882,16 +1127,14 @@ export class AnalyticsService {
   async getAssessmentLeaderboard(identifier: string, page = 1, limit = 20) {
     const assessment = await this.resolveAssessment(identifier);
     const targetId = assessment.id;
-    const skip = (page - 1) * limit;
     const completedStatuses = ['submitted', 'auto_submitted', 'timed_out'];
 
-    const [data, total] = await this.attemptRepo.findAndCount({
+    const allAttempts = await this.attemptRepo.find({
       where: [{ assessmentId: targetId, status: In(completedStatuses) }],
       order: { score: 'DESC', timeSpentSeconds: 'ASC' },
-      skip,
-      take: limit,
       select: {
         id: true,
+        studentId: true,
         studentName: true,
         studentEmail: true,
         studentUid: true,
@@ -908,8 +1151,30 @@ export class AnalyticsService {
       },
     });
 
+    // Deduplicate candidates to their single best-performing attempt
+    const studentMap = new Map<string, any>();
+    for (const att of allAttempts) {
+      const studentKey = att.studentId
+        ? String(att.studentId)
+        : att.studentUid || att.id;
+      const existing = studentMap.get(studentKey);
+      if (!existing || (att.score || 0) > (existing.score || 0)) {
+        studentMap.set(studentKey, att);
+      }
+    }
+
+    const deduplicated = Array.from(studentMap.values()).sort(
+      (a, b) =>
+        (b.score || 0) - (a.score || 0) ||
+        (a.timeSpentSeconds || 0) - (b.timeSpentSeconds || 0),
+    );
+
+    const total = deduplicated.length;
+    const skip = (page - 1) * limit;
+    const paged = deduplicated.slice(skip, skip + limit);
+
     return {
-      data: data.map((d) => ({ ...d, _id: d.id })),
+      data: paged.map((d, idx) => ({ ...d, _id: d.id, rank: skip + idx + 1 })),
       pagination: {
         page,
         limit,
@@ -926,7 +1191,7 @@ export class AnalyticsService {
 
     const attempts = await this.attemptRepo.find({
       where: [{ assessmentId: targetId, status: In(completedStatuses) }],
-      select: { id: true, responses: true },
+      select: { id: true, score: true, responses: true },
     });
 
     const definedQuestionIds = new Set<string>();
@@ -950,7 +1215,10 @@ export class AnalyticsService {
       string,
       {
         totalAttempts: number;
+        attemptedCount: number;
+        skippedCount: number;
         correctCount: number;
+        partialCreditCount: number;
         totalTime: number;
         totalMarks: number;
       }
@@ -959,7 +1227,10 @@ export class AnalyticsService {
     for (const qId of definedQuestionIds) {
       questionMap.set(qId, {
         totalAttempts: 0,
+        attemptedCount: 0,
+        skippedCount: 0,
         correctCount: 0,
+        partialCreditCount: 0,
         totalTime: 0,
         totalMarks: 0,
       });
@@ -972,15 +1243,59 @@ export class AnalyticsService {
         const qId = String(resp.questionId);
         const cur = questionMap.get(qId) || {
           totalAttempts: 0,
+          attemptedCount: 0,
+          skippedCount: 0,
           correctCount: 0,
+          partialCreditCount: 0,
           totalTime: 0,
           totalMarks: 0,
         };
         cur.totalAttempts += 1;
-        if (resp.isCorrect) cur.correctCount += 1;
+        if (resp.status !== 'skipped' && resp.isAttempted !== false) {
+          cur.attemptedCount += 1;
+        } else {
+          cur.skippedCount += 1;
+        }
+        if (resp.isCorrect) {
+          cur.correctCount += 1;
+        } else if (resp.partialCredit) {
+          cur.partialCreditCount += 1;
+        }
         cur.totalTime += Number(resp.timeSpentSeconds || 0);
         cur.totalMarks += Number(resp.marksAwarded || 0);
         questionMap.set(qId, cur);
+      }
+    }
+
+    // Calculate Psychometric Discrimination Index (D) across Top 27% and Bottom 27%
+    const n = attempts.length;
+    const topCount = Math.max(1, Math.round(n * 0.27));
+    const sortedAttempts = [...attempts].sort(
+      (a, b) => (b.score || 0) - (a.score || 0),
+    );
+    const topAttempts = sortedAttempts.slice(0, topCount);
+    const bottomAttempts = sortedAttempts.slice(Math.max(0, n - topCount));
+
+    const topCorrectMap = new Map<string, number>();
+    const bottomCorrectMap = new Map<string, number>();
+
+    for (const att of topAttempts) {
+      for (const r of (att.responses || [])) {
+        if (!r.questionId) continue;
+        const qId = String(r.questionId);
+        if (r.isCorrect || r.partialCredit) {
+          topCorrectMap.set(qId, (topCorrectMap.get(qId) || 0) + 1);
+        }
+      }
+    }
+
+    for (const att of bottomAttempts) {
+      for (const r of (att.responses || [])) {
+        if (!r.questionId) continue;
+        const qId = String(r.questionId);
+        if (r.isCorrect || r.partialCredit) {
+          bottomCorrectMap.set(qId, (bottomCorrectMap.get(qId) || 0) + 1);
+        }
       }
     }
 
@@ -988,15 +1303,19 @@ export class AnalyticsService {
     const validUuids = allQuestionIds.filter((id) => this.UUID_REGEX.test(id));
 
     const questions =
-      validUuids.length > 0
+      allQuestionIds.length > 0
         ? await this.questionRepo.find({
-            where: [{ id: In(validUuids) }],
+            where: [
+              ...(validUuids.length > 0 ? [{ id: In(validUuids) }] : []),
+              { mongoId: In(allQuestionIds) },
+            ],
           })
         : [];
 
     const detailsMap = new Map<string, Question>();
     for (const q of questions) {
-      detailsMap.set(q.id, q);
+      if (q.id) detailsMap.set(q.id, q);
+      if (q.mongoId) detailsMap.set(q.mongoId, q);
     }
 
     const questionStats = [];
@@ -1004,16 +1323,33 @@ export class AnalyticsService {
       const q = detailsMap.get(qId);
       const successRate =
         stat.totalAttempts > 0
-          ? (stat.correctCount / stat.totalAttempts) * 100
+          ? ((stat.correctCount + stat.partialCreditCount * 0.5) / stat.totalAttempts) * 100
           : 0;
+
+      const correctInTop = topCorrectMap.get(qId) || 0;
+      const correctInBottom = bottomCorrectMap.get(qId) || 0;
+      const discriminationIndex =
+        n >= 4 && topCount > 0
+          ? Math.round(((correctInTop - correctInBottom) / topCount) * 100) / 100
+          : null;
+      const difficultyP =
+        stat.totalAttempts > 0
+          ? Math.round(((stat.correctCount + stat.partialCreditCount * 0.5) / stat.totalAttempts) * 100) / 100
+          : 0;
+
       questionStats.push({
         questionId: qId,
         title: q?.title || 'Question ' + qId,
         type: q?.questionType || 'mcq',
         difficulty: q?.difficulty || 'Medium',
         totalAttempts: stat.totalAttempts,
+        attemptedCount: stat.attemptedCount,
+        skippedCount: stat.skippedCount,
         correctCount: stat.correctCount,
+        partialCreditCount: stat.partialCreditCount,
         successRate: Math.round(successRate * 10) / 10,
+        difficultyP,
+        discriminationIndex,
         avgTimeSpent:
           stat.totalAttempts > 0
             ? Math.round(stat.totalTime / stat.totalAttempts)
