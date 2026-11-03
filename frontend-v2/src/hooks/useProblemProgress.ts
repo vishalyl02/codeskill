@@ -20,12 +20,21 @@ export function useProblemProgress(problemIds: readonly string[]) {
   const [result, setResult] = useState<{ owner: string; statuses: Record<string, ProblemProgress> } | null>(null);
 
   useEffect(() => {
-    const refresh = () => setRevision(value => value + 1);
-    window.addEventListener(eventName, refresh);
-    window.addEventListener("focus", refresh);
+    let lastFocusFetch = Date.now();
+    const onProgressEvent = () => setRevision(value => value + 1);
+    const onWindowFocus = () => {
+      const now = Date.now();
+      // Only refetch on focus if at least 45 seconds have passed to prevent network storms
+      if (now - lastFocusFetch >= 45_000) {
+        lastFocusFetch = now;
+        setRevision(value => value + 1);
+      }
+    };
+    window.addEventListener(eventName, onProgressEvent);
+    window.addEventListener("focus", onWindowFocus);
     return () => {
-      window.removeEventListener(eventName, refresh);
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener(eventName, onProgressEvent);
+      window.removeEventListener("focus", onWindowFocus);
     };
   }, []);
 

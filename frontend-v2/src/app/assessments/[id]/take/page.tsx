@@ -35,6 +35,7 @@ import SafeExamBrowser from "@/components/assessment/SafeExamBrowser";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "react-hot-toast";
 import { useAssessmentMedia } from "@/hooks/useAssessmentMedia";
+import { MicrophoneLevelIndicator } from "@/components/assessment/MicrophoneLevelIndicator";
 import { releaseAssessmentStream } from "@/lib/assessment-media-session";
 import { AssessmentReadingZoom } from "@/components/assessment/AssessmentReadingZoom";
 import { ResizableAssessmentPanels } from "@/components/assessment/ResizableAssessmentPanels";
@@ -445,6 +446,7 @@ export default function TakeAssessmentPage({
     faceCount,
     faceDetectionStatus,
     stopCamera,
+    subscribeAudioLevel,
   } = useAssessmentMedia(
     id, proctoring?.useCamera !== false && loadedAssessmentId === id && questions.length > 0 && !isLoading && timeLeftSeconds > 0, recordViolation,
     proctoring?.cameraSelectionPolicy || 'student_select',
@@ -638,9 +640,12 @@ export default function TakeAssessmentPage({
     if (!isProctoringActive || loadedAssessmentId !== id || isLoading || isSubmitting) return;
     let cancelled = false;
     let timer: number | undefined;
+    let isCapturing = false;
+
     const capture = async () => {
+      if (cancelled || isCapturing) return;
+      isCapturing = true;
       const examPage = examPageRef.current;
-      if (cancelled) return;
       try {
         if (!examPage) throw new Error("Assessment screen is not available");
         const { default: html2canvas } = await import("html2canvas");
@@ -648,7 +653,7 @@ export default function TakeAssessmentPage({
           backgroundColor: "#f8fafc",
           logging: false,
           useCORS: true,
-          scale: 0.6, // Downscaled from 1.5 to 0.6 to reduce memory usage by 84% and render in ~80ms vs 2000ms
+          scale: 0.45, // Downscaled to 0.45 for rapid ~35ms capture without main-thread jank
           width: window.innerWidth,
           height: window.innerHeight,
           x: window.scrollX,
@@ -659,7 +664,7 @@ export default function TakeAssessmentPage({
           scrollY: window.scrollY,
         });
         if (cancelled) return;
-        const image = canvas.toDataURL("image/jpeg", 0.55);
+        const image = canvas.toDataURL("image/jpeg", 0.45);
         // Explicitly release canvas pixel buffer immediately to free memory
         canvas.width = 0;
         canvas.height = 0;
@@ -692,13 +697,25 @@ export default function TakeAssessmentPage({
         if (!saved && !cancelled) console.warn("Assessment snapshot upload failed after retries:", lastError);
       } catch (error) {
         console.warn("Assessment page snapshot could not be uploaded:", error);
+      } finally {
+        isCapturing = false;
       }
-      if (!cancelled) timer = window.setTimeout(() => void capture(), 45_000);
+      if (!cancelled) timer = window.setTimeout(() => void capture(), 90_000);
     };
-    // Keep snapshots sequential so a slow upload never silently drops a frame.
-    timer = window.setTimeout(() => void capture(), 45_000);
+
+    // Trigger on visibility change (tab switch / blur) for immediate security capture
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void capture();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    // Keep periodic snapshots sequential on a 90s cadence
+    timer = window.setTimeout(() => void capture(), 90_000);
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [id, isLoading, isSubmitting, loadedAssessmentId, proctoring?.mode]);
@@ -729,11 +746,19 @@ export default function TakeAssessmentPage({
     }
   }, [id, isLoading, isSubmitting, loadedAssessmentId, submitExam, timeLeftSeconds, attemptDeadlineAt]);
 
-  // 5. Autosave Progress Interval (Every 15 Seconds)
+  // 5. Smart Autosave Progress Interval (Only transmits when responses or violations change)
+  const lastSavedFingerprintRef = useRef<string>("");
+
   useEffect(() => {
     if (isLoading) return;
 
     const autosaveInterval = setInterval(async () => {
+      const currentFingerprint = JSON.stringify(responsesRef.current) + `:${violationsRef.current.length}`;
+      if (currentFingerprint === lastSavedFingerprintRef.current) {
+        // No modifications since last successful sync; avoid redundant network traffic
+        return;
+      }
+
       const formattedResponses = questions.map((q) => {
         const r = responsesRef.current[q._id];
         return {
@@ -754,6 +779,7 @@ export default function TakeAssessmentPage({
           timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
           violations: violationsRef.current,
         });
+        lastSavedFingerprintRef.current = currentFingerprint;
       } catch (e) {
         // Silent background save
       }
@@ -1844,18 +1870,10 @@ export default function TakeAssessmentPage({
                   </div>
 
                   {/* Voice level meter */}
-                  <div className="flex-1 max-w-[120px] h-2 bg-muted rounded-full overflow-hidden border border-border">
-                    <div
-                      className={`h-full transition-all duration-100 ${
-                        audioLevel > 40 ? "bg-rose-500" : "bg-emerald-500"
-                      }`}
-                      style={{ width: `${audioLevel}%` }}
-                    />
-                  </div>
-
-                  <span className="text-[10px] font-mono text-muted-foreground">
-                    {audioLevel > 40 ? "Loud" : "Quiet"}
-                  </span>
+                  <MicrophoneLevelIndicator
+                    subscribeAudioLevel={subscribeAudioLevel}
+                    fallbackLevel={audioLevel}
+                  />
                 </div>
 
                 <div

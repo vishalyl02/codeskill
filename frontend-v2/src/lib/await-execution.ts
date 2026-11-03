@@ -11,10 +11,14 @@ export async function awaitExecution<T extends Response>(
   if (!response.data?.jobId) return response;
   const jobId = String(response.data.jobId);
   const deadline = Date.now() + (options.timeoutMs ?? 180000);
+  let currentInterval = options.intervalMs ?? 800;
   while (Date.now() < deadline) {
     await new Promise((resolve) =>
-      setTimeout(resolve, options.intervalMs ?? 800),
+      setTimeout(resolve, currentInterval),
     );
+    if (!options.intervalMs) {
+      currentInterval = Math.min(2500, Math.round(currentInterval * 1.25));
+    }
     const update = await poll(jobId);
     if (update.data?.jobId && !Array.isArray(update.data.results)) continue;
     const data = update.data;

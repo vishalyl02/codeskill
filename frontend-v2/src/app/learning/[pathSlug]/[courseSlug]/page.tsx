@@ -34,7 +34,8 @@ import {
   Lock,
   LogIn,
 } from "lucide-react";
-import Editor from "@monaco-editor/react";
+import dynamic from "next/dynamic";
+const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 import { learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";

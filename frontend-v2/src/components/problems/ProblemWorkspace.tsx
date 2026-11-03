@@ -20,7 +20,8 @@ import { publicProblemRunCases } from "@/lib/problem-run-cases";
 import Link from "next/link";
 import { useState, useEffect, useCallback, useMemo, use, useRef } from "react";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
-import Editor from "@monaco-editor/react";
+import dynamic from "next/dynamic";
+const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 import { submissionAPI, runAPI, problemsAPI, discussionsAPI } from "@/config/api";
 import { useTheme } from "@/context/ThemeContext";
 import { Spinner } from "@/components/ui/spinner";
@@ -119,7 +120,19 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
   });
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
   const [code, setCode] = useState<string>("");
+  const codeRef = useRef<string>("");
+  const debounceCodeTimer = useRef<NodeJS.Timeout | null>(null);
   const editorCode = hideEntryPoint(code, language)?.visibleCode ?? code;
+
+  const handleCodeChange = useCallback((val: string | undefined) => {
+    const full = updateSourceFromVisibleEditor(codeRef.current || code, val || "", language);
+    codeRef.current = full;
+    if (debounceCodeTimer.current) clearTimeout(debounceCodeTimer.current);
+    debounceCodeTimer.current = setTimeout(() => {
+      setCode(full);
+      setRunResult(null);
+    }, 350);
+  }, [code, language]);
 
   const [vimMode, setVimMode] = useState(false);
   const [editorInst, setEditorInst] = useState<any>(null);
@@ -178,11 +191,13 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
     const storageKey = `codeskill_draft_${problem.slug}_${language}`;
     const savedDraft = localStorage.getItem(storageKey);
     if (savedDraft) {
+      codeRef.current = savedDraft;
       setCode(savedDraft);
     } else {
       // Use starter code from problem config if available, else language default
       const starterCode = editorStarterCode(problem.config?.starterCode, language);
       const defaultCode = starterCode || LANGUAGES.find(l => l.id === language)?.defaultCode || "";
+      codeRef.current = defaultCode;
       setCode(defaultCode);
     }
   }, [problem, language]);
@@ -198,9 +213,24 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
   useEffect(() => {
     if (!embedded || !problem) return;
     return () => {
-      try { localStorage.setItem(`codeskill_draft_${problem.slug}_${language}`, code); } catch { /* Storage may be unavailable. */ }
+      try { localStorage.setItem(`codeskill_draft_${problem.slug}_${language}`, codeRef.current || code); } catch { /* Storage may be unavailable. */ }
     };
   }, [embedded, problem, language, code]);
+
+  // Synchronously persist latest draft if tab is closed or reloaded mid-keystroke
+  useEffect(() => {
+    if (!problem) return;
+    const onBeforeUnload = () => {
+      const activeCode = codeRef.current || code;
+      if (activeCode) {
+        try {
+          localStorage.setItem(`codeskill_draft_${problem.slug}_${language}`, activeCode);
+        } catch { /* storage full / disabled */ }
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [problem, language, code]);
 
   // Autosave
   useEffect(() => {
@@ -345,7 +375,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
     }
 
     const response = await runAPI.run({
-      code,
+      code: codeRef.current || code,
       language,
       executionId,
       testCases: apiTestCases,
@@ -479,7 +509,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
       const submitRes = await submissionAPI.submit({
         problemId: problem._id || problem.id,
         language,
-        code,
+        code: codeRef.current || code,
         category: problem.categories?.[0] || "General",
         difficulty: problem.difficulty,
       });
@@ -564,14 +594,16 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
     if (!problem) return;
     const starterCode = editorStarterCode(problem.config?.starterCode, language);
     const defaultCode = starterCode || LANGUAGES.find(l => l.id === language)?.defaultCode || "";
+    codeRef.current = defaultCode;
     setCode(defaultCode);
     localStorage.removeItem(`codeskill_draft_${problem.slug}_${language}`);
   };
 
   const handleCopyCode = async () => {
+    const textToCopy = codeRef.current || code;
     try {
       if (typeof document !== "undefined" && document.hasFocus() && navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(code);
+        await navigator.clipboard.writeText(textToCopy);
         return;
       }
     } catch (e) {
@@ -579,7 +611,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
     }
     try {
       const textArea = document.createElement("textarea");
-      textArea.value = code;
+      textArea.value = textToCopy;
       textArea.style.position = "fixed";
       textArea.style.left = "-9999px";
       document.body.appendChild(textArea);
@@ -1375,7 +1407,7 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
                       language={language}
                       theme={editorTheme}
                       value={editorCode}
-                      onChange={(val) => setCode(updateSourceFromVisibleEditor(code, val || "", language))}
+                      onChange={handleCodeChange}
                       onMount={handleEditorMount}
                       options={{
                         minimap: { enabled: true, maxColumn: 80, scale: 1 },

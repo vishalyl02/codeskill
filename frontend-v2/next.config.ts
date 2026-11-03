@@ -3,6 +3,15 @@ import path from "path";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@react-pdf/renderer"],
+  experimental: {
+    optimizePackageImports: [
+      "lucide-react",
+      "@hugeicons/react",
+      "dayjs",
+      "recharts",
+      "framer-motion",
+    ],
+  },
   webpack: (config) => {
     // MediaPipe's prebuilt bundle contains an unused computed import.
     // https://github.com/google-ai-edge/mediapipe/issues/6285

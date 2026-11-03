@@ -519,6 +519,11 @@ export class ProblemsService {
       )
     )
       throw new NotFoundException('Problem not found');
+
+    const cacheKey = `problem:exec:${id}:${source || 'any'}`;
+    const cached = await this.cacheService.get<ExecutionProblem>(cacheKey);
+    if (cached) return cached;
+
     if (!source || source === 'metadata') {
       const metadata = await this.metadataRepository.findOne({
         where: { id },
@@ -528,7 +533,7 @@ export class ProblemsService {
         if (!published(metadata.visibility))
           throw new NotFoundException('Problem not found');
         const config = metadata.config;
-        return {
+        const resolved: ExecutionProblem = {
           id: metadata.id,
           source: 'metadata',
           title: metadata.title,
@@ -546,6 +551,8 @@ export class ProblemsService {
             customCheckerCode: config?.customCheckerCode,
           },
         };
+        await this.cacheService.set(cacheKey, resolved, 300);
+        return resolved;
       }
       if (source === 'metadata')
         throw new NotFoundException('Problem not found');
@@ -558,7 +565,7 @@ export class ProblemsService {
           (await this.hasMetadataCounterpart(question))
         )
           throw new NotFoundException('Problem not found');
-        return {
+        const resolved: ExecutionProblem = {
           id: question.id,
           source: 'question',
           title: text(question.title) || question.question,
@@ -566,6 +573,8 @@ export class ProblemsService {
           testCases: cases(question.testCases),
           config: this.bankConfig(question),
         };
+        await this.cacheService.set(cacheKey, resolved, 300);
+        return resolved;
       }
       if (source === 'question')
         throw new NotFoundException('Problem not found');
@@ -580,7 +589,7 @@ export class ProblemsService {
       (await this.hasBankCounterpart(problem))
     )
       throw new NotFoundException('Problem not found');
-    return {
+    const resolved: ExecutionProblem = {
       id: problem.id,
       source: 'problem',
       title: problem.title,
@@ -592,6 +601,8 @@ export class ProblemsService {
         supportedLanguages: strings(problem.supportedLanguages),
       },
     };
+    await this.cacheService.set(cacheKey, resolved, 300);
+    return resolved;
   }
 
   async getQuestionById(id: string): Promise<Question | null> {

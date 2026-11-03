@@ -67,10 +67,14 @@ export async function awaitSubmission(
   if (!id) throw new Error("The server did not return a submission ID.");
   onStatus?.(response.data.status || "queued");
   const deadline = Date.now() + (options.timeoutMs ?? 180000);
+  let currentInterval = options.intervalMs ?? 800;
   while (Date.now() < deadline) {
     await new Promise((resolve) =>
-      setTimeout(resolve, options.intervalMs ?? 800),
+      setTimeout(resolve, currentInterval),
     );
+    if (!options.intervalMs) {
+      currentInterval = Math.min(2500, Math.round(currentInterval * 1.25));
+    }
     const { data } = await poll(id);
     if (pendingSubmissionStatuses.includes(data.status)) {
       onStatus?.(data.status);
