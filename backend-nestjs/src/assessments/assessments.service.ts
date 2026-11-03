@@ -116,11 +116,337 @@ export class AssessmentsService {
     const durationMinutes = Number(assessment.durationMinutes) > 0
       ? Number(assessment.durationMinutes)
       : 45;
-    const durationDeadline = new Date(attempt.startedAt).getTime() + durationMinutes * 60_000;
+    const startedAtTime = attempt.startedAt
+      ? new Date(attempt.startedAt).getTime()
+      : Date.now();
+    const durationDeadline = startedAtTime + durationMinutes * 60_000;
     const windowDeadline = assessment.endTime
       ? new Date(assessment.endTime).getTime()
       : Infinity;
     return new Date(Math.min(durationDeadline, windowDeadline));
+  }
+
+  isAttemptExpired(assessment: Assessment, attempt: AssessmentAttempt): boolean {
+    if (attempt.status !== 'in_progress') {
+      return false;
+    }
+    const expiresAt = this.attemptExpiresAt(assessment, attempt);
+    return Date.now() >= expiresAt.getTime();
+  }
+
+  async autoFinalizeAttempt(
+    assessment: Assessment,
+    attempt: AssessmentAttempt,
+    targetStatus: 'timed_out' | 'auto_submitted' = 'timed_out',
+  ): Promise<AssessmentAttempt> {
+    if (attempt.status !== 'in_progress' && attempt.status !== 'evaluating') {
+      return attempt;
+    }
+
+    if (attempt.status === 'in_progress' && typeof this.attemptRepo.update === 'function') {
+      const transitionResult = await this.attemptRepo.update(
+        { id: attempt.id, status: 'in_progress' },
+        { status: 'evaluating' as any },
+      );
+      if (transitionResult && transitionResult.affected === 0) {
+        const reloaded = await this.attemptRepo.findOne({ where: { id: attempt.id } });
+        return reloaded || attempt;
+      }
+    }
+    attempt.status = 'evaluating' as any;
+
+    try {
+      const questionIds = assessment.questions || [];
+      const questions =
+        questionIds.length > 0
+          ? await this.questionRepo.find({
+              where: [{ id: In(questionIds) }, { mongoId: In(questionIds) }],
+            })
+          : [];
+      const questionMap = new Map(questions.map((q) => [q.id, q]));
+
+      const rawResponses = Array.isArray(attempt.responses) ? attempt.responses : [];
+      const responseMap = new Map<string, any>(
+        rawResponses.map((r: any) => [String(r.questionId), r]),
+      );
+
+      const orderedQuestionIds =
+        Array.isArray(attempt.questionOrder) && attempt.questionOrder.length > 0
+          ? attempt.questionOrder
+          : questionIds;
+
+      const evaluatedResponses = await Promise.all(
+        orderedQuestionIds.map(async (qIdStr) => {
+          const qId = String(qIdStr);
+          const q = questionMap.get(qId);
+          const r = responseMap.get(qId) || { questionId: qId };
+
+          if (!q) {
+            return {
+              questionId: qId,
+              selectedAnswer: r.selectedAnswer ?? -1,
+              isCorrect: false,
+              marksAwarded: 0,
+              timeSpentSeconds: r.timeSpentSeconds || 0,
+              status: 'skipped',
+              isAttempted: false,
+              partialCredit: false,
+            };
+          }
+
+          const qType = (q.questionType || '').toLowerCase();
+          const optionOrder = this.getQuestionOptionOrderByQuestionId(attempt, q.id);
+          const selectedAnswer = this.mapDisplayedAnswerToCanonical(
+            r.selectedAnswer,
+            optionOrder,
+          ) as number | undefined;
+          const selectedAnswers = this.mapDisplayedAnswerToCanonical(
+            r.selectedAnswers,
+            optionOrder,
+          ) as number[] | undefined;
+          const isCoding =
+            qType === 'coding' || qType === 'algorithmic' || qType === 'dsa';
+
+          let isAttempted = false;
+          let isCorrect = false;
+          let marksAwarded = 0;
+          let testCasesPassed = 0;
+          let totalTestCases = 0;
+          let partialCredit = false;
+
+          if (isCoding) {
+            const hasCode = r.code && typeof r.code === 'string' && r.code.trim().length > 0;
+            if (hasCode) {
+              isAttempted = true;
+              const testCases = codingTestCases(q);
+              totalTestCases = testCases.length;
+
+              if (this.executionService && totalTestCases > 0) {
+                try {
+                  const tcInputs = testCases.map((tc, idx) => ({
+                    id: tc.id || idx + 1,
+                    input: tc.input || '',
+                    expected: tc.expected,
+                  }));
+                  const results = await this.executionService.runCode(
+                    r.code,
+                    r.language || 'python',
+                    tcInputs,
+                    { timeLimit: Math.min(q.timeLimit || 2, 2), memoryLimit: q.memoryLimit },
+                  );
+                  testCasesPassed = results.filter((res) => res.passed).length;
+                } catch (execErr: any) {
+                  this.logger.warn({
+                    message: `Auto-finalize code execution skipped or failed for question ${q.id}`,
+                    error: execErr?.message || String(execErr),
+                  });
+                  testCasesPassed = 0;
+                }
+              } else {
+                testCasesPassed = 0;
+              }
+
+              const ratio =
+                totalTestCases > 0
+                  ? Math.min(1, Math.max(0, testCasesPassed / totalTestCases))
+                  : 0;
+              marksAwarded = Math.round(ratio * (q.marks || 5) * 10) / 10;
+              isCorrect = ratio >= 0.99;
+              partialCredit = ratio > 0 && !isCorrect;
+            }
+          } else {
+            const isMulti =
+              qType === 'multiple_choice' ||
+              (Array.isArray(q.correctAnswers) && q.correctAnswers.length > 0);
+
+            if (isMulti) {
+              const selectedList = Array.isArray(selectedAnswers)
+                ? selectedAnswers
+                : selectedAnswer !== undefined && selectedAnswer >= 0
+                  ? [selectedAnswer]
+                  : [];
+              isAttempted = selectedList.length > 0;
+              if (isAttempted) {
+                const correctList = Array.isArray(q.correctAnswers)
+                  ? q.correctAnswers
+                  : [q.correctAnswer];
+                const sortedSelected = [...selectedList].sort((a, b) => a - b);
+                const sortedCorrect = [...correctList].sort((a, b) => a - b);
+                isCorrect =
+                  sortedSelected.length === sortedCorrect.length &&
+                  sortedSelected.every((val, idx) => val === sortedCorrect[idx]);
+
+                if (isCorrect) {
+                  marksAwarded = q.marks || 1;
+                } else {
+                  const negMarks = assessment.negativeMarking
+                    ? q.negativeMarks || 0
+                    : 0;
+                  marksAwarded = negMarks > 0 ? -negMarks : 0;
+                }
+              }
+            } else {
+              isAttempted = selectedAnswer !== undefined && selectedAnswer >= 0;
+              if (isAttempted) {
+                isCorrect = selectedAnswer === q.correctAnswer;
+                if (isCorrect) {
+                  marksAwarded = q.marks || 1;
+                } else {
+                  const negMarks = assessment.negativeMarking
+                    ? q.negativeMarks || 0
+                    : 0;
+                  marksAwarded = negMarks > 0 ? -negMarks : 0;
+                }
+              }
+            }
+          }
+
+          return {
+            questionId: q.id,
+            selectedAnswer: selectedAnswer ?? -1,
+            selectedAnswers,
+            optionOrder,
+            code: r.code || '',
+            language: r.language || 'python',
+            testCasesPassed,
+            totalTestCases,
+            isCorrect,
+            marksAwarded,
+            timeSpentSeconds: r.timeSpentSeconds || 0,
+            status: isAttempted ? 'answered' : 'skipped',
+            isAttempted,
+            partialCredit,
+          };
+        }),
+      );
+
+      let totalScore = 0;
+      let totalAttempted = 0;
+      let totalCorrect = 0;
+      let totalWrong = 0;
+      let totalSkipped = 0;
+
+      for (const er of evaluatedResponses) {
+        totalScore += er.marksAwarded;
+        if (er.isAttempted) {
+          totalAttempted++;
+          if (er.isCorrect || er.partialCredit) {
+            totalCorrect++;
+          } else {
+            totalWrong++;
+          }
+        } else {
+          totalSkipped++;
+        }
+      }
+
+      const maxScore = assessment.totalMarks || 1;
+      const rawScore = Math.min(
+        maxScore,
+        Math.max(0, Math.round(totalScore * 100) / 100),
+      );
+
+      const violations = Array.isArray(attempt.violations) ? attempt.violations : [];
+      const penaltyPerViolation =
+        Number(assessment.proctoring?.violationPenaltyMarks) || 0;
+      const isPartialProctored =
+        assessment.proctoring?.mode === 'partial_proctored' ||
+        (!assessment.proctoring?.autoSubmitOnViolation && penaltyPerViolation > 0);
+      const proctoringPenalty = isPartialProctored
+        ? Math.round(violations.length * penaltyPerViolation * 100) / 100
+        : 0;
+
+      const finalScore = Math.max(
+        0,
+        Math.round((rawScore - proctoringPenalty) * 100) / 100,
+      );
+      const percentage = Math.round((finalScore / maxScore) * 1000) / 10;
+      const passed = finalScore >= (assessment.passingMarks || 0);
+      const accuracy =
+        totalAttempted > 0
+          ? Math.round((totalCorrect / totalAttempted) * 100)
+          : 0;
+
+      const tabSwitches = violations.filter(
+        (v: any) => v.type === 'tab_switch',
+      ).length;
+      const fullscreenExits = violations.filter(
+        (v: any) => v.type === 'fullscreen_exit',
+      ).length;
+
+      const studentId = attempt.studentId;
+      const prevAttempts = studentId
+        ? await this.attemptRepo.find({
+            where: [
+              {
+                assessmentId: assessment.id,
+                studentId,
+                status: In(['submitted', 'auto_submitted', 'timed_out']),
+                id: Not(attempt.id),
+              },
+            ],
+          })
+        : [];
+
+      const prevMax =
+        prevAttempts.length > 0
+          ? Math.max(...prevAttempts.map((a) => a.score || 0))
+          : 0;
+      const finalHighestScore = Math.max(finalScore, prevMax);
+
+      const durationSeconds = (assessment.durationMinutes || 45) * 60;
+      const elapsedSeconds = attempt.startedAt
+        ? Math.floor((Date.now() - new Date(attempt.startedAt).getTime()) / 1000)
+        : durationSeconds;
+      const timeSpentSeconds = attempt.timeSpentSeconds
+        ? Math.max(attempt.timeSpentSeconds, Math.min(elapsedSeconds, durationSeconds))
+        : Math.min(elapsedSeconds, durationSeconds);
+
+      attempt.status = targetStatus;
+      attempt.submittedAt = attempt.submittedAt || new Date();
+      attempt.timeSpentSeconds = timeSpentSeconds;
+      attempt.responses = evaluatedResponses;
+      attempt.rawScore = rawScore;
+      attempt.proctoringPenalty = proctoringPenalty;
+      attempt.score = finalScore;
+      attempt.highestScore = finalHighestScore;
+      attempt.maxScore = maxScore;
+      attempt.percentage = percentage;
+      attempt.passed = passed || prevMax >= (assessment.passingMarks || 0);
+      attempt.totalAttempted = totalAttempted;
+      attempt.totalCorrect = totalCorrect;
+      attempt.totalWrong = totalWrong;
+      attempt.totalSkipped = totalSkipped;
+      attempt.accuracy = accuracy;
+      attempt.tabSwitchCount = tabSwitches;
+      attempt.fullscreenExitCount = fullscreenExits;
+      attempt.submissionPolicy = 'auto';
+
+      await this.attemptRepo.save(attempt);
+
+      this.logger.log({
+        event: 'ASSESSMENT_ATTEMPT_AUTO_FINALIZED',
+        assessmentId: assessment.id,
+        attemptId: attempt.id,
+        studentId,
+        score: finalScore,
+        percentage,
+        passed: attempt.passed,
+        status: attempt.status,
+      });
+
+      return attempt;
+    } catch (err) {
+      this.logger.error({
+        message: `Failed to auto-finalize attempt ${attempt.id}`,
+        error: (err as any)?.message || String(err),
+      });
+      attempt.status = targetStatus;
+      attempt.submittedAt = attempt.submittedAt || new Date();
+      attempt.submissionPolicy = 'auto';
+      await this.attemptRepo.save(attempt);
+      return attempt;
+    }
   }
 
   private resumeDetails(assessment: Assessment, attempt: AssessmentAttempt) {
@@ -1053,6 +1379,13 @@ export class AssessmentsService {
       order: { score: 'DESC', timeSpentSeconds: 'ASC' },
     });
 
+    // Auto-finalize any overdue in_progress attempts
+    for (const att of attempts) {
+      if (att.status === 'in_progress' && this.isAttemptExpired(assessment, att)) {
+        await this.autoFinalizeAttempt(assessment, att, 'timed_out');
+      }
+    }
+
     // Deduplicate / Aggregate by student: group attempts per unique student
     const studentAttemptsMap = new Map<string, any[]>();
     for (const att of attempts) {
@@ -1067,7 +1400,7 @@ export class AssessmentsService {
     const uniqueCandidates = Array.from(studentAttemptsMap.entries()).map(
       ([key, studentAttempts]) => {
         const submitted = studentAttempts.filter(
-          (a) => a.status === 'submitted' || a.status === 'auto_submitted',
+          (a) => a.status === 'submitted' || a.status === 'auto_submitted' || a.status === 'timed_out',
         );
         const best =
           submitted.length > 0
@@ -1126,7 +1459,7 @@ export class AssessmentsService {
 
     const totalCandidates = uniqueCandidates.length;
     const submittedCandidates = uniqueCandidates.filter(
-      (c) => c.status === 'submitted' || c.status === 'auto_submitted',
+      (c) => c.status === 'submitted' || c.status === 'auto_submitted' || c.status === 'timed_out',
     );
     const submittedCount = submittedCandidates.length;
     const passedCount = uniqueCandidates.filter((c) => c.passed).length;
@@ -1164,7 +1497,7 @@ export class AssessmentsService {
             : 0,
         avgScore,
         totalSubmissionsCount: attempts.filter(
-          (a) => a.status === 'submitted' || a.status === 'auto_submitted',
+          (a) => a.status === 'submitted' || a.status === 'auto_submitted' || a.status === 'timed_out',
         ).length,
       },
       attempts: uniqueCandidates,
@@ -1355,12 +1688,23 @@ export class AssessmentsService {
         })
       : [];
 
+    for (const att of existingAttempts) {
+      if (att.status === 'in_progress') {
+        const matchingAssessment = filteredAssessments.find(
+          (a) => a.id === att.assessmentId || a.mongoId === att.assessmentId,
+        );
+        if (matchingAssessment && this.isAttemptExpired(matchingAssessment, att)) {
+          await this.autoFinalizeAttempt(matchingAssessment, att, 'timed_out');
+        }
+      }
+    }
+
     const items = filteredAssessments.map((a) => {
       const allForAssessment = existingAttempts.filter(
         (att) => att.assessmentId === a.id || att.assessmentId === a.mongoId,
       );
       const submittedAttempts = allForAssessment.filter(
-        (att) => att.status === 'submitted' || att.status === 'auto_submitted',
+        (att) => att.status === 'submitted' || att.status === 'auto_submitted' || att.status === 'timed_out',
       );
       const isCompleted = submittedAttempts.length > 0;
       const inProgressAttempt = allForAssessment.find(
@@ -1455,10 +1799,17 @@ export class AssessmentsService {
       order: { score: 'DESC', startedAt: 'DESC' },
     });
 
-    const submittedAttempts = allAttempts.filter(
-      (a) => a.status === 'submitted' || a.status === 'auto_submitted',
-    );
     const inProgressAttempt = allAttempts.find(
+      (a) => a.status === 'in_progress',
+    );
+    if (inProgressAttempt && this.isAttemptExpired(assessment, inProgressAttempt)) {
+      await this.autoFinalizeAttempt(assessment, inProgressAttempt, 'timed_out');
+    }
+
+    const submittedAttempts = allAttempts.filter(
+      (a) => a.status === 'submitted' || a.status === 'auto_submitted' || a.status === 'timed_out',
+    );
+    const activeInProgressAttempt = allAttempts.find(
       (a) => a.status === 'in_progress',
     );
 
@@ -1473,7 +1824,7 @@ export class AssessmentsService {
         : null;
 
     const latestAttempt =
-      inProgressAttempt || (allAttempts.length > 0 ? allAttempts[0] : null);
+      activeInProgressAttempt || (allAttempts.length > 0 ? allAttempts[0] : null);
 
     const now = new Date();
     let isAvailable =
@@ -1590,7 +1941,7 @@ export class AssessmentsService {
           {
             assessmentId: assessment.id,
             studentId,
-            status: In(['submitted', 'auto_submitted']),
+            status: In(['submitted', 'auto_submitted', 'timed_out']),
           },
         ],
         order: { score: 'DESC' },
@@ -2062,7 +2413,7 @@ export class AssessmentsService {
     }
 
     // NEW-003: Idempotent submission: if already submitted, return the final scorecard
-    if (attempt.status === 'submitted' || attempt.status === 'auto_submitted') {
+    if (attempt.status === 'submitted' || attempt.status === 'auto_submitted' || attempt.status === 'timed_out') {
       return this.getStudentResult(assessment.id, studentUser);
     }
 
@@ -2099,7 +2450,7 @@ export class AssessmentsService {
         );
         if (transitionResult && transitionResult.affected === 0) {
           const rechecked = await this.attemptRepo.findOne({ where: { id: attempt.id } });
-          if (rechecked?.status === 'submitted' || rechecked?.status === 'auto_submitted') {
+          if (rechecked?.status === 'submitted' || rechecked?.status === 'auto_submitted' || rechecked?.status === 'timed_out') {
             return this.getStudentResult(assessment.id, studentUser);
           }
           throw new ConflictException(
@@ -2398,7 +2749,7 @@ export class AssessmentsService {
         {
           assessmentId: assessment.id,
           studentId,
-          status: In(['submitted', 'auto_submitted']),
+          status: In(['submitted', 'auto_submitted', 'timed_out']),
           id: Not(attempt.id),
         },
       ],
@@ -2497,16 +2848,31 @@ export class AssessmentsService {
     }
 
     const studentId = String(studentUser.id || studentUser._id);
-    const attempt = await this.attemptRepo.findOne({
+    let attempt = await this.attemptRepo.findOne({
       where: [
         {
           assessmentId: assessment.id,
           studentId,
-          status: In(['submitted', 'auto_submitted']),
+          status: In(['submitted', 'auto_submitted', 'timed_out']),
         },
       ],
       order: { score: 'DESC', submittedAt: 'DESC' },
     });
+
+    if (!attempt) {
+      const inProgressAttempt = await this.attemptRepo.findOne({
+        where: [
+          {
+            assessmentId: assessment.id,
+            studentId,
+            status: 'in_progress',
+          },
+        ],
+      });
+      if (inProgressAttempt && this.isAttemptExpired(assessment, inProgressAttempt)) {
+        attempt = await this.autoFinalizeAttempt(assessment, inProgressAttempt, 'timed_out');
+      }
+    }
 
     if (!attempt) {
       throw new BadRequestException('No completed assessment attempt found.');
@@ -2570,7 +2936,7 @@ export class AssessmentsService {
         {
           assessmentId: assessment.id,
           studentId,
-          status: In(['submitted', 'auto_submitted']),
+          status: In(['submitted', 'auto_submitted', 'timed_out']),
         },
       ],
     });
@@ -2669,6 +3035,7 @@ export class AssessmentsService {
       },
       attempt: {
         _id: attempt.id,
+        status: attempt.status,
         score: attempt.score,
         rawScore: attempt.rawScore ?? attempt.score,
         proctoringPenalty: attempt.proctoringPenalty ?? 0,
