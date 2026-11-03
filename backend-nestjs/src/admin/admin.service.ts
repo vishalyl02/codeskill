@@ -354,8 +354,11 @@ export class AdminService {
   }
 
   async getReport(userId: string) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
+
     const user = await this.userRepo.findOne({
-      where: [{ id: userId }, { mongoId: userId }],
+      where: isUuid ? [{ id: userId }, { mongoId: userId }] : [{ mongoId: userId }],
     });
     if (!user) throw new NotFoundException('User not found');
 
@@ -364,10 +367,53 @@ export class AdminService {
       order: { createdAt: 'DESC' },
     });
 
+    const totalSubmissions = submissions.length;
+    const acceptedSubmissions = submissions.filter((s) => s.status === 'Accepted').length;
+    const acceptanceRate = totalSubmissions > 0
+      ? Math.round((acceptedSubmissions / totalSubmissions) * 100)
+      : 0;
+
     const stats = {
-      totalSubmissions: submissions.length,
-      accepted: submissions.filter((s) => s.status === 'Accepted').length,
+      totalSubmissions,
+      accepted: acceptedSubmissions,
+      acceptedSubmissions,
+      acceptanceRate,
     };
+
+    const slice = submissions.slice(0, 10);
+    const problemIds = [...new Set(slice.map((s) => s.problemId).filter(Boolean))];
+    const problemMap = new Map<string, string>();
+
+    if (problemIds.length > 0 && this.problemModel) {
+      try {
+        const isUuidProblem = (id: string) =>
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        const uuidIds = problemIds.filter(isUuidProblem);
+        const nonUuidIds = problemIds.filter((id) => !isUuidProblem(id));
+
+        const whereClauses: any[] = [];
+        if (uuidIds.length > 0) {
+          whereClauses.push({ id: In(uuidIds) });
+          whereClauses.push({ mongoId: In(uuidIds) });
+        }
+        if (nonUuidIds.length > 0) {
+          whereClauses.push({ mongoId: In(nonUuidIds) });
+        }
+
+        if (whereClauses.length > 0) {
+          const problems = await this.problemModel.find({
+            where: whereClauses,
+            select: { id: true, mongoId: true, title: true },
+          });
+          for (const p of problems) {
+            if (p.id) problemMap.set(p.id, p.title);
+            if (p.mongoId) problemMap.set(p.mongoId, p.title);
+          }
+        }
+      } catch {
+        // Fallback gracefully if problem metadata query fails
+      }
+    }
 
     const { password, ...userWithoutPassword } = user;
 
@@ -375,9 +421,15 @@ export class AdminService {
       report: {
         user: { ...userWithoutPassword, _id: user.id },
         stats,
-        recentSubmissions: submissions.slice(0, 10).map((s) => ({
+        recentSubmissions: slice.map((s) => ({
           ...s,
           _id: s.id,
+          problem: {
+            title:
+              problemMap.get(s.problemId) ||
+              (s as any).problem?.title ||
+              'Coding Practice Problem',
+          },
         })),
       },
     };

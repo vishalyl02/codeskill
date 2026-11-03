@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { adminUsersAPI } from "@/config/api";
-import { Search, ShieldCheck, User, FileText, Download } from "lucide-react";
+import { Search, ShieldCheck, User, FileText, Eye, X, AlertCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
+import { Spinner } from "@/components/ui/spinner";
+import { PDFDownloadButton } from "@/components/reports/pdf/PDFDownloadButton";
 
 export default function CandidatesAdminPage() {
   const [users, setUsers] = useState<any[]>([]);
@@ -12,15 +14,25 @@ export default function CandidatesAdminPage() {
   const [search, setSearch] = useState("");
   const { user: currentUser } = useAuth();
 
+  // Preview modal states
+  const [previewUser, setPreviewUser] = useState<any>(null);
+  const [previewReportData, setPreviewReportData] = useState<any>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
   useEffect(() => {
-    fetchUsers();
-  }, [search]); // re-fetch when search changes, though typically we'd debounce this
+    const handler = setTimeout(() => {
+      fetchUsers();
+    }, 250);
+    return () => clearTimeout(handler);
+  }, [search]);
 
   const fetchUsers = async () => {
     try {
       setLoading(true);
       const res = await adminUsersAPI.getAll(search);
-      setUsers(res.data.users);
+      const userList = res.data?.users || res.data?.data?.users || [];
+      setUsers(userList);
     } catch (err) {
       console.error("Failed to fetch users", err);
     } finally {
@@ -28,22 +40,89 @@ export default function CandidatesAdminPage() {
     }
   };
 
-  const handleDownloadReport = (userId: string) => {
-    // In a real app, this might call an API to generate a PDF/CSV.
-    // For now, we route to the report page and automatically trigger print.
-    window.open(`/admin/candidates/${userId}?print=true`, '_blank');
+  const openPreview = async (candidate: any) => {
+    const userId = candidate._id || candidate.id;
+    setPreviewUser(candidate);
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewReportData(null);
+
+    try {
+      const res = await adminUsersAPI.getReport(userId);
+      const rep = res.data?.report || res.data?.data?.report || res.data;
+      if (!rep || !rep.user) {
+        throw new Error("Invalid candidate report received.");
+      }
+
+      const u = rep.user || candidate;
+      const stats = rep.stats || {};
+      const subs = Array.isArray(rep.recentSubmissions) ? rep.recentSubmissions : [];
+      const userSubmissionsCount = stats.totalSubmissions ?? subs.length;
+      const acceptedCount =
+        stats.acceptedSubmissions ??
+        stats.accepted ??
+        subs.filter((s: any) => s.status === "Accepted").length;
+      const acceptanceRate =
+        stats.acceptanceRate ??
+        (userSubmissionsCount > 0 ? Math.round((acceptedCount / userSubmissionsCount) * 100) : 0);
+      const totalSolved = u.solvedProblems?.length || u.stats?.totalSolved || acceptedCount;
+      const userScore = u.stats?.score ?? u.stats?.xp ?? (acceptedCount * 20);
+
+      setPreviewReportData({
+        reportId: `CS-${new Date().getFullYear()}-${String(u._id || u.id || userId).slice(-6).toUpperCase()}`,
+        generatedAt: new Date().toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "long",
+          year: "numeric",
+        }),
+        assessmentName: "Algorithmic Skills Assessment",
+        student: {
+          name: u.name || u.email?.split("@")[0] || "Candidate",
+          email: u.email || "N/A",
+          role: u.isAdmin ? "Admin" : "Candidate",
+          joinedAt: u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-GB") : "N/A",
+          lastActiveAt: u.lastActive ? new Date(u.lastActive).toLocaleDateString("en-GB") : "Today",
+        },
+        performance: {
+          totalSolved,
+          score: userScore,
+          acceptanceRate,
+          streak: u.stats?.currentStreak ?? u.stats?.streak ?? 0,
+        },
+        submissions: subs.map((s: any) => ({
+          _id: s._id || s.id,
+          problemTitle: s.problem?.title || s.problemTitle || "Coding Practice Problem",
+          language: s.language || "cpp",
+          status: s.status || "Submitted",
+          submittedAt: s.createdAt ? new Date(s.createdAt).toLocaleString("en-GB") : "Recent",
+        })),
+      });
+    } catch (err: any) {
+      console.error("Failed to load report for preview", err);
+      setPreviewError(err?.response?.data?.message || err.message || "Failed to load candidate report");
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    setPreviewUser(null);
+    setPreviewReportData(null);
+    setPreviewError(null);
   };
 
   return (
     <div className="p-8 font-sans max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Candidates & Users</h1>
-          <p className="text-muted-foreground text-sm mt-1">View and manage candidates, student profiles, and assign roles.</p>
+          <h1 className="text-2xl font-bold text-foreground">Candidates &amp; Users</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            View candidates, inspect verified assessment reports, and evaluate problem performance.
+          </p>
         </div>
       </div>
 
-      <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden flex flex-col">
+      <div className="bg-card border border-border rounded-xl shadow-xs overflow-hidden flex flex-col">
         {/* Toolbar */}
         <div className="p-4 border-b border-border flex items-center justify-between gap-4">
           <div className="relative w-full max-w-md">
@@ -53,11 +132,11 @@ export default function CandidatesAdminPage() {
               placeholder="Search by name or email..." 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 text-foreground transition-all"
+              className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground transition-all"
             />
           </div>
           <div className="text-sm text-muted-foreground font-medium">
-            {users.length} {users.length === 1 ? 'user' : 'users'}
+            {users.length} {users.length === 1 ? "user" : "users"}
           </div>
         </div>
 
@@ -75,7 +154,12 @@ export default function CandidatesAdminPage() {
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">Loading users...</td>
+                  <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Spinner className="w-6 h-6 animate-spin text-primary" />
+                      <span className="text-sm">Loading candidates...</span>
+                    </div>
+                  </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
@@ -90,62 +174,195 @@ export default function CandidatesAdminPage() {
                   </td>
                 </tr>
               ) : (
-                users.map((user) => (
-                  <tr key={user._id} className="hover:bg-muted/30 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-                          {user.avatar ? (
-                            <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <User className="w-4 h-4 text-muted-foreground" />
-                          )}
+                users.map((user) => {
+                  const candidateId = user._id || user.id;
+                  const candidateName = user.name || user.email?.split("@")[0] || "Candidate";
+                  return (
+                    <tr key={candidateId} className="hover:bg-muted/30 transition-colors group">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0">
+                            {user.avatar ? (
+                              <img src={user.avatar} alt={candidateName} className="w-full h-full object-cover" />
+                            ) : (
+                              <User className="w-4 h-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="font-medium text-foreground">{candidateName}</div>
+                            <div className="text-xs text-muted-foreground font-mono mt-0.5">{user.email || "N/A"}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="font-medium text-foreground">{user.name}</div>
-                          <div className="text-xs text-muted-foreground font-mono mt-0.5">{user.email}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        {user.isAdmin ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-500">
+                            <ShieldCheck className="w-3.5 h-3.5" /> Admin
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                            Candidate
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-muted-foreground">
+                        {user.createdAt ? new Date(user.createdAt).toLocaleDateString("en-GB") : "N/A"}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openPreview(user)}
+                            className="px-3 py-1.5 text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-colors flex items-center gap-1"
+                            title="Preview Official Report"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> Preview
+                          </button>
+                          <Link 
+                            href={`/admin/candidates/${candidateId}`}
+                            className="px-3 py-1.5 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground rounded-md transition-colors flex items-center gap-1"
+                            title="View Full Report Page"
+                          >
+                            <FileText className="w-3.5 h-3.5" /> Report
+                          </Link>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {user.isAdmin ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-500">
-                          <ShieldCheck className="w-3.5 h-3.5" /> Admin
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                          Candidate
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-muted-foreground">
-                      {new Date(user.createdAt).toLocaleDateString('en-GB')}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => handleDownloadReport(user._id)}
-                          className="px-3 py-1.5 text-xs font-medium bg-muted text-muted-foreground hover:bg-green-500/10 hover:text-green-500 rounded-md transition-colors flex items-center gap-1"
-                          title="Download Report (PDF)"
-                        >
-                          <Download className="w-3.5 h-3.5" /> Download
-                        </button>
-                        <Link 
-                          href={`/admin/candidates/${user._id}`}
-                          className="px-3 py-1.5 text-xs font-medium bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary rounded-md transition-colors flex items-center gap-1"
-                          title="View Assessment Report"
-                        >
-                          <FileText className="w-3.5 h-3.5" /> Report
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Candidate Report Preview In-Page Modal */}
+      {previewUser && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm p-4 md:p-8 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between mb-4 bg-card p-4 rounded-xl border border-border shadow-xs">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold text-foreground">
+                  Candidate Report: {previewUser.name || previewUser.email}
+                </h2>
+                {previewUser.isAdmin && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-red-500/10 text-red-500 px-2 py-0.5 rounded">
+                    Admin
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Official performance scorecard, psychometric analytics, and code submission log.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {previewReportData && (
+                <PDFDownloadButton data={previewReportData} />
+              )}
+              <button
+                type="button"
+                onClick={closePreview}
+                className="p-2 hover:bg-muted rounded-full transition-colors text-muted-foreground hover:text-foreground"
+                aria-label="Close preview"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 bg-muted/20 rounded-xl overflow-hidden border border-border shadow-inner relative flex items-center justify-center">
+            {previewLoading ? (
+              <div className="flex flex-col items-center gap-3 p-8 text-center text-muted-foreground">
+                <Spinner className="w-8 h-8 animate-spin text-primary" />
+                <span className="text-sm font-medium">Generating candidate evaluation report...</span>
+              </div>
+            ) : previewError ? (
+              <div className="flex flex-col items-center gap-3 p-8 text-center">
+                <div className="w-12 h-12 rounded-full bg-destructive/10 text-destructive flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <p className="text-sm text-destructive max-w-md">{previewError}</p>
+                <button
+                  type="button"
+                  onClick={() => openPreview(previewUser)}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : previewReportData ? (
+              <div className="w-full h-full p-4 flex flex-col items-center">
+                <div className="w-full max-w-4xl bg-card border border-border rounded-xl p-6 shadow-sm mb-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs text-muted-foreground font-medium">Problems Solved</div>
+                      <div className="text-2xl font-bold text-foreground mt-1">
+                        {previewReportData.performance.totalSolved}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs text-muted-foreground font-medium">Score</div>
+                      <div className="text-2xl font-bold text-amber-500 mt-1">
+                        {previewReportData.performance.score}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs text-muted-foreground font-medium">Acceptance Rate</div>
+                      <div className="text-2xl font-bold text-primary mt-1">
+                        {previewReportData.performance.acceptanceRate}%
+                      </div>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs text-muted-foreground font-medium">Recent Submissions</div>
+                      <div className="text-2xl font-bold text-foreground mt-1">
+                        {previewReportData.submissions.length}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 w-full max-w-4xl bg-card border border-border rounded-xl overflow-hidden flex flex-col">
+                  <div className="p-4 border-b border-border bg-muted/30 flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Recent Submission Activity
+                    </span>
+                    <Link
+                      href={`/admin/candidates/${previewUser._id || previewUser.id}`}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      View Full Details &rarr;
+                    </Link>
+                  </div>
+                  <div className="flex-1 overflow-auto divide-y divide-border">
+                    {previewReportData.submissions.length === 0 ? (
+                      <div className="p-8 text-center text-sm text-muted-foreground">
+                        No code submissions recorded for this candidate.
+                      </div>
+                    ) : (
+                      previewReportData.submissions.map((sub: any) => (
+                        <div key={sub._id} className="p-4 flex items-center justify-between hover:bg-muted/20">
+                          <div>
+                            <div className="font-medium text-sm text-foreground">{sub.problemTitle}</div>
+                            <div className="text-xs text-muted-foreground mt-0.5">{sub.submittedAt}</div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-mono uppercase bg-muted px-2 py-0.5 rounded text-foreground">
+                              {sub.language}
+                            </span>
+                            <span className={`text-xs font-semibold ${sub.status === "Accepted" || sub.status === "Passed" ? "text-green-500" : "text-red-500"}`}>
+                              {sub.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

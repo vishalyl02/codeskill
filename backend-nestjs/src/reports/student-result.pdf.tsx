@@ -377,23 +377,29 @@ const styles = StyleSheet.create({
 });
 
 export const StudentResultReport = ({ result }: { result: StudentResult }) => {
-  const safeMax = Math.max(1, result.maxScore);
-  const scorePercent = Math.round((result.score / safeMax) * 100);
+  const safeMax = Math.max(1, result.maxScore || 100);
+  const scorePercent = Math.round(((result.score || 0) / safeMax) * 100);
 
-  const easyQuestions = result.questions.filter((q) => q.difficulty.toLowerCase() === "easy");
-  const medQuestions = result.questions.filter((q) => q.difficulty.toLowerCase() === "medium");
-  const hardQuestions = result.questions.filter((q) => q.difficulty.toLowerCase() === "hard");
+  const questions = Array.isArray(result.questions) ? result.questions : [];
+  const easyQuestions = questions.filter((q) => (q.difficulty || "").toLowerCase() === "easy");
+  const medQuestions = questions.filter((q) => (q.difficulty || "").toLowerCase() === "medium");
+  const hardQuestions = questions.filter((q) => (q.difficulty || "").toLowerCase() === "hard");
 
   const easySolved = easyQuestions.filter((q) => q.status === "Passed").length;
   const medSolved = medQuestions.filter((q) => q.status === "Passed").length;
   const hardSolved = hardQuestions.filter((q) => q.status === "Passed").length;
 
   const totalSolved = easySolved + medSolved + hardSolved;
-  const totalProblems = result.questions.length || 5;
+  const totalProblems = questions.length || 5;
 
-  const initials = result.studentName
-    ? result.studentName.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()
-    : "CU";
+  const initials = (result.studentName || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "CU";
 
   return (
     <Document>
@@ -543,14 +549,14 @@ export const StudentResultReport = ({ result }: { result: StudentResult }) => {
                     <Text
                       style={[
                         styles.diffBadge,
-                        q.difficulty.toLowerCase() === "easy"
+                        (q.difficulty || "").toLowerCase() === "easy"
                           ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
-                          : q.difficulty.toLowerCase() === "medium"
+                          : (q.difficulty || "").toLowerCase() === "medium"
                           ? { backgroundColor: BRAND_COLORS.warningBg, color: BRAND_COLORS.warningAmber }
                           : { backgroundColor: BRAND_COLORS.dangerBg, color: BRAND_COLORS.dangerRed },
                       ]}
                     >
-                      {q.difficulty}
+                      {q.difficulty || "Medium"}
                     </Text>
                   </View>
                   <Text
