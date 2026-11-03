@@ -44,6 +44,7 @@ export function useAssessmentMedia(
     lastFaceCheck: 0,
     multipleFaceFrames: 0,
     faceCooldown: 0,
+    audioListeners: new Set<(level: number) => void>(),
   });
   const [cameraActive, setCameraActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
@@ -104,6 +105,7 @@ export function useAssessmentMedia(
     if (sessionRef.current.id !== sessionId) sessionRef.current = {
       id: sessionId, ended: false, stream: null, audioContext: null, analyser: null, audioFrame: null, cooldown: 0, analysisVideo: null,
       faceDetector: null, faceDetectionFrame: null, lastFaceCheck: 0, multipleFaceFrames: 0, faceCooldown: 0,
+      audioListeners: new Set<(level: number) => void>(),
     };
     const session = sessionRef.current;
     if (!enabled || session.ended) return;
@@ -234,8 +236,14 @@ export function useAssessmentMedia(
             const average = data.reduce((sum, value) => sum + value, 0) / data.length;
             const normalized = Math.min(100, Math.round((average / 128) * 100));
             const now = Date.now();
-            // Throttle React state updates to ~6-7 FPS to prevent main-thread choking on low-spec CPUs
-            if (now - lastAudioLevelUpdate >= 150) {
+            // Broadcast to isolated leaf listeners for zero React re-render updates
+            session.audioListeners.forEach((fn) => {
+              try { fn(normalized); } catch { /* ignore */ }
+            });
+
+            // Throttle top-level React state updates to prevent main-thread choking on low-spec CPUs
+            const thresholdCrossed = (audioLevel > 40) !== (normalized > 40);
+            if (now - lastAudioLevelUpdate >= 1200 || (thresholdCrossed && now - lastAudioLevelUpdate >= 300)) {
               lastAudioLevelUpdate = now;
               setAudioLevel(normalized);
             }
@@ -273,6 +281,14 @@ export function useAssessmentMedia(
     }
   }, [cameraActive, sessionId]);
 
+  const subscribeAudioLevel = useCallback((callback: (level: number) => void) => {
+    const listeners = sessionRef.current.audioListeners;
+    listeners.add(callback);
+    return () => {
+      listeners.delete(callback);
+    };
+  }, []);
+
   return {
     videoRef,
     attachVideo,
@@ -283,5 +299,6 @@ export function useAssessmentMedia(
     faceCount: enabled ? faceCount : 0,
     faceDetectionStatus: enabled ? faceDetectionStatus : "idle",
     stopCamera,
+    subscribeAudioLevel,
   };
 }

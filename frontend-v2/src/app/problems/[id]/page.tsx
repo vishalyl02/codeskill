@@ -35,7 +35,8 @@ import { useProblemProgress, refreshProblemProgress } from "@/hooks/useProblemPr
 import Link from "next/link";
 import { useState, useEffect, useCallback, useMemo, use, useRef } from "react";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
-import Editor from "@monaco-editor/react";
+import dynamic from "next/dynamic";
+const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 import { submissionAPI, runAPI, problemsAPI, discussionsAPI, type ProblemStats } from "@/config/api";
 import { useTheme } from "@/context/ThemeContext";
 import { Spinner } from "@/components/ui/spinner";
@@ -103,6 +104,18 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
   const [showEditorSettings, setShowEditorSettings] = useState(false);
   const [code, setCode] = useState<string>("");
+  const codeRef = useRef<string>("");
+  const debounceCodeTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const handleCodeChange = useCallback((val: string | undefined) => {
+    const full = updateSourceFromVisibleEditor(codeRef.current || code, val || "", language);
+    codeRef.current = full;
+    if (debounceCodeTimer.current) clearTimeout(debounceCodeTimer.current);
+    debounceCodeTimer.current = setTimeout(() => {
+      setCode(full);
+      setRunResult(null);
+    }, 350);
+  }, [code, language]);
   const [draftReadyFor, setDraftReadyFor] = useState<string | null>(null);
   const draftKey = JSON.stringify([problemId, problem?._id ?? problem?.id, problem?.slug, language]);
   const sourceReady = draftReadyFor === draftKey;
@@ -254,15 +267,32 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     const storageKey = `codeskill_draft_${problem.slug}_${language}`;
     const savedDraft = localStorage.getItem(storageKey);
     if (savedDraft) {
+      codeRef.current = savedDraft;
       setCode(savedDraft);
     } else {
       // Use starter code from problem config if available, else language default
       const starterCode = editorStarterCode(problem.config?.starterCode, language);
       const defaultCode = starterCode || LANGUAGES.find(l => l.id === language)?.defaultCode || "";
+      codeRef.current = defaultCode;
       setCode(defaultCode);
     }
     setDraftReadyFor(draftKey);
   }, [problem, language, draftKey]);
+
+  // Synchronously persist latest draft if tab is closed or reloaded mid-keystroke
+  useEffect(() => {
+    if (!problem) return;
+    const onBeforeUnload = () => {
+      const activeCode = codeRef.current || code;
+      if (activeCode) {
+        try {
+          localStorage.setItem(`codeskill_draft_${problem.slug}_${language}`, activeCode);
+        } catch { /* storage full / disabled */ }
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [problem, language, code]);
 
   // Load notes from localStorage
   useEffect(() => {
@@ -466,7 +496,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     }
 
     const response = await runAPI.run({
-      code,
+      code: codeRef.current || code,
       language,
       testCases: apiTestCases,
       config: {
@@ -600,7 +630,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     setActiveBottomTab('console');
     setRunResult(null);
     try {
-      const result = await submissionAPI.submitAndWait({ problemId: problem._id, language, code }, setExecutionPhase);
+      const result = await submissionAPI.submitAndWait({ problemId: problem._id, language, code: codeRef.current || code }, setExecutionPhase);
       setRunResult({ ...result, logs: [] });
       refreshProblemProgress();
       refreshProblemStats(problem._id);
@@ -653,14 +683,16 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     if (!problem) return;
     const starterCode = editorStarterCode(problem.config?.starterCode, language);
     const defaultCode = starterCode || LANGUAGES.find(l => l.id === language)?.defaultCode || "";
+    codeRef.current = defaultCode;
     setCode(defaultCode);
     localStorage.removeItem(`codeskill_draft_${problem.slug}_${language}`);
   };
 
   const handleCopyCode = async () => {
+    const textToCopy = codeRef.current || code;
     try {
       if (typeof document !== "undefined" && document.hasFocus() && navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(code);
+        await navigator.clipboard.writeText(textToCopy);
         return;
       }
     } catch (e) {
@@ -668,7 +700,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
     }
     try {
       const textArea = document.createElement("textarea");
-      textArea.value = code;
+      textArea.value = textToCopy;
       textArea.style.position = "fixed";
       textArea.style.left = "-9999px";
       document.body.appendChild(textArea);
@@ -1333,7 +1365,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
                       language={language}
                       theme={editorTheme}
                       value={editorCode}
-                      onChange={(val) => { setCode(updateSourceFromVisibleEditor(code, val || "", language)); setRunResult(null); }}
+                      onChange={handleCodeChange}
                       onMount={handleEditorMount}
                       options={{
                         minimap: { enabled: false },

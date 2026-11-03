@@ -47,12 +47,12 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Helper to recursively normalize PostgreSQL `id` and MongoDB `_id`
-function normalizeIds(obj: any): any {
-  if (!obj || typeof obj !== "object") return obj;
+// Helper to efficiently normalize PostgreSQL `id` and MongoDB `_id` on entity containers
+function normalizeIds(obj: any, depth = 0): any {
+  if (!obj || typeof obj !== "object" || depth > 3) return obj;
   if (Array.isArray(obj)) {
     for (let i = 0; i < obj.length; i++) {
-      normalizeIds(obj[i]);
+      normalizeIds(obj[i], depth + 1);
     }
   } else {
     if (obj.id && !obj._id) {
@@ -60,10 +60,21 @@ function normalizeIds(obj: any): any {
     } else if (obj._id && !obj.id) {
       obj.id = obj._id;
     }
-    for (const key of Object.keys(obj)) {
-      if (obj[key] && typeof obj[key] === "object") {
-        normalizeIds(obj[key]);
-      }
+    // Only traverse common entity collections to prevent deep object traversal stalls
+    if (obj.data && typeof obj.data === "object") {
+      normalizeIds(obj.data, depth + 1);
+    }
+    if (Array.isArray(obj.problems)) {
+      normalizeIds(obj.problems, depth + 1);
+    }
+    if (Array.isArray(obj.questions)) {
+      normalizeIds(obj.questions, depth + 1);
+    }
+    if (Array.isArray(obj.submissions)) {
+      normalizeIds(obj.submissions, depth + 1);
+    }
+    if (Array.isArray(obj.results)) {
+      normalizeIds(obj.results, depth + 1);
     }
   }
   return obj;
