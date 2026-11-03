@@ -263,4 +263,77 @@ describe('Admin User Role Security (AUD-020 & X-06)', () => {
       expect((result as any).password).toBeUndefined();
     });
   });
+
+  describe('Candidate Report Generation (getReport)', () => {
+    const mockProblemModel = {
+      find: jest.fn(),
+    };
+    const mockSubmissionModel = {
+      find: jest.fn(),
+    };
+
+    beforeEach(() => {
+      (adminService as any).problemModel = mockProblemModel;
+      (adminService as any).submissionModel = mockSubmissionModel;
+    });
+
+    it('returns candidate report with calculated stats and resolved problem titles for UUID id', async () => {
+      const validUuid = '11111111-2222-3333-4444-555555555555';
+      const user = {
+        id: validUuid,
+        name: 'John Doe',
+        email: 'john@example.com',
+        role: 'student',
+        isAdmin: false,
+        password: 'hashed-secret',
+      };
+      mockUserRepo.findOne.mockResolvedValue(user);
+      mockSubmissionModel.find.mockResolvedValue([
+        { id: 'sub-1', problemId: 'prob-1', status: 'Accepted', createdAt: new Date() },
+        { id: 'sub-2', problemId: 'prob-2', status: 'Wrong Answer', createdAt: new Date() },
+      ]);
+      mockProblemModel.find.mockResolvedValue([
+        { id: 'prob-1', title: 'Two Sum' },
+        { id: 'prob-2', title: 'Reverse String' },
+      ]);
+
+      const res = await adminService.getReport(validUuid);
+
+      expect(res.report).toBeDefined();
+      expect(res.report.user.name).toBe('John Doe');
+      expect((res.report.user as any).password).toBeUndefined();
+      expect(res.report.stats.totalSubmissions).toBe(2);
+      expect(res.report.stats.acceptedSubmissions).toBe(1);
+      expect(res.report.stats.acceptanceRate).toBe(50);
+      expect(res.report.recentSubmissions[0].problem.title).toBe('Two Sum');
+    });
+
+    it('safely handles non-UUID legacy identifiers without invalid uuid type error', async () => {
+      const legacyMongoId = '654321654321654321654321';
+      const user = {
+        id: '22222222-3333-4444-5555-666666666666',
+        mongoId: legacyMongoId,
+        name: 'Legacy User',
+        email: 'legacy@example.com',
+        role: 'student',
+      };
+      mockUserRepo.findOne.mockResolvedValue(user);
+      mockSubmissionModel.find.mockResolvedValue([]);
+
+      const res = await adminService.getReport(legacyMongoId);
+
+      expect(mockUserRepo.findOne).toHaveBeenCalledWith({
+        where: [{ mongoId: legacyMongoId }],
+      });
+      expect(res.report.stats.acceptanceRate).toBe(0);
+    });
+
+    it('throws NotFoundException when user does not exist', async () => {
+      mockUserRepo.findOne.mockResolvedValue(null);
+
+      await expect(adminService.getReport('unknown-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
 });

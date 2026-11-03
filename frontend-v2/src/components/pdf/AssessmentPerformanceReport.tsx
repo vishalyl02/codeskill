@@ -465,33 +465,33 @@ const styles = StyleSheet.create({
 });
 
 export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceReportProps) => {
-  // Extract or default fields
-  const student = data.student;
-  const perf = data.performance;
-  const questions = data.questions || [];
+  // Extract or default fields safely
+  const student = data?.student || ({} as any);
+  const perf = data?.performance || ({} as any);
+  const questions = data?.questions || [];
 
   // Compute breakdown dynamically if not explicitly provided
-  const easyQuestions = questions.filter((q) => q.difficulty.toLowerCase() === "easy");
-  const medQuestions = questions.filter((q) => q.difficulty.toLowerCase() === "medium");
-  const hardQuestions = questions.filter((q) => q.difficulty.toLowerCase() === "hard");
+  const easyQuestions = questions.filter((q) => (q.difficulty || "").toLowerCase() === "easy");
+  const medQuestions = questions.filter((q) => (q.difficulty || "").toLowerCase() === "medium");
+  const hardQuestions = questions.filter((q) => (q.difficulty || "").toLowerCase() === "hard");
 
-  const easySolved = easyQuestions.filter((q) => q.status.toLowerCase() === "passed").length;
-  const medSolved = medQuestions.filter((q) => q.status.toLowerCase() === "passed").length;
-  const hardSolved = hardQuestions.filter((q) => q.status.toLowerCase() === "passed").length;
+  const easySolved = easyQuestions.filter((q) => (q.status || "").toLowerCase() === "passed").length;
+  const medSolved = medQuestions.filter((q) => (q.status || "").toLowerCase() === "passed").length;
+  const hardSolved = hardQuestions.filter((q) => (q.status || "").toLowerCase() === "passed").length;
 
   const easyPoints = easyQuestions.reduce((acc, q) => acc + (q.points || 0), 0);
-  const easyMax = easyQuestions.reduce((acc, q) => acc + (q.maxPoints || q.points || 10), 0) || (data.difficultyBreakdown?.easy?.maxScore ?? 15);
+  const easyMax = easyQuestions.reduce((acc, q) => acc + (q.maxPoints || q.points || 10), 0) || (data?.difficultyBreakdown?.easy?.maxScore ?? 15);
   const medPoints = medQuestions.reduce((acc, q) => acc + (q.points || 0), 0);
-  const medMax = medQuestions.reduce((acc, q) => acc + (q.maxPoints || q.points || 20), 0) || (data.difficultyBreakdown?.medium?.maxScore ?? 25);
+  const medMax = medQuestions.reduce((acc, q) => acc + (q.maxPoints || q.points || 20), 0) || (data?.difficultyBreakdown?.medium?.maxScore ?? 25);
   const hardPoints = hardQuestions.reduce((acc, q) => acc + (q.points || 0), 0);
-  const hardMax = hardQuestions.reduce((acc, q) => acc + (q.maxPoints || q.points || 30), 0) || (data.difficultyBreakdown?.hard?.maxScore ?? 60);
+  const hardMax = hardQuestions.reduce((acc, q) => acc + (q.maxPoints || q.points || 30), 0) || (data?.difficultyBreakdown?.hard?.maxScore ?? 60);
 
-  const computedEasyScore = easyQuestions.length > 0 ? easyPoints : (data.difficultyBreakdown?.easy?.score ?? 15);
-  const computedEasyMax = easyQuestions.length > 0 ? easyMax : (data.difficultyBreakdown?.easy?.maxScore ?? 15);
-  const computedMedScore = medQuestions.length > 0 ? medPoints : (data.difficultyBreakdown?.medium?.score ?? 25);
-  const computedMedMax = medQuestions.length > 0 ? medMax : (data.difficultyBreakdown?.medium?.maxScore ?? 25);
-  const computedHardScore = hardQuestions.length > 0 ? hardPoints : (data.difficultyBreakdown?.hard?.score ?? 45);
-  const computedHardMax = hardQuestions.length > 0 ? hardMax : (data.difficultyBreakdown?.hard?.maxScore ?? 60);
+  const computedEasyScore = easyQuestions.length > 0 ? easyPoints : (data?.difficultyBreakdown?.easy?.score ?? 15);
+  const computedEasyMax = easyQuestions.length > 0 ? easyMax : (data?.difficultyBreakdown?.easy?.maxScore ?? 15);
+  const computedMedScore = medQuestions.length > 0 ? medPoints : (data?.difficultyBreakdown?.medium?.score ?? 25);
+  const computedMedMax = medQuestions.length > 0 ? medMax : (data?.difficultyBreakdown?.medium?.maxScore ?? 25);
+  const computedHardScore = hardQuestions.length > 0 ? hardPoints : (data?.difficultyBreakdown?.hard?.score ?? 45);
+  const computedHardMax = hardQuestions.length > 0 ? hardMax : (data?.difficultyBreakdown?.hard?.maxScore ?? 60);
 
   const totalProblemsCount = perf.totalProblems || questions.length || 5;
   const totalSolvedCount = perf.totalSolved ?? (easySolved + medSolved + hardSolved);
@@ -503,7 +503,7 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
   const hardAccuracy = hardQuestions.length > 0 ? Math.round((hardSolved / hardQuestions.length) * 100) : (hardQuestions.length ? 50 : 0);
   const totalAccuracy = totalProblemsCount > 0 ? Math.round((totalSolvedCount / totalProblemsCount) * 100) : 80;
 
-  const status = data.status || (totalSolvedCount > 0 ? "Completed" : "In Progress");
+  const status = data?.status || (totalSolvedCount > 0 ? "Completed" : "In Progress");
   const rank = perf.rank ?? 1;
   const totalParticipants = perf.totalParticipants ?? 1;
   const percentile =
@@ -513,19 +513,19 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
       : "Top 1%");
 
   // Initials for avatar
-  const initials = student.name
-    ? student.name
-        .split(" ")
-        .map((p) => p[0])
-        .slice(0, 2)
-        .join("")
-        .toUpperCase()
-    : "CU";
+  const initials = (student.name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "CU";
 
-  const assessmentDate = data.assessmentDate || new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-  const reportDate = data.generatedAt || new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-  const reportTime = data.generatedTime || new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-  const reportId = data.reportId || `CU-CS-${new Date().getFullYear()}-${(student.studentId || "2026").slice(-5)}`;
+  const assessmentDate = data?.assessmentDate || new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  const reportDate = data?.generatedAt || new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  const reportTime = data?.generatedTime || new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  const reportId = data?.reportId || `CU-CS-${new Date().getFullYear()}-${String(student.studentId || student.rollNumber || "2026").slice(-5)}`;
 
   return (
     <Document>
@@ -591,7 +591,7 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
             <View
               style={[
                 styles.statusBadge,
-                status.toLowerCase() === "completed"
+                String(status || "").toLowerCase() === "completed"
                   ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
                   : { backgroundColor: BRAND_COLORS.blueBg, color: BRAND_COLORS.blueAccent },
               ]}
@@ -842,9 +842,9 @@ export const AssessmentPerformanceReport = ({ data }: AssessmentPerformanceRepor
                       <Text
                         style={[
                           styles.diffBadge,
-                          q.difficulty.toLowerCase() === "easy"
+                          String(q.difficulty || "").toLowerCase() === "easy"
                             ? { backgroundColor: BRAND_COLORS.successBg, color: BRAND_COLORS.successGreen }
-                            : q.difficulty.toLowerCase() === "medium"
+                            : String(q.difficulty || "").toLowerCase() === "medium"
                             ? { backgroundColor: BRAND_COLORS.warningBg, color: BRAND_COLORS.warningAmber }
                             : { backgroundColor: BRAND_COLORS.dangerBg, color: BRAND_COLORS.dangerRed },
                         ]}

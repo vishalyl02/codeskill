@@ -4,42 +4,56 @@ import { AssessmentPerformanceReport } from "@/components/pdf/AssessmentPerforma
 
 export const AssessmentReportPDF = ({ data }: { data: AssessmentReportData }) => {
   // Adapt AssessmentReportData to official university report data structure
-  const subs = data.submissions || [];
-  const totalSubmissions = subs.length || data.performance.totalSolved || 1;
-  const passedSubmissions = subs.filter((s) => s.status === "Accepted" || s.status === "Passed").length || data.performance.totalSolved;
+  const subs = data?.submissions || [];
+  const student = (data?.student || {}) as any;
+  const performance = (data?.performance || {}) as any;
+
+  const totalSubmissions = subs.length || performance.totalSolved || 1;
+  const passedSubmissions =
+    subs.filter((s) => s.status === "Accepted" || s.status === "Passed").length ||
+    performance.totalSolved ||
+    0;
 
   const transformed = {
-    reportId: data.reportId || `CU-CS-${new Date().getFullYear()}`,
-    generatedAt: data.generatedAt || new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
-    assessmentName: data.assessmentName || "Algorithmic Skills Assessment",
+    reportId: data?.reportId || `CU-CS-${new Date().getFullYear()}`,
+    generatedAt:
+      data?.generatedAt ||
+      new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }),
+    assessmentName: data?.assessmentName || "Algorithmic Skills Assessment",
     assessmentId: "CS-CANDIDATE-EVAL",
     status: "Completed",
     student: {
-      name: data.student.name,
-      email: data.student.email,
-      institution: data.student.institution || "Chandigarh University",
-      program: data.student.role || "B.Tech Computer Science & Engineering",
-      role: data.student.role || "Candidate",
-      lastActiveAt: data.student.lastActiveAt || "Today",
-      rollNumber: (data.student as any)?.rollNumber || (data.student as any)?.uid || (data.student as any)?.studentId || "N/A",
-      studentId: (data.student as any)?.studentId || (data.student as any)?.uid || "N/A",
+      name: student.name || "Candidate",
+      email: student.email || "N/A",
+      institution: student.institution || "Chandigarh University",
+      program: student.program || student.role || "B.Tech Computer Science & Engineering",
+      role: student.role || "Candidate",
+      lastActiveAt: student.lastActiveAt || "Today",
+      rollNumber: student.rollNumber || student.uid || student.studentId || "N/A",
+      studentId: student.studentId || student.uid || "N/A",
     },
     performance: {
       totalProblems: totalSubmissions,
       totalSolved: passedSubmissions,
-      score: data.performance.score || 85,
-      maxScore: 100,
-      acceptanceRate: data.performance.acceptanceRate || 80,
-      streak: data.performance.streak || 21,
-      rank: (data.performance as any)?.rank ?? 1,
-      totalParticipants: (data.performance as any)?.totalParticipants ?? 1,
-      percentile: (data.performance as any)?.percentile || "Top 1%",
+      score: performance.score ?? (passedSubmissions * 20),
+      maxScore: performance.maxScore || 100,
+      acceptanceRate:
+        performance.acceptanceRate ??
+        (totalSubmissions > 0 ? Math.round((passedSubmissions / totalSubmissions) * 100) : 0),
+      streak: performance.streak || 0,
+      rank: performance.rank ?? 1,
+      totalParticipants: performance.totalParticipants ?? 1,
+      percentile: performance.percentile || "Top 1%",
     },
     questions: subs.map((s, idx) => ({
       id: s._id || String(idx + 1),
       title: s.problemTitle || `Problem ${idx + 1}`,
       difficulty: idx % 3 === 0 ? "Easy" : idx % 3 === 1 ? "Medium" : "Hard",
-      status: s.status === "Accepted" ? "Passed" : s.status,
+      status: s.status === "Accepted" ? "Passed" : (s.status || "Pending"),
       points: s.status === "Accepted" ? 20 : 0,
     })),
   };
