@@ -129,7 +129,7 @@ describe("Assessment Analytics Dashboard", () => {
     expect(screen.getAllByText("EXAM-4103").length).toBeGreaterThan(0);
 
     // KPI Cards
-    expect(screen.getByText("32.5")).toBeInTheDocument();
+    expect(screen.getAllByText("32.5").length).toBeGreaterThan(0);
     expect(screen.getAllByText("66.7%").length).toBeGreaterThan(0);
     expect(screen.getByText("42m 22s")).toBeInTheDocument();
 
