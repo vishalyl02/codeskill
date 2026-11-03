@@ -137,9 +137,9 @@ export class AssessmentsStudentController {
   @Post(':id/evaluate-code')
   @UseGuards(SubmissionRateLimitGuard)
   @Throttle({
-    short: { limit: 3, ttl: 1000 },
-    medium: { limit: 10, ttl: 10000 },
-    long: { limit: 20, ttl: 60000 },
+    short: { limit: 1, ttl: 4000 },
+    medium: { limit: 6, ttl: 30000 },
+    long: { limit: 12, ttl: 60000 },
   })
   async evaluateCode(
     @Param('id') id: string,

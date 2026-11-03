@@ -80,9 +80,9 @@ export class ExecutionController {
   @Post('run')
   @HttpCode(HttpStatus.OK)
   @Throttle({
-    short: { limit: 3, ttl: 1000 },
-    medium: { limit: 10, ttl: 10000 },
-    long: { limit: 20, ttl: 60000 },
+    short: { limit: 1, ttl: 4000 },
+    medium: { limit: 6, ttl: 30000 },
+    long: { limit: 12, ttl: 60000 },
   })
   @ApiOperation({
     summary: 'Execute code against test cases without saving a submission',

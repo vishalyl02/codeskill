@@ -227,13 +227,18 @@ export function useAssessmentMedia(
           session.analyser = analyser;
           context.createMediaStreamSource(stream).connect(analyser);
           const data = new Uint8Array(analyser.frequencyBinCount);
+          let lastAudioLevelUpdate = 0;
           const detectAudio = () => {
             if (cancelled || session.ended || !session.analyser) return;
             analyser.getByteFrequencyData(data);
             const average = data.reduce((sum, value) => sum + value, 0) / data.length;
             const normalized = Math.min(100, Math.round((average / 128) * 100));
-            setAudioLevel(normalized);
             const now = Date.now();
+            // Throttle React state updates to ~6-7 FPS to prevent main-thread choking on low-spec CPUs
+            if (now - lastAudioLevelUpdate >= 150) {
+              lastAudioLevelUpdate = now;
+              setAudioLevel(normalized);
+            }
             if (normalized > 42 && now > session.cooldown) {
               session.cooldown = now + 7000;
               violationRef.current("voice_detected", "Voice or elevated noise detected by microphone proctor");

@@ -188,7 +188,9 @@ export default function AssessmentBriefingPage({
         setData(nextData);
         // Only redirect to result if student finished and cannot retake
         if (
-          (nextData.attempt?.status === "submitted" || nextData.attempt?.status === "auto_submitted") &&
+          (nextData.attempt?.status === "submitted" ||
+            nextData.attempt?.status === "auto_submitted" ||
+            nextData.attempt?.status === "timed_out") &&
           nextData.canRetake === false
         ) {
           router.replace(`/assessments/${id}/result`);
@@ -612,7 +614,10 @@ export default function AssessmentBriefingPage({
           </div>}
 
           {/* Start Action / Scorecard Redirect */}
-          {data?.attempt?.status === "submitted" && data?.canRetake === false ? (
+          {(data?.attempt?.status === "submitted" ||
+            data?.attempt?.status === "auto_submitted" ||
+            data?.attempt?.status === "timed_out") &&
+          data?.canRetake === false ? (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
               <span className="text-xs text-muted-foreground font-medium">
                 You have already completed your permitted attempt(s) for this examination.

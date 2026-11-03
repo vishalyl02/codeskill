@@ -31,7 +31,7 @@ export function assessmentTypes(assessment: AssignedAssessment): QuestionType[] 
   return [...new Set(types)];
 }
 export function assessmentCompleted(assessment: AssignedAssessment) {
-  return ["submitted", "auto_submitted"].includes(assessment.attemptStatus || "");
+  return ["submitted", "auto_submitted", "timed_out"].includes(assessment.attemptStatus || "");
 }
 export function assessmentWindow(assessment: AssignedAssessment, now = Date.now()) {
   if (!["published", "ongoing"].includes(assessment.status)) return assessment.status === "completed" ? "Completed" : "Unavailable";

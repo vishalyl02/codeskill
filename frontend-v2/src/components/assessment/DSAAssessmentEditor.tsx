@@ -321,6 +321,68 @@ export default function DSAAssessmentEditor({
   // Runner execution state
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [runCooldown, setRunCooldown] = useState(0);
+  const [submitCooldown, setSubmitCooldown] = useState(0);
+  const runTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const submitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastEvaluatedRef = useRef<{
+    code: string;
+    language: string;
+    runResult: any;
+    passed: number;
+    total: number;
+  } | null>(null);
+  const lastRunRef = useRef<{
+    code: string;
+    language: string;
+    customInput: string;
+    runResult: any;
+  } | null>(null);
+
+  const startRunCooldown = (seconds = 4) => {
+    setRunCooldown(seconds);
+    if (runTimerRef.current) clearInterval(runTimerRef.current);
+    runTimerRef.current = setInterval(() => {
+      setRunCooldown((prev) => {
+        if (prev <= 1) {
+          if (runTimerRef.current) clearInterval(runTimerRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const startSubmitCooldown = (seconds = 5) => {
+    setSubmitCooldown(seconds);
+    if (submitTimerRef.current) clearInterval(submitTimerRef.current);
+    submitTimerRef.current = setInterval(() => {
+      setSubmitCooldown((prev) => {
+        if (prev <= 1) {
+          if (submitTimerRef.current) clearInterval(submitTimerRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  useEffect(() => {
+    lastEvaluatedRef.current = null;
+    lastRunRef.current = null;
+    setRunCooldown(0);
+    setSubmitCooldown(0);
+    if (runTimerRef.current) clearInterval(runTimerRef.current);
+    if (submitTimerRef.current) clearInterval(submitTimerRef.current);
+  }, [question._id]);
+
+  useEffect(() => {
+    return () => {
+      if (runTimerRef.current) clearInterval(runTimerRef.current);
+      if (submitTimerRef.current) clearInterval(submitTimerRef.current);
+    };
+  }, []);
+
   const [runResult, setRunResult] = useState<any>(null);
   const [resultMode, setResultMode] = useState<'run' | 'submission'>('run');
   const [copied, setCopied] = useState(false);
@@ -332,6 +394,28 @@ export default function DSAAssessmentEditor({
       onDraftChange?.(code, initialLang, codeByLang);
     }
   }, []);
+
+  const editorRef = useRef<any>(null);
+
+  const handleEditorDidMount = (editor: any) => {
+    editorRef.current = editor;
+  };
+
+  // Clean up Monaco models when question switches or component unmounts to prevent memory accumulation
+  useEffect(() => {
+    return () => {
+      if (editorRef.current) {
+        try {
+          const model = editorRef.current.getModel();
+          if (model && !model.isDisposed()) {
+            model.dispose();
+          }
+        } catch {
+          // Ignore disposal errors on unmount
+        }
+      }
+    };
+  }, [question._id]);
 
 
 
@@ -436,7 +520,26 @@ export default function DSAAssessmentEditor({
 
   // Run Test (Single or Sample cases)
   const handleRunTest = async () => {
-    if (isRunning || isSubmitting) return;
+    if (isRunning || isSubmitting || runCooldown > 0) return;
+
+    // Deduplication check: if code, language and custom input are identical to last run, display previous output
+    const activeCustomInput = bottomTab === "custom_input" ? (customInput || "") : "";
+    if (
+      lastRunRef.current &&
+      lastRunRef.current.code.trim() === code.trim() &&
+      lastRunRef.current.language === language &&
+      lastRunRef.current.customInput === activeCustomInput &&
+      lastRunRef.current.runResult
+    ) {
+      setRunResult(lastRunRef.current.runResult);
+      setResultMode('run');
+      setBottomTab("output");
+      setSaveSuccessNotice("Displaying previous run results (code unchanged). Modify code to re-run.");
+      setTimeout(() => setSaveSuccessNotice(null), 3500);
+      startRunCooldown(3);
+      return;
+    }
+
     const executionId = crypto.randomUUID();
     activeExecutionIdRef.current = executionId;
     setIsRunning(true);
@@ -445,6 +548,7 @@ export default function DSAAssessmentEditor({
     setRunResult(null); // Clear previous result immediately
 
     try {
+      let runResultData: any = null;
       if (bottomTab === "custom_input") {
         // Run with custom stdin against the judge; a clean run is reported
         // as accepted because no expected output is configured.
@@ -462,9 +566,7 @@ export default function DSAAssessmentEditor({
           }),
           (jobId) => runAPI.getJob(jobId),
         );
-        if (activeExecutionIdRef.current === executionId) {
-          setRunResult(res.data);
-        }
+        runResultData = res.data;
       } else if (sampleCases.length > 0) {
         // Run against all sample test cases through the judge
         const payloadTestCases = sampleCases.map((tc, idx) => ({
@@ -486,9 +588,7 @@ export default function DSAAssessmentEditor({
           }),
           (jobId) => runAPI.getJob(jobId),
         );
-        if (activeExecutionIdRef.current === executionId) {
-          setRunResult(res.data);
-        }
+        runResultData = res.data;
       } else {
         // Run without testcases
         const res = await awaitExecution(
@@ -505,9 +605,17 @@ export default function DSAAssessmentEditor({
           }),
           (jobId) => runAPI.getJob(jobId),
         );
-        if (activeExecutionIdRef.current === executionId) {
-          setRunResult(res.data);
-        }
+        runResultData = res.data;
+      }
+
+      if (activeExecutionIdRef.current === executionId && runResultData) {
+        setRunResult(runResultData);
+        lastRunRef.current = {
+          code,
+          language,
+          customInput: activeCustomInput,
+          runResult: runResultData,
+        };
       }
     } catch (err: any) {
       if (activeExecutionIdRef.current === executionId) {
@@ -519,6 +627,7 @@ export default function DSAAssessmentEditor({
     } finally {
       if (activeExecutionIdRef.current === executionId) {
         setIsRunning(false);
+        startRunCooldown(4);
       }
     }
   };
@@ -526,7 +635,34 @@ export default function DSAAssessmentEditor({
   // Verification and progress saving have separate failure states. Code remains
   // in attempt state even if the runner or progress endpoint is unavailable.
   const handleSubmitSolution = async () => {
-    if (isRunning || isSubmitting) return;
+    if (isRunning || isSubmitting || submitCooldown > 0) return;
+
+    // Deduplication check: if code is identical to last submission, save progress without re-queueing Piston execution
+    if (
+      lastEvaluatedRef.current &&
+      lastEvaluatedRef.current.code.trim() === code.trim() &&
+      lastEvaluatedRef.current.language === language &&
+      lastEvaluatedRef.current.runResult
+    ) {
+      setIsSubmitting(true);
+      setRunResult(lastEvaluatedRef.current.runResult);
+      setResultMode('submission');
+      setBottomTab("output");
+      try {
+        await onSave(code, language, lastEvaluatedRef.current.passed, lastEvaluatedRef.current.total);
+        setSaveSuccessNotice(
+          `Solution saved. Passed ${lastEvaluatedRef.current.passed} of ${lastEvaluatedRef.current.total} test cases (result cached from last run).`
+        );
+      } catch {
+        setSaveSuccessNotice("Code kept in this session. Server save failed; please try Submit Solution again.");
+      } finally {
+        setIsSubmitting(false);
+        startSubmitCooldown(3);
+        setTimeout(() => setSaveSuccessNotice(null), 5000);
+      }
+      return;
+    }
+
     setIsSubmitting(true);
     setRunResult(null);
     setResultMode('submission');
@@ -534,13 +670,21 @@ export default function DSAAssessmentEditor({
     let passed = 0;
     let total = 0;
     let verified = false;
+    let evaluatedData: any = null;
     try {
       const res = await studentAssessmentsAPI.evaluateCode(assessmentId, { questionId: question._id, code, language });
-      const data = res.data;
-      setRunResult(data);
-      passed = data.passedCount ?? data.results?.filter((result: any) => result.passed).length ?? 0;
-      total = data.totalCount ?? data.results?.length ?? 0;
+      evaluatedData = res.data;
+      setRunResult(evaluatedData);
+      passed = evaluatedData.passedCount ?? evaluatedData.results?.filter((result: any) => result.passed).length ?? 0;
+      total = evaluatedData.totalCount ?? evaluatedData.results?.length ?? 0;
       verified = true;
+      lastEvaluatedRef.current = {
+        code,
+        language,
+        runResult: evaluatedData,
+        passed,
+        total,
+      };
     } catch (err: any) {
       setRunResult({ status: 'system_error', results: [], passedCount: 0, totalCount: 0,
         message: err.response?.data?.message || err.message || 'Execution unavailable' });
@@ -554,6 +698,7 @@ export default function DSAAssessmentEditor({
       setSaveSuccessNotice("Code kept in this session. Server save failed; please try Submit Solution again.");
     } finally {
       setIsSubmitting(false);
+      startSubmitCooldown(5);
       setTimeout(() => setSaveSuccessNotice(null), 5000);
     }
   };
@@ -772,14 +917,23 @@ export default function DSAAssessmentEditor({
             language={language}
             value={editorCode}
             onChange={value => { if (value !== undefined && value !== code) updateCode(value); }}
+            onMount={handleEditorDidMount}
             theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
             options={{
-              automaticLayout: true, minimap: { enabled: false }, fontSize: Math.round(13 * readingScale),
-              lineNumbers: "on", scrollBeyondLastLine: false, wordWrap: "on",
-              bracketPairColorization: { enabled: true },
-              guides: { bracketPairs: true, indentation: true },
-              padding: { top: 12, bottom: 12 }, tabSize: 4,
-              readOnly: isRunning || isSubmitting, ariaLabel: "Assessment code editor",
+              automaticLayout: true,
+              minimap: { enabled: false },
+              fontSize: Math.round(13 * readingScale),
+              lineNumbers: "on",
+              scrollBeyondLastLine: false,
+              wordWrap: "on",
+              bracketPairColorization: { enabled: false },
+              guides: { bracketPairs: false, indentation: true },
+              folding: false,
+              contextmenu: false,
+              padding: { top: 12, bottom: 12 },
+              tabSize: 4,
+              readOnly: isRunning || isSubmitting,
+              ariaLabel: "Assessment code editor",
             }}
             loading={<div className="p-4 h-full text-sm text-muted-foreground">Loading code editor…</div>}
           />
@@ -970,8 +1124,9 @@ export default function DSAAssessmentEditor({
               {/* Run Code / Run Test */}
               <button
                 type="button"
+                aria-label="Run Code"
                 onClick={handleRunTest}
-                disabled={isRunning || isSubmitting}
+                disabled={isRunning || isSubmitting || runCooldown > 0}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-background hover:bg-muted text-foreground text-xs font-bold border border-border shadow-xs transition-all disabled:opacity-50"
               >
                 {isRunning ? (
@@ -979,14 +1134,15 @@ export default function DSAAssessmentEditor({
                 ) : (
                   <Play className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 fill-amber-600 dark:fill-amber-400" />
                 )}
-                <span>Run Code</span>
+                <span>{runCooldown > 0 ? `Run Code (${runCooldown}s)` : "Run Code"}</span>
               </button>
 
               {/* Submit Solution / Save Answer */}
               <button
                 type="button"
+                aria-label="Submit Solution"
                 onClick={handleSubmitSolution}
-                disabled={isRunning || isSubmitting}
+                disabled={isRunning || isSubmitting || submitCooldown > 0}
                 className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 disabled:opacity-50"
               >
                 {isSubmitting ? (
@@ -994,7 +1150,7 @@ export default function DSAAssessmentEditor({
                 ) : (
                   <CheckCircle2 className="w-3.5 h-3.5" />
                 )}
-                <span>Submit Solution</span>
+                <span>{submitCooldown > 0 ? `Submit Solution (${submitCooldown}s)` : "Submit Solution"}</span>
               </button>
 
               {/* Next Question (Optional shortcut) */}

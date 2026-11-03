@@ -20,6 +20,7 @@ describe('Assessment Integrity & Server-Side Scoring (AUD-002, NEW-001, NEW-002,
     find: jest.fn(),
     save: jest.fn(),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
+    count: jest.fn().mockResolvedValue(1),
   };
   const mockQuestionRepo = {
     find: jest.fn(),
@@ -746,5 +747,180 @@ describe('Assessment Integrity & Server-Side Scoring (AUD-002, NEW-001, NEW-002,
     expect(result.questions[1].sectionTitle).toBe('Multiple Choice Questions');
     expect(result.questions[2].sectionTitle).toBe('Coding Challenges');
     expect(result.questions[3].sectionTitle).toBe('Coding Challenges');
+  });
+
+  describe('Overdue Attempt Auto-Finalization (Auto-submit on timeout)', () => {
+    it('correctly identifies expired attempts via isAttemptExpired', () => {
+      const liveAssessment = { ...mockAssessment, durationMinutes: 60, endTime: new Date(Date.now() + 3600_000) };
+      const expiredByEndTime = { ...mockAssessment, durationMinutes: 60, endTime: new Date(Date.now() - 1000) };
+
+      const activeAttempt = {
+        id: 'att-1',
+        status: 'in_progress' as const,
+        startedAt: new Date(Date.now() - 30 * 60_000), // 30 mins ago of 60 min test
+      };
+      const overdueAttempt = {
+        id: 'att-2',
+        status: 'in_progress' as const,
+        startedAt: new Date(Date.now() - 65 * 60_000), // 65 mins ago of 60 min test
+      };
+      const alreadySubmitted = {
+        id: 'att-3',
+        status: 'submitted' as const,
+        startedAt: new Date(Date.now() - 70 * 60_000),
+      };
+
+      expect(service.isAttemptExpired(liveAssessment as any, activeAttempt as any)).toBe(false);
+      expect(service.isAttemptExpired(liveAssessment as any, overdueAttempt as any)).toBe(true);
+      expect(service.isAttemptExpired(expiredByEndTime as any, activeAttempt as any)).toBe(true);
+      expect(service.isAttemptExpired(liveAssessment as any, alreadySubmitted as any)).toBe(false);
+    });
+
+    it('autoFinalizeAttempt grades saved MCQ responses and marks attempt timed_out', async () => {
+      const assessment = {
+        ...mockAssessment,
+        totalMarks: 10,
+        passingMarks: 5,
+        questions: ['q1', 'q2'],
+      };
+      mockQuestionRepo.find.mockResolvedValue([
+        { id: 'q1', questionType: 'MCQ', correctAnswer: 1, marks: 5 },
+        { id: 'q2', questionType: 'MCQ', correctAnswer: 0, marks: 5 },
+      ]);
+      mockAttemptRepo.find.mockResolvedValue([]);
+      mockAttemptRepo.update.mockResolvedValue({ affected: 1 });
+      mockAttemptRepo.save.mockImplementation(async (att) => att);
+
+      const attempt = {
+        id: 'attempt-overdue-1',
+        assessmentId: assessment.id,
+        studentId: studentUser.id,
+        status: 'in_progress',
+        startedAt: new Date(Date.now() - 90 * 60_000),
+        timeSpentSeconds: 1200,
+        responses: [
+          { questionId: 'q1', selectedAnswer: 1, timeSpentSeconds: 600 }, // correct -> 5 marks
+          { questionId: 'q2', selectedAnswer: 2, timeSpentSeconds: 600 }, // wrong -> 0 marks
+        ],
+        violations: [],
+      };
+
+      const finalized = await service.autoFinalizeAttempt(assessment as any, attempt as any, 'timed_out');
+      expect(finalized.status).toBe('timed_out');
+      expect(finalized.score).toBe(5);
+      expect(finalized.passed).toBe(true);
+      expect(finalized.percentage).toBe(50);
+      expect(finalized.submissionPolicy).toBe('auto');
+      expect(mockAttemptRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'timed_out',
+          score: 5,
+        }),
+      );
+    });
+
+    it('getStudentResult auto-finalizes an expired in_progress attempt and returns scorecard', async () => {
+      const assessment = {
+        ...mockAssessment,
+        id: 'assessment-overdue',
+        durationMinutes: 45,
+        totalMarks: 10,
+        passingMarks: 5,
+        questions: ['q1'],
+      };
+      mockAssessmentRepo.findOne.mockResolvedValue(assessment);
+      // First findOne for completed attempts returns null, second for in_progress returns the expired attempt
+      mockAttemptRepo.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: 'attempt-overdue-2',
+          assessmentId: assessment.id,
+          studentId: studentUser.id,
+          status: 'in_progress',
+          startedAt: new Date(Date.now() - 50 * 60_000), // 50 mins ago for 45 min test
+          responses: [{ questionId: 'q1', selectedAnswer: 2 }],
+          violations: [],
+        });
+      mockQuestionRepo.find.mockResolvedValue([
+        { id: 'q1', questionType: 'MCQ', correctAnswer: 2, marks: 10, topic: 'Math' },
+      ]);
+      mockAttemptRepo.update.mockResolvedValue({ affected: 1 });
+      mockAttemptRepo.save.mockImplementation(async (att) => att);
+      mockAttemptRepo.count.mockResolvedValue(1);
+
+      const result = await service.getStudentResult(assessment.id, studentUser);
+      expect(result.success).toBe(true);
+      expect(result.attempt.status).toBe('timed_out');
+      expect(result.attempt.score).toBe(10);
+      expect(result.attempt.passed).toBe(true);
+    });
+
+    it('getAssessmentResults auto-finalizes overdue in_progress attempts and counts them in submitted stats', async () => {
+      const assessment = {
+        ...mockAssessment,
+        id: 'assessment-admin-results',
+        durationMinutes: 30,
+        totalMarks: 10,
+        passingMarks: 5,
+        questions: ['q1'],
+      };
+      mockAssessmentRepo.findOne.mockResolvedValue(assessment);
+
+      const overdueAttempt = {
+        id: 'attempt-overdue-3',
+        assessmentId: assessment.id,
+        studentId: studentUser.id,
+        studentName: 'Alice',
+        status: 'in_progress',
+        startedAt: new Date(Date.now() - 40 * 60_000), // 40 mins ago for 30 min test
+        responses: [{ questionId: 'q1', selectedAnswer: 0 }],
+        violations: [],
+      };
+      mockAttemptRepo.find.mockResolvedValueOnce([overdueAttempt]);
+      mockQuestionRepo.find.mockResolvedValue([
+        { id: 'q1', questionType: 'MCQ', correctAnswer: 0, marks: 10 },
+      ]);
+      mockAttemptRepo.update.mockResolvedValue({ affected: 1 });
+      mockAttemptRepo.save.mockImplementation(async (att) => att);
+
+      const res = await service.getAssessmentResults(assessment.id, { role: 'admin' });
+      expect(res.success).toBe(true);
+      expect(res.stats.totalSubmissionsCount).toBe(1);
+      expect(res.stats.submittedCount).toBe(1);
+      expect(res.attempts[0].status).toBe('timed_out');
+      expect(res.attempts[0].score).toBe(10);
+    });
+
+    it('getStudentAssessmentOverview auto-finalizes overdue in_progress attempt and reflects timed_out', async () => {
+      const assessment = {
+        ...mockAssessment,
+        id: 'assessment-overview-test',
+        durationMinutes: 30,
+        totalMarks: 10,
+        questions: ['q1'],
+      };
+      mockAssessmentRepo.findOne.mockResolvedValue(assessment);
+
+      const overdueAttempt = {
+        id: 'attempt-overview-1',
+        assessmentId: assessment.id,
+        studentId: studentUser.id,
+        status: 'in_progress',
+        startedAt: new Date(Date.now() - 45 * 60_000),
+        responses: [{ questionId: 'q1', selectedAnswer: -1 }],
+        violations: [],
+      };
+      mockAttemptRepo.find.mockResolvedValue([overdueAttempt]);
+      mockQuestionRepo.find.mockResolvedValue([
+        { id: 'q1', questionType: 'MCQ', correctAnswer: 0, marks: 10 },
+      ]);
+      mockAttemptRepo.update.mockResolvedValue({ affected: 1 });
+      mockAttemptRepo.save.mockImplementation(async (att) => att);
+
+      const overview = await service.getStudentAssessmentOverview(assessment.id, studentUser);
+      expect(overview.success).toBe(true);
+      expect(overview.attempt.status).toBe('timed_out');
+      expect(overview.completedAttemptsCount).toBe(1);
+    });
   });
 });
