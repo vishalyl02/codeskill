@@ -628,6 +628,24 @@ export const adminQuestionBanksAPI = {
 export const adminAssessmentsAPI = {
   getAll: (params?: { status?: string; search?: string }) =>
     api.get("/admin/assessments", { params }),
+  getTargetingOptions: () => api.get("/admin/assessments/targeting-options"),
+  searchStudents: (params: {
+    search?: string;
+    semester?: string;
+    section?: string;
+    year?: string;
+    batch?: string;
+    limit?: number;
+  }) => api.get("/admin/assessments/students-search", { params }),
+  previewTargetAudience: (data: {
+    targetSemesters?: string[];
+    targetSections?: string[];
+    targetBatches?: string[];
+    targetGroups?: string[];
+    targetStudentIds?: string[];
+    targetDepartments?: string[];
+    targetCourses?: string[];
+  }) => api.post("/admin/assessments/preview-target-audience", data),
   getById: (id: string) => api.get(`/admin/assessments/${id}`),
   create: (data: any) => api.post("/admin/assessments", data),
   update: (id: string, data: any) => api.put(`/admin/assessments/${id}`, data),

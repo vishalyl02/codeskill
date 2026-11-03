@@ -11,7 +11,10 @@ import {
   Matches,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
-import { AssessmentSectionDto } from './create-assessment.dto';
+import {
+  AssessmentSectionDto,
+  AssessmentResultDisplayDto,
+} from './create-assessment.dto';
 import { normalizeSectionIdentifier } from '../../common/constants/sections.constant';
 
 class UpdateAssessmentProctoringDto {
@@ -183,6 +186,15 @@ export class UpdateAssessmentDto {
   @IsBoolean()
   @IsOptional()
   allowReview?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  lockSectionsSequentially?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AssessmentResultDisplayDto)
+  resultDisplaySettings?: AssessmentResultDisplayDto;
 
   @ValidateNested()
   @Type(() => UpdateAssessmentProctoringDto)

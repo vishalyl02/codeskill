@@ -35,6 +35,15 @@ export type ProctoringSettings = {
   autoSubmitOnViolation: boolean;
 };
 
+export type ResultDisplaySettings = {
+  showScore: boolean;
+  showQuestionReview: boolean;
+  showCorrectAnswers: boolean;
+  showRankAndPercentile: boolean;
+  showTopicBreakdown: boolean;
+  customSubmissionMessage?: string;
+};
+
 interface AssessmentStore {
   title: string;
   code: string;
@@ -48,6 +57,11 @@ interface AssessmentStore {
   proctoring: ProctoringSettings;
   sections: AssessmentSection[];
   status: 'draft' | 'published';
+  targetStudentIds: string[];
+  lockSectionsSequentially: boolean;
+  showResultImmediately: boolean;
+  allowReview: boolean;
+  resultDisplaySettings: ResultDisplaySettings;
 
   setTitle: (title: string) => void;
   setCode: (code: string) => void;
@@ -58,7 +72,12 @@ interface AssessmentStore {
   setAllowedAttempts: (attempts: number) => void;
   setProctoring: (proctoring: Partial<ProctoringSettings>) => void;
   setStatus: (status: 'draft' | 'published') => void;
-  hydrate: (assessment: Omit<Partial<Pick<AssessmentStore, 'title' | 'code' | 'description' | 'instructions' | 'durationMinutes' | 'passingMarks' | 'negativeMarking' | 'category' | 'allowedAttempts' | 'proctoring' | 'sections' | 'status'>>, 'proctoring'> & { proctoring?: Partial<ProctoringSettings> }) => void;
+  setTargetStudentIds: (ids: string[]) => void;
+  setLockSectionsSequentially: (lock: boolean) => void;
+  setShowResultImmediately: (show: boolean) => void;
+  setAllowReview: (allow: boolean) => void;
+  setResultDisplaySettings: (settings: Partial<ResultDisplaySettings>) => void;
+  hydrate: (assessment: any) => void;
   reset: () => void;
 
   addSection: () => void;
@@ -69,6 +88,15 @@ interface AssessmentStore {
   removeQuestionFromSection: (sectionId: string, questionId: string) => void;
   updateQuestionConfig: (sectionId: string, questionId: string, config: Partial<AssessmentQuestionConfig>) => void;
 }
+
+const defaultResultDisplay: ResultDisplaySettings = {
+  showScore: true,
+  showQuestionReview: true,
+  showCorrectAnswers: false,
+  showRankAndPercentile: true,
+  showTopicBreakdown: true,
+  customSubmissionMessage: '',
+};
 
 const defaultProctoring: ProctoringSettings = {
   mode: 'fully_proctored',
@@ -100,6 +128,11 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   proctoring: defaultProctoring,
   sections: [{ id: 'sec-1', title: 'Section A', description: '', order: 0, timeLimit: 0, questions: [] }],
   status: 'draft',
+  targetStudentIds: [],
+  lockSectionsSequentially: false,
+  showResultImmediately: true,
+  allowReview: true,
+  resultDisplaySettings: defaultResultDisplay,
 
   setTitle: (title) => set({ title }),
   setCode: (code) => set({ code }),
@@ -110,6 +143,14 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   setAllowedAttempts: (allowedAttempts) => set({ allowedAttempts }),
   setProctoring: (proctoring) => set((state) => ({ proctoring: { ...state.proctoring, ...proctoring } })),
   setStatus: (status) => set({ status }),
+  setTargetStudentIds: (targetStudentIds) => set({ targetStudentIds }),
+  setLockSectionsSequentially: (lockSectionsSequentially) => set({ lockSectionsSequentially }),
+  setShowResultImmediately: (showResultImmediately) => set({ showResultImmediately }),
+  setAllowReview: (allowReview) => set({ allowReview }),
+  setResultDisplaySettings: (settings) =>
+    set((state) => ({
+      resultDisplaySettings: { ...state.resultDisplaySettings, ...settings },
+    })),
   hydrate: (assessment) => set((state) => {
     const incoming = assessment.proctoring || {};
     const mode: ProctoringMode =
@@ -122,6 +163,14 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
 
     return {
       ...assessment,
+      targetStudentIds: assessment.targetStudentIds || [],
+      lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+      showResultImmediately: assessment.showResultImmediately ?? true,
+      allowReview: assessment.allowReview ?? true,
+      resultDisplaySettings: {
+        ...defaultResultDisplay,
+        ...(assessment.resultDisplaySettings || {}),
+      },
       proctoring: {
         ...defaultProctoring,
         ...incoming,
@@ -152,6 +201,11 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
     proctoring: defaultProctoring,
     sections: [{ id: 'sec-1', title: 'Section A', description: '', order: 0, timeLimit: 0, questions: [] }],
     status: 'draft',
+    targetStudentIds: [],
+    lockSectionsSequentially: false,
+    showResultImmediately: true,
+    allowReview: true,
+    resultDisplaySettings: defaultResultDisplay,
   }),
 
   addSection: () => set((state) => ({

@@ -124,6 +124,19 @@ export class Assessment {
   @Column({ default: true })
   allowReview: boolean;
 
+  @Column({ default: false })
+  lockSectionsSequentially: boolean;
+
+  @Column({ type: 'jsonb', default: {} })
+  resultDisplaySettings: {
+    showScore?: boolean;
+    showQuestionReview?: boolean;
+    showCorrectAnswers?: boolean;
+    showRankAndPercentile?: boolean;
+    showTopicBreakdown?: boolean;
+    customSubmissionMessage?: string;
+  };
+
   @Column({ type: 'int', default: 1 })
   allowedAttempts: number;
 

@@ -9,7 +9,8 @@ import { useAssessmentStore, type ProctoringSettings } from "./_store/useAssessm
 import QuestionPicker from "./_components/QuestionPicker";
 import {
   ArrowLeft, CheckCircle2, Clock, Plus, Trash2, Shield, ShieldAlert,
-  ShieldOff, AlertTriangle, GripVertical, Settings, Save, Sparkles, X, GraduationCap
+  ShieldOff, AlertTriangle, GripVertical, Settings, Save, Sparkles, X, GraduationCap,
+  Lock, Search, UserCheck, Eye, EyeOff
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { ToastProvider, useToast } from "../../questions/create/_components/Toast"; // Reuse toast
@@ -62,6 +63,11 @@ type AssessmentApiData = {
   targetSemesters?: string[];
   targetSections?: string[];
   targetGroups?: string[];
+  targetStudentIds?: string[];
+  lockSectionsSequentially?: boolean;
+  showResultImmediately?: boolean;
+  allowReview?: boolean;
+  resultDisplaySettings?: any;
   startTime?: string | Date | null;
   endTime?: string | Date | null;
 };
@@ -97,7 +103,20 @@ function AssessmentBuilder() {
   const [autoSelections, setAutoSelections] = useState<Record<string, AutoSelectionCriteria>>({});
   const [isPublishing, setIsPublishing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [cohorts, setCohorts] = useState<StudentCohort[]>([]);
+  const [targetStudentIds, setTargetStudentIds] = useState<string[]>([]);
+  const [selectedStudentsList, setSelectedStudentsList] = useState<any[]>([]);
+  const [studentSearchInput, setStudentSearchInput] = useState("");
+  const [studentSearchResults, setStudentSearchResults] = useState<any[]>([]);
+  const [isSearchingStudents, setIsSearchingStudents] = useState(false);
+  const [audiencePreview, setAudiencePreview] = useState<{
+    totalCount: number;
+    accessMode: "open_access" | "specific_only" | "cohort_only" | "combined";
+    sampleStudents: any[];
+  } | null>(null);
+  const [showSampleDrawer, setShowSampleDrawer] = useState(false);
+  const [dynamicYears, setDynamicYears] = useState<string[]>(["1", "2", "3", "4"]);
+  const [dynamicSemesters, setDynamicSemesters] = useState<string[]>(["1", "2", "3", "4", "5", "6", "7", "8"]);
+  const [dynamicSections, setDynamicSections] = useState<string[]>([]);
   const [selectedYears, setSelectedYears] = useState<string[]>([]);
   const [targetSemesters, setTargetSemesters] = useState<string[]>([]);
   const [targetSections, setTargetSections] = useState<string[]>([]);
@@ -184,6 +203,11 @@ function AssessmentBuilder() {
           proctoring: assessment.proctoring || {},
           sections,
           status: assessment.status === "published" ? "published" : "draft",
+          targetStudentIds: Array.isArray(assessment.targetStudentIds) ? assessment.targetStudentIds : [],
+          lockSectionsSequentially: Boolean(assessment.lockSectionsSequentially),
+          showResultImmediately: assessment.showResultImmediately !== false,
+          allowReview: assessment.allowReview !== false,
+          resultDisplaySettings: assessment.resultDisplaySettings || {},
         });
 
         const semesters = Array.isArray(assessment.targetSemesters) ? assessment.targetSemesters.map(String) : [];
@@ -194,6 +218,9 @@ function AssessmentBuilder() {
         setTargetSemesters(semesters);
         setSelectedYears(Array.from(new Set(semesters.map((semester: string) => String(Math.ceil(Number(semester) / 2))))));
         setTargetSections(Array.isArray(assessment.targetSections) ? assessment.targetSections : []);
+        if (Array.isArray(assessment.targetStudentIds) && assessment.targetStudentIds.length) {
+          setTargetStudentIds(assessment.targetStudentIds);
+        }
         const groups = (assessment.targetGroups || []).map((group: string) => String(group).toLowerCase());
         setTargetGroup(groups.length > 1 ? "both" : groups[0] === "a" || groups[0] === "b" ? groups[0] : "");
         setStartTime(toDateTimeLocal(assessment.startTime));
@@ -215,43 +242,46 @@ function AssessmentBuilder() {
 
   useEffect(() => {
     let active = true;
-    const loadCohorts = async () => {
+    const loadDynamicOptions = async () => {
       try {
-        const firstPage = await adminUsersAPI.getAll("", false, 1, 100);
-        const payload = firstPage.data?.users ? firstPage.data : firstPage.data?.data || {};
-        const users = [...(payload.users || [])];
-        const pageCount = Number(payload.pages) || 1;
-        const remainingPages = await Promise.all(Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) =>
-          adminUsersAPI.getAll("", false, index + 2, 100),
-        ));
-        remainingPages.forEach((response: any) => {
-          const pagePayload = response.data?.users ? response.data : response.data?.data || {};
-          users.push(...(pagePayload.users || []));
-        });
-        const rows = users
-          .filter((user: any) => user.role === "student" || user.isAssessmentStudent)
-          .map((user: any) => {
-            const profile = user.studentProfile || {};
-            const semester = profile.semester == null ? "" : String(profile.semester);
-            return { semester, section: profile.section == null ? "" : String(profile.section).trim() };
-          })
-          .filter((row: StudentCohort) => /^\d+$/.test(row.semester));
-        if (active) setCohorts(rows);
+        const res = await adminAssessmentsAPI.getTargetingOptions();
+        const data = res.data?.data || res.data || {};
+        if (active) {
+          if (Array.isArray(data.years) && data.years.length) setDynamicYears(data.years);
+          if (Array.isArray(data.semesters) && data.semesters.length) setDynamicSemesters(data.semesters);
+          if (Array.isArray(data.sections) && data.sections.length) setDynamicSections(data.sections);
+        }
       } catch {
-        if (active) setCohorts([]);
+        // Defaults preserved
       }
     };
-    void loadCohorts();
+    void loadDynamicOptions();
     return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setPreviewNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
+    if (!studentSearchInput.trim()) {
+      setStudentSearchResults([]);
+      setIsSearchingStudents(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingStudents(true);
+      try {
+        const res = await adminAssessmentsAPI.searchStudents({ search: studentSearchInput.trim(), limit: 10 });
+        const payload = res.data?.students || res.data?.data?.students || [];
+        setStudentSearchResults(payload);
+      } catch {
+        setStudentSearchResults([]);
+      } finally {
+        setIsSearchingStudents(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [studentSearchInput]);
 
-  const years = ["1", "2", "3", "4"];
-  const allSemesters = ["1", "2", "3", "4", "5", "6", "7", "8"];
+  const years = dynamicYears;
+  const allSemesters = dynamicSemesters;
   const visibleSemesters = selectedYears.length
     ? Array.from(new Set(selectedYears.flatMap((year) => {
         const firstSemester = (Number(year) - 1) * 2 + 1;
@@ -260,11 +290,55 @@ function AssessmentBuilder() {
     : allSemesters;
   const sectionOptions = getStandardizedSectionOptions([
     ...targetSections,
-    ...cohorts
-      .filter((cohort) => !targetSemesters.length || targetSemesters.includes(cohort.semester))
-      .map((cohort) => cohort.section)
-      .filter(Boolean),
+    ...dynamicSections,
   ]);
+
+  useEffect(() => {
+    let active = true;
+    const runPreview = async () => {
+      try {
+        const res = await adminAssessmentsAPI.previewTargetAudience({
+          targetSemesters: targetSemesters.length ? targetSemesters : selectedYears.length ? visibleSemesters : [],
+          targetSections,
+          targetGroups: targetGroup === "both" ? ["A", "B"] : targetGroup ? [targetGroup.toUpperCase()] : [],
+          targetStudentIds,
+        });
+        const data = res.data?.data || res.data;
+        if (active && data) {
+          setAudiencePreview(data);
+        }
+      } catch {
+        if (active) setAudiencePreview(null);
+      }
+    };
+    const t = setTimeout(runPreview, 250);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [targetSemesters, selectedYears, visibleSemesters, targetSections, targetGroup, targetStudentIds]);
+
+  const handleToggleStudent = (student: any) => {
+    setTargetStudentIds((prev) => {
+      if (prev.includes(student.id)) {
+        setSelectedStudentsList((list) => list.filter((s) => s.id !== student.id));
+        return prev.filter((id) => id !== student.id);
+      } else {
+        setSelectedStudentsList((list) => [...list.filter((s) => s.id !== student.id), student]);
+        return [...prev, student.id];
+      }
+    });
+  };
+
+  const handleRemoveStudent = (studentId: string) => {
+    setTargetStudentIds((prev) => prev.filter((id) => id !== studentId));
+    setSelectedStudentsList((list) => list.filter((s) => s.id !== studentId));
+  };
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setPreviewNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const updateYears = (year: string) => {
     setSelectedYears((current) => toggleValue(current, year));
@@ -355,6 +429,11 @@ function AssessmentBuilder() {
         targetSemesters: targetSemesters.length ? targetSemesters : selectedYears.length ? visibleSemesters : [],
         targetSections,
         targetGroups: targetGroup === "both" ? ["A", "B"] : targetGroup ? [targetGroup.toUpperCase()] : [],
+        targetStudentIds,
+        lockSectionsSequentially: store.lockSectionsSequentially,
+        showResultImmediately: store.showResultImmediately,
+        allowReview: store.resultDisplaySettings.showQuestionReview,
+        resultDisplaySettings: store.resultDisplaySettings,
         startTime: startTime ? dayjs(startTime).toISOString() : editingId ? null : undefined,
         endTime: endTime ? dayjs(endTime).toISOString() : editingId ? null : undefined,
         negativeMarking: store.negativeMarking,
@@ -749,26 +828,180 @@ function AssessmentBuilder() {
                 <option value="both">Both</option>
               </select>
             </div>
-            <div className="md:col-span-4 p-3.5 bg-muted/30 border border-border/70 rounded-xl text-xs space-y-1">
-              <span className="font-semibold text-foreground flex items-center gap-1.5">
-                <GraduationCap className="w-4 h-4 text-primary" />
-                Target Audience Cohort Preview:
-              </span>
-              <p className="text-muted-foreground">
-                {targetSemesters.length || selectedYears.length || targetSections.length || targetGroup ? (
-                  <span>
-                    {selectedYears.length ? <strong className="text-foreground">Year {selectedYears.join(", ")}</strong> : null}
-                    {selectedYears.length && (targetSemesters.length || visibleSemesters.length) ? " • " : ""}
-                    {targetSemesters.length ? <strong className="text-foreground">Semester {targetSemesters.join(", ")}</strong> : selectedYears.length ? <strong className="text-foreground">Semesters {visibleSemesters.join(", ")}</strong> : null}
-                    {" • "}
-                    {targetSections.length ? <span className="text-foreground font-medium">Sections: {targetSections.join(", ")}</span> : "All Sections"}
-                    {" • "}
-                    {targetGroup ? <span className="text-foreground font-medium">Group: {targetGroup.toUpperCase()}</span> : "All Groups"}
-                  </span>
-                ) : (
-                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">Open Access (available to all registered students)</span>
+
+            {/* Specific Students Search & Selection */}
+            <div className="md:col-span-4 p-4 rounded-xl border border-border bg-background space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label htmlFor="student-search-input" className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <Search className="w-3.5 h-3.5 text-primary" />
+                    Assign Specific Students (Irrespective of Semesters)
+                  </label>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Search and select particular students to grant direct access regardless of their semester or section.
+                  </p>
+                </div>
+                {targetStudentIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTargetStudentIds([]);
+                      setSelectedStudentsList([]);
+                    }}
+                    className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400 transition-colors"
+                  >
+                    Clear assigned ({targetStudentIds.length})
+                  </button>
                 )}
-              </p>
+              </div>
+
+              <div className="relative">
+                <div className="relative flex items-center">
+                  <Search className="w-4 h-4 text-muted-foreground absolute left-3 pointer-events-none" />
+                  <input
+                    id="student-search-input"
+                    type="text"
+                    value={studentSearchInput}
+                    onChange={(e) => setStudentSearchInput(e.target.value)}
+                    placeholder="Search by student name, email, or UID..."
+                    className="w-full pl-9 pr-9 py-2 bg-muted/30 border border-border rounded-xl text-xs focus:ring-1 focus:ring-primary"
+                  />
+                  {isSearchingStudents && <Spinner className="w-3.5 h-3.5 animate-spin text-primary absolute right-3" />}
+                </div>
+
+                {studentSearchResults.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 z-30 max-h-48 overflow-y-auto bg-card border border-border rounded-xl shadow-xl p-1 space-y-1">
+                    {studentSearchResults.map((stu) => {
+                      const isSelected = targetStudentIds.includes(stu.id);
+                      return (
+                        <button
+                          type="button"
+                          key={stu.id}
+                          onClick={() => handleToggleStudent(stu)}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                            isSelected
+                              ? "bg-primary/10 text-primary border border-primary/20"
+                              : "hover:bg-muted text-foreground"
+                          }`}
+                        >
+                          <div>
+                            <span className="font-semibold">{stu.name}</span>{" "}
+                            <span className="text-[11px] text-muted-foreground font-mono">
+                              ({stu.uid || stu.email})
+                            </span>
+                            <span className="block text-[10px] text-muted-foreground">
+                              {stu.semester ? `Sem ${stu.semester}` : ""} {stu.section ? `· Sec ${stu.section}` : ""}{" "}
+                              {stu.year ? `· Year ${stu.year}` : ""}
+                            </span>
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                            {isSelected ? "Selected ✓" : "+ Add"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Selected Students Chips */}
+              {targetStudentIds.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {targetStudentIds.map((id) => {
+                    const stu = selectedStudentsList.find((s) => s.id === id);
+                    const label = stu ? `${stu.name} (${stu.uid || "ID"})` : `Student (${id.slice(0, 6)}...)`;
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 text-xs font-medium text-foreground"
+                      >
+                        <UserCheck className="w-3 h-3 text-primary" />
+                        <span>{label}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveStudent(id)}
+                          className="hover:text-rose-500 transition-colors ml-0.5"
+                          title="Remove student"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Target Audience Live Preview Card */}
+            <div className="md:col-span-4 p-4 bg-muted/30 border border-border/80 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                  <GraduationCap className="w-4 h-4 text-primary" />
+                  Target Audience Live Preview
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                    audiencePreview?.accessMode === "open_access"
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                      : audiencePreview?.accessMode === "specific_only"
+                      ? "bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20"
+                      : audiencePreview?.accessMode === "combined"
+                      ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20"
+                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                  }`}>
+                    {audiencePreview?.accessMode === "open_access" && "Open Access"}
+                    {audiencePreview?.accessMode === "specific_only" && "Specific Students Only"}
+                    {audiencePreview?.accessMode === "cohort_only" && "Cohort Restricted"}
+                    {audiencePreview?.accessMode === "combined" && "Combined Access"}
+                    {!audiencePreview && "Calculating..."}
+                  </span>
+                  {audiencePreview && (
+                    <span className="text-xs font-bold text-foreground font-mono">
+                      {audiencePreview.totalCount} {audiencePreview.totalCount === 1 ? "student" : "students"} eligible
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+                {targetSemesters.length || selectedYears.length || targetSections.length || targetGroup || targetStudentIds.length ? (
+                  <>
+                    {selectedYears.length ? <span className="bg-background px-2 py-0.5 rounded border border-border">Year {selectedYears.join(", ")}</span> : null}
+                    {targetSemesters.length ? <span className="bg-background px-2 py-0.5 rounded border border-border">Sem {targetSemesters.join(", ")}</span> : null}
+                    {targetSections.length ? <span className="bg-background px-2 py-0.5 rounded border border-border">Sec {targetSections.join(", ")}</span> : null}
+                    {targetGroup ? <span className="bg-background px-2 py-0.5 rounded border border-border">Group {targetGroup.toUpperCase()}</span> : null}
+                    {targetStudentIds.length ? <span className="bg-background px-2 py-0.5 rounded border border-border text-primary font-medium">{targetStudentIds.length} specific student(s)</span> : null}
+                  </>
+                ) : (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                    Open to all registered student accounts.
+                  </span>
+                )}
+              </div>
+
+              {audiencePreview && audiencePreview.sampleStudents.length > 0 && (
+                <div className="pt-2 border-t border-border/50">
+                  <button
+                    type="button"
+                    onClick={() => setShowSampleDrawer((v) => !v)}
+                    className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-1"
+                  >
+                    {showSampleDrawer ? "Hide sample candidates ▲" : `Preview sample eligible candidates (${audiencePreview.sampleStudents.length}) ▼`}
+                  </button>
+                  {showSampleDrawer && (
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto p-2 bg-background rounded-lg border border-border text-[11px]">
+                      {audiencePreview.sampleStudents.map((s) => (
+                        <div key={s.id} className="truncate text-muted-foreground">
+                          <strong className="text-foreground">{s.name}</strong>{" "}
+                          <span className="font-mono">({s.uid || s.email})</span>
+                          {s.semester && ` · Sem ${s.semester}`}
+                          {s.section && ` · Sec ${s.section}`}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="space-y-1.5 md:col-span-2">
               <label htmlFor="assessment-start-time" className="text-xs font-semibold">Available from <span className="text-muted-foreground font-normal">(optional)</span></label>
@@ -813,6 +1046,119 @@ function AssessmentBuilder() {
           </div>
         </section>
 
+        {/* Candidate Result Visibility Policy */}
+        <section className="bg-card border border-border rounded-2xl p-6 space-y-5 shadow-sm">
+          <div>
+            <h2 className="text-base font-bold flex items-center gap-2">
+              <Eye className="w-4 h-4 text-primary" /> Candidate Result Visibility Policy
+            </h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Control what data students can see after submitting their assessment.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl border border-border bg-background flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-sm font-semibold text-foreground">Release results immediately upon submission</span>
+              <p className="text-xs text-muted-foreground">
+                When disabled, candidates see a submission acknowledgement; scores and review remain withheld until published.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={store.showResultImmediately}
+                onChange={(e) => store.setShowResultImmediately(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+            </label>
+          </div>
+
+          {store.showResultImmediately ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={store.resultDisplaySettings.showScore}
+                  onChange={(e) => store.setResultDisplaySettings({ showScore: e.target.checked })}
+                  className="rounded text-primary focus:ring-primary w-4 h-4"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-foreground">Show overall score & percentage</span>
+                  <p className="text-[11px] text-muted-foreground">Display aggregate marks and pass/fail status</p>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={store.resultDisplaySettings.showQuestionReview}
+                  onChange={(e) => store.setResultDisplaySettings({ showQuestionReview: e.target.checked })}
+                  className="rounded text-primary focus:ring-primary w-4 h-4"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-foreground">Show question-by-question review</span>
+                  <p className="text-[11px] text-muted-foreground">List questions and student&apos;s selected answers</p>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={store.resultDisplaySettings.showCorrectAnswers}
+                  onChange={(e) => store.setResultDisplaySettings({ showCorrectAnswers: e.target.checked })}
+                  className="rounded text-primary focus:ring-primary w-4 h-4"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-foreground">Reveal correct options & explanations</span>
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Recommended OFF for multi-batch tests</p>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={store.resultDisplaySettings.showRankAndPercentile}
+                  onChange={(e) => store.setResultDisplaySettings({ showRankAndPercentile: e.target.checked })}
+                  className="rounded text-primary focus:ring-primary w-4 h-4"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-foreground">Show class rank & percentile</span>
+                  <p className="text-[11px] text-muted-foreground">Display leaderboard position and top % tier</p>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={store.resultDisplaySettings.showTopicBreakdown}
+                  onChange={(e) => store.setResultDisplaySettings({ showTopicBreakdown: e.target.checked })}
+                  className="rounded text-primary focus:ring-primary w-4 h-4"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-foreground">Show topic-wise performance breakdown</span>
+                  <p className="text-[11px] text-muted-foreground">Display progress bars for accuracy per topic/domain</p>
+                </div>
+              </label>
+            </div>
+          ) : (
+            <div className="space-y-1.5 pt-1">
+              <label htmlFor="custom-submission-msg" className="text-xs font-semibold text-foreground">
+                Custom Submission Confirmation Message
+              </label>
+              <textarea
+                id="custom-submission-msg"
+                rows={2}
+                value={store.resultDisplaySettings.customSubmissionMessage || ""}
+                onChange={(e) => store.setResultDisplaySettings({ customSubmissionMessage: e.target.value })}
+                placeholder="Your assessment has been submitted. Results will be announced once all batches have concluded."
+                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary resize-none"
+              />
+            </div>
+          )}
+        </section>
+
         {/* Sections */}
         {hasDuplicateQuestions && (
           <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-4 py-3 text-sm text-rose-600 dark:text-rose-400">
@@ -827,6 +1173,28 @@ function AssessmentBuilder() {
             <button onClick={store.addSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-muted border border-border rounded-lg text-xs font-semibold hover:bg-muted/80 transition-colors">
               <Plus className="w-3.5 h-3.5" /> Add Section
             </button>
+          </div>
+
+          {/* Sequential Section Locking Toggle Card */}
+          <div className="p-4 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <Lock className="w-4 h-4 text-primary" />
+                Lock Sections Sequentially
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Candidates must complete and submit each section in order before unlocking the next. Questions in completed sections become read-only.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={store.lockSectionsSequentially}
+                onChange={(e) => store.setLockSectionsSequentially(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+            </label>
           </div>
 
           {store.sections.map((section) => {

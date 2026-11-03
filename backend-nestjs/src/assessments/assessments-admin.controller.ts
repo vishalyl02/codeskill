@@ -46,6 +46,32 @@ export class AssessmentsAdminController {
     return this.assessmentsService.findAll(query);
   }
 
+  @Get('targeting-options')
+  @ApiOperation({
+    summary:
+      'Get distinct student targeting options (years, semesters, sections, batches) from active students',
+  })
+  async getTargetingOptions() {
+    return this.assessmentsService.getTargetingOptions();
+  }
+
+  @Get('students-search')
+  @ApiOperation({
+    summary: 'Search students by name, email, uid with optional cohort filters',
+  })
+  async searchStudents(@Query() query: any) {
+    return this.assessmentsService.searchStudents(query);
+  }
+
+  @Post('preview-target-audience')
+  @ApiOperation({
+    summary:
+      'Preview eligible audience count and sample students for targeting criteria',
+  })
+  async previewTargetAudience(@Body() dto: any) {
+    return this.assessmentsService.previewTargetAudience(dto);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get assessment details with populated questions' })
   async findById(@Param('id') id: string) {

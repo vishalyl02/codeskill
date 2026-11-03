@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Send,
   ShieldAlert,
+  Lock,
   Maximize2,
   Minimize2,
   Layers,
@@ -156,14 +157,39 @@ export default function TakeAssessmentPage({
   const [assessmentTitle, setAssessmentTitle] = useState("Proctored Assessment");
   const [assessmentCode, setAssessmentCode] = useState("");
   const [startError, setStartError] = useState<string | null>(null);
+  const [lockSectionsSequentially, setLockSectionsSequentially] = useState(false);
+  const [completedSectionIds, setCompletedSectionIds] = useState<string[]>([]);
+  const [showSectionSubmitModal, setShowSectionSubmitModal] = useState(false);
   const mediaCleanupRef = useRef<{ assessmentId: string; timer: number } | null>(null);
   const examPageRef = useRef<HTMLDivElement | null>(null);
+
+  // Restore completed sections from storage for reload resilience
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem(`codeskill_sections_done_${id}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setCompletedSectionIds(parsed);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
     setIsLoadingSettings(true);
     studentAssessmentsAPI.getOverview(id).then((res) => {
-      if (!cancelled) setProctoring(res.data?.assessment?.proctoring || {});
+      if (!cancelled) {
+        setProctoring(res.data?.assessment?.proctoring || {});
+        if (res.data?.assessment?.lockSectionsSequentially !== undefined) {
+          setLockSectionsSequentially(Boolean(res.data.assessment.lockSectionsSequentially));
+        }
+      }
     }).catch((error) => {
       console.error("Failed to load assessment proctoring settings:", error);
       if (!cancelled) setProctoring({});
@@ -334,6 +360,9 @@ export default function TakeAssessmentPage({
         : await studentAssessmentsAPI.startAttempt(id);
       const data = res.data;
       setQuestions(data.questions || []);
+      if (data.lockSectionsSequentially !== undefined) {
+        setLockSectionsSequentially(Boolean(data.lockSectionsSequentially));
+      }
       const resolvedDurationMinutes = data.durationMinutes !== undefined && data.durationMinutes > 0
         ? data.durationMinutes
         : 0.5; // 30-second standardized default when duration is missing
@@ -485,6 +514,9 @@ export default function TakeAssessmentPage({
       // exam media hook (for example, after a quick route transition).
       releaseAssessmentStream(id);
       clearAssessmentFaceReference(id);
+      try {
+        localStorage.removeItem(`codeskill_sections_done_${id}`);
+      } catch {}
       if (isAuto) {
         await new Promise((resolve) => window.setTimeout(resolve, 2500));
       }
@@ -919,8 +951,152 @@ export default function TakeAssessmentPage({
     });
   };
 
+  // Section grouping & sequential locking calculation
+  const sectionGroups = useMemo(() => {
+    if (!questions.length) return [];
+    const map = new Map<string, { id: string; title: string; order: number; questionIndices: number[] }>();
+    
+    questions.forEach((q, idx) => {
+      const id = q.sectionId || q.sectionTitle || "default";
+      const title = q.sectionTitle || "General Section";
+      const order = typeof q.sectionOrder === "number" ? q.sectionOrder : 0;
+      
+      if (!map.has(id)) {
+        map.set(id, {
+          id,
+          title,
+          order,
+          questionIndices: [idx],
+        });
+      } else {
+        map.get(id)!.questionIndices.push(idx);
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.order - b.order);
+  }, [questions]);
+
+  const isSequentialActive = lockSectionsSequentially && sectionGroups.length > 1;
+
+  const activeSectionIndex = useMemo(() => {
+    if (!isSequentialActive) return -1;
+    const firstIncompleteIdx = sectionGroups.findIndex((s) => !completedSectionIds.includes(s.id));
+    return firstIncompleteIdx === -1 ? sectionGroups.length - 1 : firstIncompleteIdx;
+  }, [isSequentialActive, sectionGroups, completedSectionIds]);
+
+  const activeSection = useMemo(() => {
+    if (activeSectionIndex === -1) return null;
+    return sectionGroups[activeSectionIndex] || null;
+  }, [activeSectionIndex, sectionGroups]);
+
+  const questionSectionMap = useMemo(() => {
+    const map = new Map<number, { section: { id: string; title: string; order: number; questionIndices: number[] }; status: "completed" | "active" | "locked" | "unlocked" }>();
+    if (!isSequentialActive) {
+      sectionGroups.forEach((s) => {
+        s.questionIndices.forEach((qIdx) => map.set(qIdx, { section: s, status: "unlocked" }));
+      });
+      return map;
+    }
+    sectionGroups.forEach((s, sIdx) => {
+      const isCompleted = completedSectionIds.includes(s.id);
+      const isActive = sIdx === activeSectionIndex;
+      const status = isCompleted ? "completed" : isActive ? "active" : "locked";
+      s.questionIndices.forEach((qIdx) => map.set(qIdx, { section: s, status }));
+    });
+    return map;
+  }, [isSequentialActive, sectionGroups, completedSectionIds, activeSectionIndex]);
+
+  const isFirstQuestionOfCurrentSection = useMemo(() => {
+    if (!activeSection) return currentIndex === 0;
+    return activeSection.questionIndices[0] === currentIndex;
+  }, [activeSection, currentIndex]);
+
+  const isLastQuestionOfCurrentSection = useMemo(() => {
+    if (!activeSection) return currentIndex === questions.length - 1;
+    return activeSection.questionIndices[activeSection.questionIndices.length - 1] === currentIndex;
+  }, [activeSection, currentIndex]);
+
+  // Keep currentIndex aligned within the active section if sequential locking is enabled
+  useEffect(() => {
+    if (isSequentialActive && activeSection && !activeSection.questionIndices.includes(currentIndex)) {
+      setCurrentIndex(activeSection.questionIndices[0]);
+    }
+  }, [isSequentialActive, activeSection, currentIndex]);
+
+  const activeSectionStats = useMemo(() => {
+    if (!activeSection) return { answered: 0, review: 0, unattempted: 0, total: 0 };
+    let answered = 0;
+    let review = 0;
+    let unattempted = 0;
+    activeSection.questionIndices.forEach((idx) => {
+      const q = questions[idx];
+      if (!q) return;
+      const r = responses[q._id];
+      if (
+        r?.status === "answered" &&
+        ((r.selectedAnswers && r.selectedAnswers.length > 0) || r.selectedAnswer >= 0 || Boolean(r.code?.trim()))
+      ) {
+        answered++;
+      } else if (r?.status === "marked_for_review") {
+        review++;
+      } else {
+        unattempted++;
+      }
+    });
+    return { answered, review, unattempted, total: activeSection.questionIndices.length };
+  }, [activeSection, questions, responses]);
+
+  const handleCompleteCurrentSection = useCallback(async () => {
+    if (!activeSection) return;
+    flushDraftToState();
+    const currentSectionId = activeSection.id;
+    const nextCompleted = completedSectionIds.includes(currentSectionId)
+      ? completedSectionIds
+      : [...completedSectionIds, currentSectionId];
+    setCompletedSectionIds(nextCompleted);
+    try {
+      localStorage.setItem(`codeskill_sections_done_${id}`, JSON.stringify(nextCompleted));
+    } catch {}
+
+    const formatted = questions.map((q) => {
+      const r = responsesRef.current[q._id];
+      return {
+        questionId: q._id,
+        selectedAnswer: r ? r.selectedAnswer : -1,
+        selectedAnswers: r?.selectedAnswers ?? (r && r.selectedAnswer >= 0 ? [r.selectedAnswer] : []),
+        code: r?.code || "",
+        language: r?.language || q.language || q.supportedLanguages?.[0] || "python",
+        testCasesPassed: r?.testCasesPassed || 0,
+        totalTestCases: r?.totalTestCases || 0,
+        status: r ? r.status : "unvisited",
+        timeSpentSeconds: 0,
+      };
+    });
+
+    studentAssessmentsAPI.saveProgress(id, {
+      responses: formatted,
+      timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+      violations: violationsRef.current,
+    }).catch(() => {});
+
+    setShowSectionSubmitModal(false);
+
+    if (activeSectionIndex < sectionGroups.length - 1) {
+      const nextSec = sectionGroups[activeSectionIndex + 1];
+      setCurrentIndex(nextSec.questionIndices[0]);
+      toast.success(`Section "${activeSection.title}" submitted. Now starting "${nextSec.title}".`);
+    } else {
+      toast.success("All sections completed! You may now submit your assessment.");
+      setShowSubmitModal(true);
+    }
+  }, [activeSection, completedSectionIds, id, questions, startedAt, activeSectionIndex, sectionGroups, flushDraftToState]);
+
   const handleSaveAndNext = () => {
     flushDraftToState();
+    if (isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1) {
+      setShowSectionSubmitModal(true);
+      return;
+    }
     if (currentIndex < questions.length - 1) {
       setCurrentIndex((prev) => prev + 1);
     } else {
@@ -932,7 +1108,7 @@ export default function TakeAssessmentPage({
   useEffect(() => {
     const handleKeyNav = (e: KeyboardEvent) => {
       // Don't trigger if modal is open or typing
-      if (showSubmitModal || showViolationModal) return;
+      if (showSubmitModal || showSectionSubmitModal || showViolationModal) return;
       if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, button, [contenteditable='true'], .monaco-editor")) return;
       if (["coding", "algorithmic", "dsa"].includes(currentQ?.questionType?.toLowerCase())) return;
 
@@ -941,16 +1117,36 @@ export default function TakeAssessmentPage({
       else if (key === "B" && currentQ?.options?.length > 1) handleSelectOption(1);
       else if (key === "C" && currentQ?.options?.length > 2) handleSelectOption(2);
       else if (key === "D" && currentQ?.options?.length > 3) handleSelectOption(3);
-      else if (e.key === "ArrowRight" && currentIndex < questions.length - 1) {
-        setCurrentIndex((i) => i + 1);
-      } else if (e.key === "ArrowLeft" && currentIndex > 0) {
-        setCurrentIndex((i) => i - 1);
+      else if (e.key === "ArrowRight") {
+        if (isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1) {
+          setShowSectionSubmitModal(true);
+        } else if (currentIndex < questions.length - 1) {
+          setCurrentIndex((i) => i + 1);
+        }
+      } else if (e.key === "ArrowLeft") {
+        if (isSequentialActive && isFirstQuestionOfCurrentSection) {
+          // Cannot navigate backward past start of active section
+        } else if (currentIndex > 0) {
+          setCurrentIndex((i) => i - 1);
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyNav);
     return () => window.removeEventListener("keydown", handleKeyNav);
-  }, [currentQ, currentIndex, questions.length, showSubmitModal, showViolationModal]);
+  }, [
+    currentQ,
+    currentIndex,
+    questions.length,
+    showSubmitModal,
+    showSectionSubmitModal,
+    showViolationModal,
+    isSequentialActive,
+    isLastQuestionOfCurrentSection,
+    isFirstQuestionOfCurrentSection,
+    activeSectionIndex,
+    sectionGroups.length,
+  ]);
 
   // Pre-calculate section counts once to avoid O(N^2) questions.filter inside render
   const sectionCounts = useMemo(() => {
@@ -1230,12 +1426,37 @@ export default function TakeAssessmentPage({
             <div role="progressbar" aria-label="Assessment progress" aria-valuenow={answeredCount} aria-valuemin={0} aria-valuemax={questions.length} className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{width: `${questions.length ? answeredCount / questions.length * 100 : 0}%`}} /></div>
             <div className="flex gap-3 text-[10px] text-muted-foreground"><span>● Answered</span><span className="text-amber-500">● Review</span><span>○ Not answered</span></div>
           </div>
+          {isSequentialActive && activeSection && (
+            <div className="mx-3 my-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-1.5 shrink-0">
+              <div className="flex items-center justify-between text-amber-700 dark:text-amber-300 font-semibold text-[11px]">
+                <span className="flex items-center gap-1.5">
+                  <Lock className="size-3.5" /> Sequential Sections
+                </span>
+                <span>Section {activeSectionIndex + 1}/{sectionGroups.length}</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-tight">
+                Current: &ldquo;{activeSection.title}&rdquo;. Prior sections lock upon submission.
+              </p>
+              {activeSectionIndex < sectionGroups.length - 1 && (
+                <button
+                  type="button"
+                  onClick={() => setShowSectionSubmitModal(true)}
+                  className="w-full mt-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition-colors flex items-center justify-center gap-1 shadow-xs"
+                >
+                  Complete Section & Next <ChevronRight className="size-3" />
+                </button>
+              )}
+            </div>
+          )}
           <nav aria-label="Assessment questions" className="assessment-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1">
             {questions.map((q, index) => {
               const prevQ = questions[index - 1];
               const showSectionHeader = Boolean(
                 q.sectionTitle && (!prevQ || prevQ.sectionTitle !== q.sectionTitle)
               );
+              const qSectionInfo = questionSectionMap.get(index);
+              const sectionStatus = qSectionInfo?.status || "unlocked";
+              const isQuestionLocked = isSequentialActive && sectionStatus !== "active";
               const response = responses[q._id];
               const answered = response?.status === "answered" && (((response.selectedAnswers && response.selectedAnswers.length > 0) || response.selectedAnswer >= 0) || Boolean(response.code?.trim()));
               const review = response?.status === "marked_for_review";
@@ -1250,23 +1471,79 @@ export default function TakeAssessmentPage({
                   {showSectionHeader && (
                     <div className="pt-3 pb-1 px-2.5 first:pt-1">
                       <div className="flex items-center justify-between text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                        <span className="truncate">{q.sectionTitle}</span>
-                        {sectionQuestionsCount > 0 && (
-                          <span className="text-[10px] font-normal text-muted-foreground/70 shrink-0 ml-2">
-                            {sectionQuestionsCount} Qs
-                          </span>
-                        )}
+                        <span className="truncate flex items-center gap-1.5">
+                          {sectionStatus === "locked" && <Lock className="size-3 text-muted-foreground shrink-0" />}
+                          {sectionStatus === "completed" && <CheckCircle2 className="size-3 text-emerald-500 shrink-0" />}
+                          <span className="truncate">{q.sectionTitle}</span>
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                          {isSequentialActive && (
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
+                              sectionStatus === "completed"
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                : sectionStatus === "active"
+                                ? "bg-primary/10 text-primary border border-primary/20"
+                                : "bg-muted text-muted-foreground border border-border"
+                            }`}>
+                              {sectionStatus === "completed" ? "Submitted" : sectionStatus === "active" ? "In Progress" : "Locked"}
+                            </span>
+                          )}
+                          {sectionQuestionsCount > 0 && (
+                            <span className="text-[10px] font-normal text-muted-foreground/70">
+                              {sectionQuestionsCount} Qs
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="h-px bg-border/60 mt-1 mb-1.5" />
                     </div>
                   )}
                   <button type="button" aria-current={current ? "step" : undefined}
-                    aria-label={`Question ${index + 1}${current ? ", current" : ""}${answered ? ", answered" : ""}${review ? ", marked for review" : ""}`}
-                    onClick={() => { flushDraftToState(); setCurrentIndex(index); setMobileSidebarOpen(false); }}
-                    className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-colors ${current ? "border-primary bg-primary/10 ring-1 ring-inset ring-primary/30" : "border-transparent hover:bg-muted/60"}`}>
-                    <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${answered ? "border-emerald-500 bg-emerald-500 text-slate-950" : review ? "border-amber-500/50 bg-amber-500/15 text-amber-500" : "border-border bg-muted text-muted-foreground"}`}>{answered ? <Check className="size-4" /> : index + 1}</span>
-                    <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-foreground" title={q.question}>{index + 1}. {q.question}</span><span className="mt-1 block text-[10px] text-muted-foreground">{coding ? "Coding" : "MCQ"} · {review ? "Review" : answered ? "Answered" : response?.code?.trim() ? "Draft" : "Not answered"}</span></span>
-                    {review && <Bookmark className="size-3 shrink-0 text-amber-500" />}
+                    disabled={isQuestionLocked}
+                    aria-label={`Question ${index + 1}${current ? ", current" : ""}${answered ? ", answered" : ""}${review ? ", marked for review" : ""}${isQuestionLocked ? `, ${sectionStatus}` : ""}`}
+                    onClick={() => {
+                      if (isQuestionLocked) return;
+                      flushDraftToState();
+                      setCurrentIndex(index);
+                      setMobileSidebarOpen(false);
+                    }}
+                    className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-colors ${
+                      isQuestionLocked
+                        ? "opacity-50 cursor-not-allowed border-transparent bg-muted/20"
+                        : current
+                        ? "border-primary bg-primary/10 ring-1 ring-inset ring-primary/30"
+                        : "border-transparent hover:bg-muted/60"
+                    }`}>
+                    <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${
+                      isQuestionLocked && sectionStatus === "locked"
+                        ? "border-border bg-muted/60 text-muted-foreground"
+                        : answered
+                        ? "border-emerald-500 bg-emerald-500 text-slate-950"
+                        : review
+                        ? "border-amber-500/50 bg-amber-500/15 text-amber-500"
+                        : "border-border bg-muted text-muted-foreground"
+                    }`}>
+                      {isQuestionLocked && sectionStatus === "locked" ? (
+                        <Lock className="size-3" />
+                      ) : answered ? (
+                        <Check className="size-4" />
+                      ) : (
+                        index + 1
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium text-foreground" title={q.question}>
+                        {index + 1}. {q.question}
+                      </span>
+                      <span className="mt-1 block text-[10px] text-muted-foreground">
+                        {coding ? "Coding" : "MCQ"} · {
+                          isQuestionLocked
+                            ? sectionStatus === "completed" ? "Submitted" : "Locked"
+                            : review ? "Review" : answered ? "Answered" : response?.code?.trim() ? "Draft" : "Not answered"
+                        }
+                      </span>
+                    </span>
+                    {review && !isQuestionLocked && <Bookmark className="size-3 shrink-0 text-amber-500" />}
                   </button>
                 </Fragment>
               );
@@ -1293,18 +1570,28 @@ export default function TakeAssessmentPage({
                   <button
                     type="button"
                     onClick={() => { flushDraftToState(); setCurrentIndex((prev) => Math.max(0, prev - 1)); }}
-                    disabled={currentIndex === 0}
+                    disabled={currentIndex === 0 || (isSequentialActive && isFirstQuestionOfCurrentSection)}
                     className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <ChevronLeft className="w-4 h-4" /> Previous
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveAndNext}
-                    className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20"
-                  >
-                    {isLastQuestion ? "Review & finish" : "Next question"} <ChevronRight className="w-4 h-4" />
-                  </button>
+                  {isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowSectionSubmitModal(true)}
+                      className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-sm shadow-amber-600/20"
+                    >
+                      Complete & Submit Section <ChevronRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSaveAndNext}
+                      className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20"
+                    >
+                      {isLastQuestion ? "Review & finish" : "Next question"} <ChevronRight className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             </> : <>
@@ -1450,13 +1737,21 @@ export default function TakeAssessmentPage({
                     <button
                       type="button"
                       onClick={() => { flushDraftToState(); setCurrentIndex((prev) => Math.max(0, prev - 1)); }}
-                      disabled={currentIndex === 0}
+                      disabled={currentIndex === 0 || (isSequentialActive && isFirstQuestionOfCurrentSection)}
                       className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <ChevronLeft className="w-4 h-4" /> Previous
                     </button>
 
-                    {isLastQuestion ? (
+                    {isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowSectionSubmitModal(true)}
+                        className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-md shadow-amber-600/20"
+                      >
+                        Complete & Submit Section <ChevronRight className="w-4 h-4" />
+                      </button>
+                    ) : isLastQuestion ? (
                       <button
                         type="button"
                         onClick={() => setShowSubmitModal(true)}
@@ -1601,6 +1896,66 @@ export default function TakeAssessmentPage({
           </div>
       </FloatingAssessmentMonitor>}
 
+      {/* Section Submit Confirmation Modal */}
+      {showSectionSubmitModal && activeSection && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-3xl p-6 max-w-md w-full space-y-5 animate-in fade-in zoom-in-95 shadow-2xl">
+            <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Submit & Lock Section?</h3>
+                <p className="text-xs text-muted-foreground">{activeSection.title}</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-700 dark:text-amber-300 space-y-1">
+              <div className="font-semibold flex items-center gap-1.5">
+                <AlertTriangle className="size-4 shrink-0" /> Important: Section lock notice
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Once you submit this section, it will be <strong>permanently locked</strong>. You will advance to the next section and <strong>cannot return</strong> to change your answers in &ldquo;{activeSection.title}&rdquo;.
+              </p>
+            </div>
+
+            <div className="p-4 bg-muted/40 border border-border rounded-2xl grid grid-cols-3 gap-2 text-center text-xs font-mono">
+              <div className="space-y-0.5">
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">Answered</span>
+                <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{activeSectionStats.answered}</div>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">Review</span>
+                <div className="text-xl font-bold text-amber-600 dark:text-amber-400">{activeSectionStats.review}</div>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">Unattempted</span>
+                <div className="text-xl font-bold text-muted-foreground">{activeSectionStats.unattempted}</div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSectionSubmitModal(false)}
+                className="px-4 py-2.5 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors"
+              >
+                Return to Section
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCompleteCurrentSection}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-amber-600/20"
+              >
+                <Lock className="w-4 h-4" />
+                Yes, Submit Section & Proceed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirmation Modal */}
       {showSubmitModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1634,6 +1989,13 @@ export default function TakeAssessmentPage({
               <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 shrink-0" />
                 <span>Notice: {violations.length} proctoring event(s) logged and submitted with attempt.</span>
+              </div>
+            )}
+
+            {isSequentialActive && activeSectionIndex < sectionGroups.length - 1 && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-[11px] text-rose-600 dark:text-rose-400 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>Warning: You have uncompleted sections remaining ({sectionGroups.length - 1 - activeSectionIndex} remaining). Submitting now will finalize your entire assessment.</span>
               </div>
             )}
 

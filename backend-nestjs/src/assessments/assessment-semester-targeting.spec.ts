@@ -9,15 +9,28 @@ function createMockService(overrides: {
   assessments?: any[];
   attempts?: any[];
   questions?: any[];
+  users?: any[];
 } = {}) {
   const assessments = overrides.assessments || [];
   const attempts = overrides.attempts || [];
   const questions = overrides.questions || [];
+  const users = overrides.users || [];
 
   const builder = {
     where: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
     getMany: jest.fn().mockResolvedValue(assessments),
+  };
+
+  const userBuilder = {
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    getMany: jest.fn().mockResolvedValue(users),
+  };
+  const userRepo: any = {
+    createQueryBuilder: () => userBuilder,
   };
 
   const assessmentRepo: any = {
@@ -32,6 +45,7 @@ function createMockService(overrides: {
 
   const attemptRepo: any = {
     find: jest.fn().mockImplementation(async () => attempts),
+    count: jest.fn().mockImplementation(async () => attempts.length),
     findOne: jest.fn().mockImplementation(async (query: any) => {
       const cond = Array.isArray(query.where) ? query.where[0] : query.where;
       return (
@@ -39,7 +53,7 @@ function createMockService(overrides: {
           (att) =>
             (!cond.assessmentId || att.assessmentId === cond.assessmentId) &&
             (!cond.studentId || att.studentId === cond.studentId) &&
-            (!cond.status || att.status === cond.status),
+            (!cond.status || att.status === cond.status || (cond.status?._value && cond.status._value.includes(att.status))),
         ) || null
       );
     }),
@@ -68,9 +82,10 @@ function createMockService(overrides: {
     undefined,
     undefined,
     undefined,
+    userRepo,
   );
 
-  return { service, assessmentRepo, attemptRepo, questionRepo, auditLogRepo, builder };
+  return { service, assessmentRepo, attemptRepo, questionRepo, auditLogRepo, userRepo, builder };
 }
 
 describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
@@ -385,6 +400,251 @@ describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
       const res = await service.getAssessmentResults('sem4-exam', adminUser);
       expect(res.success).toBe(true);
       expect(Array.isArray(res.attempts)).toBe(true);
+    });
+  });
+
+  describe('Individual Student Targeting & Open Access Fallback', () => {
+    const studentAliceSem2: any = {
+      id: 'student-alice-id',
+      uid: '22BCS101',
+      role: 'student',
+      studentProfile: { semester: 2, section: 'B', department: 'Mechanical', batch: '2028' },
+    };
+
+    const studentBobSem6: any = {
+      id: 'student-bob-id',
+      uid: '20BCS999',
+      role: 'student',
+      studentProfile: { semester: 6, section: 'C', department: 'Civil', batch: '2024' },
+    };
+
+    it('allows all students when targeting criteria are empty (Open Access)', async () => {
+      const openAssessment: any = {
+        id: 'open-exam',
+        title: 'Open Campus Hackathon',
+        code: 'OPEN101',
+        status: 'published',
+        durationMinutes: 60,
+        totalMarks: 50,
+        questions: ['q1'],
+        targetSemesters: [],
+        targetSections: [],
+        targetBatches: [],
+        targetDepartments: [],
+        targetStudentIds: [],
+      };
+      const { service } = createMockService({ assessments: [openAssessment] });
+
+      const overviewAlice = await service.getStudentAssessmentOverview('open-exam', studentAliceSem2);
+      expect(overviewAlice.success).toBe(true);
+
+      const overviewBob = await service.getStudentAssessmentOverview('open-exam', studentBobSem6);
+      expect(overviewBob.success).toBe(true);
+    });
+
+    it('grants access to specific student in targetStudentIds irrespective of their semester/section', async () => {
+      const sem4ExamWithAliceException: any = {
+        ...sem4Assessment,
+        id: 'sem4-with-exception',
+        targetStudentIds: ['student-alice-id'], // Alice is Sem 2 Mech, but explicitly assigned
+      };
+      const { service } = createMockService({ assessments: [sem4ExamWithAliceException] });
+
+      // Alice is Sem 2, but targeted by ID: must be allowed
+      const overviewAlice = await service.getStudentAssessmentOverview('sem4-with-exception', studentAliceSem2);
+      expect(overviewAlice.success).toBe(true);
+
+      // Bob is Sem 6 and not targeted: must be denied
+      await expect(
+        service.getStudentAssessmentOverview('sem4-with-exception', studentBobSem6),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('restricts access exclusively to targetStudentIds when no cohort filters are set', async () => {
+      const inviteOnlyExam: any = {
+        id: 'invite-only',
+        title: 'Honor Students Invitational',
+        code: 'INVITE1',
+        status: 'published',
+        durationMinutes: 60,
+        totalMarks: 50,
+        questions: ['q1'],
+        targetSemesters: [],
+        targetSections: [],
+        targetStudentIds: ['student-alice-id'],
+      };
+      const { service } = createMockService({ assessments: [inviteOnlyExam] });
+
+      const overviewAlice = await service.getStudentAssessmentOverview('invite-only', studentAliceSem2);
+      expect(overviewAlice.success).toBe(true);
+
+      await expect(
+        service.getStudentAssessmentOverview('invite-only', studentBobSem6),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('Candidate Result Display Policy & Sequential Sections', () => {
+    const studentUser: any = {
+      id: 'student-eval-1',
+      uid: 'STU-001',
+      role: 'student',
+      studentProfile: { semester: 4, section: 'CSE-A', department: 'Computer Science', batch: '2026', group: 'A' },
+    };
+
+    const question1: any = {
+      id: 'q1',
+      question: 'What is a Semaphore?',
+      options: ['Synchronization primitive', 'Hardware bus', 'Compiler pass', 'Cache block'],
+      correctAnswer: 0,
+      explanation: 'A semaphore is a synchronization primitive.',
+      marks: 10,
+    };
+
+    const attempt1: any = {
+      id: 'att-1',
+      assessmentId: 'exam-display',
+      studentId: 'student-eval-1',
+      studentUid: 'STU-001',
+      status: 'submitted',
+      score: 10,
+      rawScore: 10,
+      percentage: 100,
+      passed: true,
+      accuracy: 100,
+      totalAttempted: 1,
+      totalCorrect: 1,
+      totalWrong: 0,
+      totalSkipped: 0,
+      timeSpentSeconds: 600,
+      responses: [
+        { questionId: 'q1', selectedAnswer: 0, isCorrect: true, marksAwarded: 10 },
+      ],
+    };
+
+    it('withholds results and returns resultsPending when showResultImmediately is false', async () => {
+      const assessmentHidden: any = {
+        ...sem4Assessment,
+        id: 'exam-display',
+        questions: ['q1'],
+        showResultImmediately: false,
+        resultDisplaySettings: {
+          customSubmissionMessage: 'Scores will be announced after evaluation.',
+        },
+      };
+      const { service } = createMockService({
+        assessments: [assessmentHidden],
+        attempts: [attempt1],
+        questions: [question1],
+      });
+
+      const res = await service.getStudentResult('exam-display', studentUser);
+      expect(res.success).toBe(true);
+      expect(res.resultsPending).toBe(true);
+      expect(res.message).toBe('Scores will be announced after evaluation.');
+      expect((res as any).attempt.score).toBeUndefined();
+      expect((res as any).reviewQuestions).toBeUndefined();
+    });
+
+    it('redacts correct answers when showCorrectAnswers is false', async () => {
+      const assessmentNoAnswers: any = {
+        ...sem4Assessment,
+        id: 'exam-display',
+        questions: ['q1'],
+        showResultImmediately: true,
+        allowReview: true,
+        resultDisplaySettings: {
+          showCorrectAnswers: false,
+        },
+      };
+      const { service } = createMockService({
+        assessments: [assessmentNoAnswers],
+        attempts: [attempt1],
+        questions: [question1],
+      });
+
+      const res = await service.getStudentResult('exam-display', studentUser);
+      expect(res.success).toBe(true);
+      expect(res.reviewQuestions).toHaveLength(1);
+      expect(res.reviewQuestions[0].correctAnswer).toBeUndefined();
+      expect(res.reviewQuestions[0].explanation).toBeUndefined();
+      expect(res.reviewQuestions[0].selectedAnswer).toBe(0);
+    });
+
+    it('passes lockSectionsSequentially to student in overview and startAttempt', async () => {
+      const assessmentSequential: any = {
+        ...sem4Assessment,
+        id: 'exam-seq',
+        questions: ['q1'],
+        lockSectionsSequentially: true,
+        sections: [{ id: 'sec-1', title: 'Section 1', order: 0, timeLimit: 0, questions: [{ questionId: 'q1', marks: 10, negativeMarks: 0, order: 0 }] }],
+      };
+      const { service } = createMockService({
+        assessments: [assessmentSequential],
+        questions: [question1],
+      });
+
+      const overview = await service.getStudentAssessmentOverview('exam-seq', studentUser);
+      expect(overview.assessment.lockSectionsSequentially).toBe(true);
+
+      const start = await service.startStudentAttempt('exam-seq', studentUser);
+      expect(start.lockSectionsSequentially).toBe(true);
+    });
+  });
+
+  describe('Dynamic Targeting Options & Audience Preview', () => {
+    const student1: any = {
+      id: 's1',
+      uid: '21BCS001',
+      name: 'Alice Johnson',
+      email: 'alice@cu.edu',
+      role: 'student',
+      isActive: true,
+      studentProfile: { year: 3, semester: 5, section: 'CSE-1', batch: '2023-2027', department: 'CSE' },
+    };
+
+    const student2: any = {
+      id: 's2',
+      uid: '21BCS002',
+      name: 'Bob Smith',
+      email: 'bob@cu.edu',
+      role: 'student',
+      isActive: true,
+      studentProfile: { year: 3, semester: 6, section: 'AIML-A', batch: '2023-2027', department: 'AIML' },
+    };
+
+    it('extracts distinct options from actual student data', async () => {
+      const { service } = createMockService({ users: [student1, student2] });
+      const options = await service.getTargetingOptions();
+
+      expect(options.success).toBe(true);
+      expect(options.semesters).toContain('5');
+      expect(options.semesters).toContain('6');
+      expect(options.sections).toContain('CSE-1');
+      expect(options.sections).toContain('AIML-A');
+      expect(options.batches).toContain('2023-2027');
+      expect(options.totalStudents).toBe(2);
+    });
+
+    it('searches students by name or uid', async () => {
+      const { service } = createMockService({ users: [student1, student2] });
+      const searchRes = await service.searchStudents({ search: 'alice' });
+
+      expect(searchRes.success).toBe(true);
+      expect(searchRes.students).toHaveLength(2); // Mocked query builder returns users list, filtered in memory
+      expect(searchRes.students[0].name).toBe('Alice Johnson');
+    });
+
+    it('previews target audience count and access mode accurately', async () => {
+      const { service } = createMockService({ users: [student1, student2] });
+      const previewOpen = await service.previewTargetAudience({});
+      expect(previewOpen.accessMode).toBe('open_access');
+      expect(previewOpen.totalCount).toBe(2);
+
+      const previewSpecific = await service.previewTargetAudience({ targetStudentIds: ['s1'] });
+      expect(previewSpecific.accessMode).toBe('specific_only');
+      expect(previewSpecific.totalCount).toBe(1);
+      expect(previewSpecific.sampleStudents[0].id).toBe('s1');
     });
   });
 });
