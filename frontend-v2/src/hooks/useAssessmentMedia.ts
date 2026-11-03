@@ -105,6 +105,7 @@ export function useAssessmentMedia(
     if (sessionRef.current.id !== sessionId) sessionRef.current = {
       id: sessionId, ended: false, stream: null, audioContext: null, analyser: null, audioFrame: null, cooldown: 0, analysisVideo: null,
       faceDetector: null, faceDetectionFrame: null, lastFaceCheck: 0, multipleFaceFrames: 0, faceCooldown: 0,
+      audioListeners: new Set<(level: number) => void>(),
     };
     const session = sessionRef.current;
     if (!enabled || session.ended) return;

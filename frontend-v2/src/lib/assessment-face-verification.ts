@@ -17,7 +17,12 @@ let faceLandmarkerPromise: Promise<any> | null = null;
 async function getFaceLandmarker() {
   if (!faceLandmarkerPromise) {
     faceLandmarkerPromise = import("@mediapipe/tasks-vision").then(async ({ FilesetResolver, FaceLandmarker }) => {
-      const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm");
+      let vision;
+      try {
+        vision = await FilesetResolver.forVisionTasks("/mediapipe/wasm");
+      } catch {
+        vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm");
+      }
       return FaceLandmarker.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath: "/mediapipe/models/face_landmarker.task",
