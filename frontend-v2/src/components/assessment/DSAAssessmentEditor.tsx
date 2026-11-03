@@ -333,6 +333,28 @@ export default function DSAAssessmentEditor({
     }
   }, []);
 
+  const editorRef = useRef<any>(null);
+
+  const handleEditorDidMount = (editor: any) => {
+    editorRef.current = editor;
+  };
+
+  // Clean up Monaco models when question switches or component unmounts to prevent memory accumulation
+  useEffect(() => {
+    return () => {
+      if (editorRef.current) {
+        try {
+          const model = editorRef.current.getModel();
+          if (model && !model.isDisposed()) {
+            model.dispose();
+          }
+        } catch {
+          // Ignore disposal errors on unmount
+        }
+      }
+    };
+  }, [question._id]);
+
 
 
   // Normalize test cases from question
@@ -772,14 +794,23 @@ export default function DSAAssessmentEditor({
             language={language}
             value={editorCode}
             onChange={value => { if (value !== undefined && value !== code) updateCode(value); }}
+            onMount={handleEditorDidMount}
             theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
             options={{
-              automaticLayout: true, minimap: { enabled: false }, fontSize: Math.round(13 * readingScale),
-              lineNumbers: "on", scrollBeyondLastLine: false, wordWrap: "on",
-              bracketPairColorization: { enabled: true },
-              guides: { bracketPairs: true, indentation: true },
-              padding: { top: 12, bottom: 12 }, tabSize: 4,
-              readOnly: isRunning || isSubmitting, ariaLabel: "Assessment code editor",
+              automaticLayout: true,
+              minimap: { enabled: false },
+              fontSize: Math.round(13 * readingScale),
+              lineNumbers: "on",
+              scrollBeyondLastLine: false,
+              wordWrap: "on",
+              bracketPairColorization: { enabled: false },
+              guides: { bracketPairs: false, indentation: true },
+              folding: false,
+              contextmenu: false,
+              padding: { top: 12, bottom: 12 },
+              tabSize: 4,
+              readOnly: isRunning || isSubmitting,
+              ariaLabel: "Assessment code editor",
             }}
             loading={<div className="p-4 h-full text-sm text-muted-foreground">Loading code editor…</div>}
           />
