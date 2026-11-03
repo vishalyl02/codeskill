@@ -55,6 +55,32 @@ export class AssessmentAutoSelectionDto {
   hardCount: number;
 }
 
+export class AssessmentResultDisplayDto {
+  @IsBoolean()
+  @IsOptional()
+  showScore?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  showQuestionReview?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  showCorrectAnswers?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  showRankAndPercentile?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  showTopicBreakdown?: boolean;
+
+  @IsString()
+  @IsOptional()
+  customSubmissionMessage?: string;
+}
+
 export class AssessmentSectionDto {
   @IsString()
   @IsNotEmpty()
@@ -250,6 +276,15 @@ export class CreateAssessmentDto {
   @IsBoolean()
   @IsOptional()
   allowReview?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  lockSectionsSequentially?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AssessmentResultDisplayDto)
+  resultDisplaySettings?: AssessmentResultDisplayDto;
 
   @IsNumber()
   @Type(() => Number)

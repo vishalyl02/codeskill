@@ -17,6 +17,7 @@ import { Assessment } from '../database/entities/assessment.entity';
 import { AssessmentAttempt } from '../database/entities/assessment-attempt.entity';
 import { Question } from '../database/entities/question.entity';
 import { AuditLog } from '../database/entities/audit-log.entity';
+import { User } from '../database/entities/user.entity';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateAssessmentDto } from './dto/update-assessment.dto';
 import { SubmitAssessmentDto } from './dto/submit-assessment.dto';
@@ -110,6 +111,9 @@ export class AssessmentsService {
     @Optional()
     private readonly s3Service?: S3Service,
     @Optional() @InjectQueue('submissions') private readonly codeQueue?: Queue,
+    @Optional()
+    @InjectRepository(User)
+    private readonly userRepo?: Repository<User>,
   ) {}
 
   private attemptExpiresAt(assessment: Assessment, attempt: AssessmentAttempt): Date {
@@ -981,6 +985,8 @@ export class AssessmentsService {
       shuffleOptions: dto.shuffleOptions ?? true,
       showResultImmediately: dto.showResultImmediately ?? true,
       allowReview: dto.allowReview ?? true,
+      lockSectionsSequentially: dto.lockSectionsSequentially ?? false,
+      resultDisplaySettings: dto.resultDisplaySettings || {},
       allowedAttempts:
         dto.allowedAttempts !== undefined ? Number(dto.allowedAttempts) : 1,
       mode: dto.proctoring?.mode || 'fully_proctored',
@@ -1193,6 +1199,10 @@ export class AssessmentsService {
     if (dto.showResultImmediately !== undefined)
       assessment.showResultImmediately = dto.showResultImmediately;
     if (dto.allowReview !== undefined) assessment.allowReview = dto.allowReview;
+    if (dto.lockSectionsSequentially !== undefined)
+      assessment.lockSectionsSequentially = dto.lockSectionsSequentially;
+    if (dto.resultDisplaySettings !== undefined)
+      assessment.resultDisplaySettings = dto.resultDisplaySettings;
     if (dto.allowedAttempts !== undefined)
       assessment.allowedAttempts = Number(dto.allowedAttempts);
     if (dto.targetBatches !== undefined)
@@ -1580,6 +1590,41 @@ export class AssessmentsService {
     studentUser: any,
     profileContext?: { batch: string; dept: string; studentProfile: any },
   ) {
+    const studentKeys = [studentUser.id, studentUser._id, studentUser.uid]
+      .filter(Boolean)
+      .map(String);
+
+    const hasSpecificTargets =
+      Array.isArray(assessment.targetStudentIds) &&
+      assessment.targetStudentIds.length > 0;
+    const isDirectlyTargeted =
+      hasSpecificTargets &&
+      studentKeys.some((k) => assessment.targetStudentIds.includes(k));
+
+    // When an individual student is targeted by ID, they are eligible irrespective of semesters, sections, or cohorts
+    if (isDirectlyTargeted) {
+      return true;
+    }
+
+    const hasCohortFilters = Boolean(
+      (assessment.targetSemesters && assessment.targetSemesters.length > 0) ||
+      (assessment.targetSections && assessment.targetSections.length > 0) ||
+      (assessment.targetBatches && assessment.targetBatches.length > 0) ||
+      (assessment.targetDepartments && assessment.targetDepartments.length > 0) ||
+      (assessment.targetCourses && assessment.targetCourses.length > 0) ||
+      (assessment.targetGroups && assessment.targetGroups.length > 0),
+    );
+
+    // If specific students were targeted and no cohort filters were set, unlisted students are excluded
+    if (hasSpecificTargets && !hasCohortFilters) {
+      return false;
+    }
+
+    // If neither specific students nor cohort filters exist, open access to all students
+    if (!hasSpecificTargets && !hasCohortFilters) {
+      return true;
+    }
+
     let rawProfile = profileContext?.studentProfile ?? studentUser.studentProfile ?? {};
     if (typeof rawProfile === 'string') {
       try {
@@ -1591,9 +1636,6 @@ export class AssessmentsService {
     const profile = rawProfile && typeof rawProfile === 'object' ? rawProfile : {};
     const batch = profileContext?.batch ?? profile.batch ?? '';
     const dept = profileContext?.dept ?? profile.department ?? '';
-    const studentKeys = [studentUser.id, studentUser._id, studentUser.uid]
-      .filter(Boolean)
-      .map(String);
     const matches = (targets: string[] | undefined, value: string) =>
       !targets?.length || (!!value && targets.map((t) => String(t).trim().toLowerCase()).includes(String(value).trim().toLowerCase()));
     const group = String(profile.group || '')
@@ -1622,7 +1664,6 @@ export class AssessmentsService {
           .includes(studentSection.toLowerCase()));
 
     return (
-      (!assessment.targetStudentIds?.length || studentKeys.some((key) => assessment.targetStudentIds.includes(key))) &&
       matches(assessment.targetBatches, batch) &&
       matches(assessment.targetDepartments, dept) &&
       matches(assessment.targetCourses, profile.course || '') &&
@@ -1644,6 +1685,228 @@ export class AssessmentsService {
     return [...new Set((groups || []).map((group) =>
       String(group).trim().replace(/^group[\s_-]*/i, '').toUpperCase(),
     ).filter((group) => group === 'A' || group === 'B'))];
+  }
+
+  async getTargetingOptions() {
+    if (!this.userRepo) {
+      return {
+        success: true,
+        years: ['1', '2', '3', '4'],
+        semesters: ['1', '2', '3', '4', '5', '6', '7', '8'],
+        sections: ['A', 'B'],
+        batches: [],
+        departments: [],
+        groups: ['A', 'B'],
+        totalStudents: 0,
+      };
+    }
+
+    const users = await this.userRepo
+      .createQueryBuilder('u')
+      .where("u.role = 'student' OR u.isAssessmentStudent = true")
+      .andWhere('u.isActive = true')
+      .select(['u.id', 'u.studentProfile'])
+      .getMany();
+
+    const yearsSet = new Set<string>();
+    const semestersSet = new Set<string>();
+    const sectionsSet = new Set<string>();
+    const batchesSet = new Set<string>();
+    const departmentsSet = new Set<string>();
+
+    for (const u of users) {
+      const profile = u.studentProfile || {};
+      if (profile.year != null && String(profile.year).trim()) {
+        yearsSet.add(String(profile.year).trim());
+      }
+      if (profile.semester != null && String(profile.semester).trim()) {
+        const sem = this.normalizeSemester(profile.semester);
+        if (sem) semestersSet.add(sem);
+      }
+      if (profile.section != null && String(profile.section).trim()) {
+        const sec = normalizeSectionIdentifier(profile.section);
+        if (sec) sectionsSet.add(sec);
+      }
+      if (profile.batch != null && String(profile.batch).trim()) {
+        batchesSet.add(String(profile.batch).trim());
+      }
+      if (profile.department != null && String(profile.department).trim()) {
+        departmentsSet.add(String(profile.department).trim());
+      }
+    }
+
+    const sortNumericOrAlpha = (arr: string[]) =>
+      [...arr].sort((a, b) => {
+        const numA = Number(a);
+        const numB = Number(b);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return a.localeCompare(b);
+      });
+
+    ['1', '2', '3', '4'].forEach((y) => yearsSet.add(y));
+    ['1', '2', '3', '4', '5', '6', '7', '8'].forEach((s) => semestersSet.add(s));
+
+    return {
+      success: true,
+      years: sortNumericOrAlpha(Array.from(yearsSet)),
+      semesters: sortNumericOrAlpha(Array.from(semestersSet)),
+      sections: sortNumericOrAlpha(Array.from(sectionsSet)),
+      batches: sortNumericOrAlpha(Array.from(batchesSet)),
+      departments: sortNumericOrAlpha(Array.from(departmentsSet)),
+      groups: ['A', 'B'],
+      totalStudents: users.length,
+    };
+  }
+
+  async searchStudents(query: {
+    search?: string;
+    semester?: string;
+    section?: string;
+    year?: string;
+    batch?: string;
+    limit?: number;
+  }) {
+    if (!this.userRepo) {
+      return { success: true, students: [] };
+    }
+
+    const qb = this.userRepo
+      .createQueryBuilder('u')
+      .where("u.role = 'student' OR u.isAssessmentStudent = true")
+      .andWhere('u.isActive = true');
+
+    if (query.search?.trim()) {
+      const term = `%${query.search.trim().toLowerCase()}%`;
+      qb.andWhere(
+        '(LOWER(u.name) LIKE :term OR LOWER(u.email) LIKE :term OR LOWER(COALESCE(u.uid, \'\')) LIKE :term)',
+        { term },
+      );
+    }
+
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 30));
+    const users = await qb
+      .select(['u.id', 'u.name', 'u.email', 'u.uid', 'u.studentProfile'])
+      .take(limit * 2)
+      .getMany();
+
+    const filtered = users.filter((u) => {
+      const profile = u.studentProfile || {};
+      if (query.semester) {
+        const studentSem = this.normalizeSemester(profile.semester);
+        const targetSem = this.normalizeSemester(query.semester);
+        if (studentSem !== targetSem) return false;
+      }
+      if (query.section) {
+        const studentSec = normalizeSectionIdentifier(profile.section || '');
+        const targetSec = normalizeSectionIdentifier(query.section);
+        if (studentSec.toLowerCase() !== targetSec.toLowerCase()) return false;
+      }
+      if (query.year) {
+        if (String(profile.year || '').trim() !== String(query.year).trim())
+          return false;
+      }
+      if (query.batch) {
+        if (
+          String(profile.batch || '').trim().toLowerCase() !==
+          String(query.batch).trim().toLowerCase()
+        )
+          return false;
+      }
+      return true;
+    });
+
+    return {
+      success: true,
+      students: filtered.slice(0, limit).map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        uid: u.uid || '',
+        semester: u.studentProfile?.semester ?? null,
+        section: u.studentProfile?.section ?? '',
+        year: u.studentProfile?.year ?? null,
+        batch: u.studentProfile?.batch ?? '',
+      })),
+    };
+  }
+
+  async previewTargetAudience(dto: {
+    targetSemesters?: string[];
+    targetSections?: string[];
+    targetBatches?: string[];
+    targetGroups?: string[];
+    targetStudentIds?: string[];
+    targetDepartments?: string[];
+    targetCourses?: string[];
+  }) {
+    if (!this.userRepo) {
+      return {
+        success: true,
+        accessMode: 'open_access',
+        totalCount: 0,
+        sampleStudents: [],
+      };
+    }
+
+    const users = await this.userRepo
+      .createQueryBuilder('u')
+      .where("u.role = 'student' OR u.isAssessmentStudent = true")
+      .andWhere('u.isActive = true')
+      .select(['u.id', 'u.uid', 'u.name', 'u.email', 'u.studentProfile'])
+      .getMany();
+
+    const mockAssessment: any = {
+      targetSemesters: dto.targetSemesters || [],
+      targetSections: this.normalizeTargetSections(dto.targetSections),
+      targetBatches: dto.targetBatches || [],
+      targetGroups: this.normalizeTargetGroups(dto.targetGroups || []),
+      targetStudentIds: dto.targetStudentIds || [],
+      targetDepartments: dto.targetDepartments || [],
+      targetCourses: dto.targetCourses || [],
+    };
+
+    const hasSpecificTargets = mockAssessment.targetStudentIds.length > 0;
+    const hasCohortFilters = Boolean(
+      mockAssessment.targetSemesters.length > 0 ||
+      mockAssessment.targetSections.length > 0 ||
+      mockAssessment.targetBatches.length > 0 ||
+      mockAssessment.targetGroups.length > 0 ||
+      mockAssessment.targetDepartments.length > 0 ||
+      mockAssessment.targetCourses.length > 0,
+    );
+
+    let accessMode:
+      | 'open_access'
+      | 'specific_only'
+      | 'cohort_only'
+      | 'combined' = 'open_access';
+    if (hasSpecificTargets && hasCohortFilters) {
+      accessMode = 'combined';
+    } else if (hasSpecificTargets) {
+      accessMode = 'specific_only';
+    } else if (hasCohortFilters) {
+      accessMode = 'cohort_only';
+    }
+
+    const matchedStudents = users.filter((u) =>
+      this.isStudentTargeted(mockAssessment, u),
+    );
+
+    return {
+      success: true,
+      accessMode,
+      totalCount: matchedStudents.length,
+      sampleStudents: matchedStudents.slice(0, 10).map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        uid: u.uid || '',
+        semester: u.studentProfile?.semester ?? null,
+        section: u.studentProfile?.section ?? '',
+        year: u.studentProfile?.year ?? null,
+        batch: u.studentProfile?.batch ?? '',
+      })),
+    };
   }
 
   async getStudentAssessments(studentUser: any) {
@@ -1869,6 +2132,7 @@ export class AssessmentsService {
         negativeMarking: assessment.negativeMarking,
         questionCount: assessment.questions.length,
         allowedAttempts,
+        lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
         proctoring: assessment.proctoring,
         instructions: assessment.instructions,
       },
@@ -2118,6 +2382,7 @@ export class AssessmentsService {
       durationMinutes: assessment.durationMinutes,
       ...this.resumeDetails(assessment, attempt),
       proctoring: assessment.proctoring,
+      lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
       sections: resolvedSections,
       questions: sanitizedQuestions,
       savedResponses: attempt.responses,
@@ -2878,6 +3143,32 @@ export class AssessmentsService {
       throw new BadRequestException('No completed assessment attempt found.');
     }
 
+    const showImmediately = assessment.showResultImmediately ?? true;
+    const displaySettings = assessment.resultDisplaySettings || {};
+
+    if (!showImmediately) {
+      return {
+        success: true,
+        resultsPending: true,
+        message:
+          displaySettings.customSubmissionMessage ||
+          'Your assessment has been submitted successfully. Results will be published by your instructor after evaluation.',
+        assessment: {
+          title: assessment.title,
+          code: assessment.code,
+          totalMarks: assessment.totalMarks,
+          durationMinutes: assessment.durationMinutes,
+        },
+        attempt: {
+          _id: attempt.id,
+          status: attempt.status,
+          startedAt: attempt.startedAt,
+          submittedAt: attempt.submittedAt,
+          timeSpentSeconds: attempt.timeSpentSeconds,
+        },
+      };
+    }
+
     const questionIds = assessment.questions || [];
     const questions =
       questionIds.length > 0
@@ -2907,14 +3198,18 @@ export class AssessmentsService {
         }
         topicStats[topic].marks += resp.marksAwarded;
 
+        const revealAnswers =
+          assessment.allowReview &&
+          displaySettings.showCorrectAnswers !== false;
+
         return {
           questionId: q.id,
           _id: q.id,
           question: q.question,
           options: q.options,
           selectedAnswer: resp.selectedAnswer,
-          correctAnswer: assessment.allowReview ? q.correctAnswer : undefined,
-          explanation: assessment.allowReview ? q.explanation : undefined,
+          correctAnswer: revealAnswers ? q.correctAnswer : undefined,
+          explanation: revealAnswers ? q.explanation : undefined,
           isCorrect: resp.isCorrect,
           marksAwarded: resp.marksAwarded,
           topic: q.topic,
@@ -3010,11 +3305,17 @@ export class AssessmentsService {
     const topPercent = Math.max(1, Math.round((rank / totalParticipants) * 100));
     const percentile = `Top ${topPercent}%`;
 
+    const showScore = displaySettings.showScore !== false;
+    const showRank = displaySettings.showRankAndPercentile !== false;
+    const showTopic = displaySettings.showTopicBreakdown !== false;
+    const showReview =
+      assessment.allowReview && displaySettings.showQuestionReview !== false;
+
     return {
       success: true,
-      rank,
-      totalParticipants,
-      percentile,
+      rank: showRank ? rank : undefined,
+      totalParticipants: showRank ? totalParticipants : undefined,
+      percentile: showRank ? percentile : undefined,
       canRetake:
         assessment.allowedAttempts === 0
           ? true
@@ -3036,17 +3337,17 @@ export class AssessmentsService {
       attempt: {
         _id: attempt.id,
         status: attempt.status,
-        score: attempt.score,
-        rawScore: attempt.rawScore ?? attempt.score,
-        proctoringPenalty: attempt.proctoringPenalty ?? 0,
+        score: showScore ? attempt.score : undefined,
+        rawScore: showScore ? (attempt.rawScore ?? attempt.score) : undefined,
+        proctoringPenalty: showScore ? (attempt.proctoringPenalty ?? 0) : undefined,
         mode: attempt.mode,
         maxScore: attempt.maxScore,
-        percentage: attempt.percentage,
-        passed: attempt.passed,
-        accuracy: attempt.accuracy,
+        percentage: showScore ? attempt.percentage : undefined,
+        passed: showScore ? attempt.passed : undefined,
+        accuracy: showScore ? attempt.accuracy : undefined,
         totalAttempted: attempt.totalAttempted,
-        totalCorrect: attempt.totalCorrect,
-        totalWrong: attempt.totalWrong,
+        totalCorrect: showScore ? attempt.totalCorrect : undefined,
+        totalWrong: showScore ? attempt.totalWrong : undefined,
         totalSkipped: attempt.totalSkipped,
         timeSpentSeconds: attempt.timeSpentSeconds,
         startedAt: attempt.startedAt,
@@ -3054,8 +3355,8 @@ export class AssessmentsService {
         tabSwitchCount: attempt.tabSwitchCount,
         violations: attempt.violations || [],
       },
-      topicBreakdown,
-      reviewQuestions: assessment.allowReview ? reviewQuestions : [],
+      topicBreakdown: showTopic ? topicBreakdown : [],
+      reviewQuestions: showReview ? reviewQuestions : [],
     };
   }
 

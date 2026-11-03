@@ -19,6 +19,7 @@ import { applyLearningModuleMigration } from './migrations/learning-module';
 import { applyProblemConfigDefaultLanguageMigration } from './migrations/problem-config-default-language';
 import { applyAnalyticsOptimizationIndexesMigration } from './migrations/analytics-optimization-indexes';
 import { applyQuestionHideMainMethodMigration } from './migrations/question-hide-main-method';
+import { applyAssessmentSequentialSectionsMigration } from './migrations/assessment-sequential-sections';
 
 export function practiceSubmissionMigrationOptions(): DataSourceOptions {
   const postgres = databaseConfig().postgres;
@@ -74,6 +75,7 @@ export async function runPracticeSubmissionSourceMigration(): Promise<void> {
         await applyProblemConfigDefaultLanguageMigration(queryRunner);
         await applyAnalyticsOptimizationIndexesMigration(queryRunner);
         await applyQuestionHideMainMethodMigration(queryRunner);
+        await applyAssessmentSequentialSectionsMigration(queryRunner);
         await queryRunner.commitTransaction();
       } catch (error) {
         await queryRunner.rollbackTransaction();

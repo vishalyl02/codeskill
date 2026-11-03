@@ -132,6 +132,116 @@ export default function AssessmentResultPage({
     );
   }
 
+  // Pending evaluation / withheld scorecard view
+  if (data?.resultsPending) {
+    return (
+      <div className="flex-1 bg-background text-foreground font-sans min-h-screen">
+        <div className="max-w-3xl mx-auto px-6 py-10 mt-16 md:mt-24 space-y-6">
+          <div className="flex items-center justify-between">
+            <Link
+              href="/assessments"
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Back to Assessments
+            </Link>
+          </div>
+
+          <div className="rounded-3xl border border-border bg-card p-6 sm:p-10 shadow-lg space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-border gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl overflow-hidden bg-white shrink-0 border border-slate-200 p-0.5 flex items-center justify-center">
+                  <img
+                    src="https://images.seeklogo.com/logo-png/43/1/chandigarh-university-cu-logo-png_seeklogo-432515.png"
+                    alt="Chandigarh University"
+                    className="w-full h-full object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = "/cu-logo.png";
+                    }}
+                  />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-foreground leading-tight">Chandigarh University</p>
+                  <p className="text-[10px] text-primary font-semibold uppercase tracking-wider">Assessment Submission Confirmation</p>
+                </div>
+              </div>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <CheckCircle2 className="w-4 h-4" /> Submitted
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                  {assessment?.code || id}
+                </span>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground">
+                {assessment?.title || "Assessment"}
+              </h1>
+              <p className="text-xs text-muted-foreground">
+                Your assessment has been successfully recorded and finalized in our examination records.
+              </p>
+            </div>
+
+            <div className="p-4 sm:p-5 rounded-2xl bg-primary/5 border border-primary/20 space-y-2">
+              <div className="flex items-center gap-2 text-primary font-bold text-sm">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>Results Withheld / Under Evaluation</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {data.message || "Your submission has been recorded. Results will be published by your instructor after evaluation."}
+              </p>
+              <p className="text-[11px] text-muted-foreground/80">
+                Scorecards, individual question reviews, correct answers, and leaderboard rankings will be visible once published by the examination coordinator.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-muted/30 border border-border p-4 rounded-2xl">
+              <div>
+                <span className="text-muted-foreground block text-[10px] uppercase font-bold">Candidate</span>
+                <span className="font-semibold text-foreground">{user?.name || "Student"}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block text-[10px] uppercase font-bold">Registration / UID</span>
+                <span className="font-mono font-semibold text-foreground">{user?.uid || (user as any)?.studentProfile?.rollNumber || "N/A"}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block text-[10px] uppercase font-bold">Submission Time</span>
+                <span className="text-foreground">{attempt?.submittedAt ? new Date(attempt.submittedAt).toLocaleString() : "Recently"}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block text-[10px] uppercase font-bold">Time Spent</span>
+                <span className="text-foreground">{Math.floor((attempt?.timeSpentSeconds || 0) / 60)}m {(attempt?.timeSpentSeconds || 0) % 60}s</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+              <Link
+                href="/assessments"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground text-xs font-bold rounded-xl transition-all shadow-sm hover:bg-primary/90"
+              >
+                <ArrowLeft className="w-4 h-4" /> Return to Assessments
+              </Link>
+
+              {data?.canRetake !== false && (
+                <button
+                  onClick={handleRetake}
+                  disabled={isRetaking}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-card hover:bg-muted text-foreground text-xs font-bold rounded-xl transition-all border border-border disabled:opacity-50"
+                >
+                  <RotateCcw className={`w-4 h-4 ${isRetaking ? "animate-spin" : ""}`} />
+                  {isRetaking ? "Preparing Re-attempt..." : "Redo Assessment"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const hasScore = attempt?.score !== undefined;
+
   // Construct official Contest Report payload
   const reportData = buildContestReport({
     student: {
@@ -203,21 +313,23 @@ export default function AssessmentResultPage({
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Assessments
           </Link>
-          <div className="hidden sm:block">
-            <ContestReportDownloadButton
-              data={reportData}
-              logoPath="/cu-logo.png"
-              filename={`${(assessment?.title || "Contest-Report").replace(/[^a-zA-Z0-9]/g, "_")}_${user?.name || "Student"}.pdf`}
-              variant="outline"
-              size="sm"
-            />
-          </div>
+          {hasScore && (
+            <div className="hidden sm:block">
+              <ContestReportDownloadButton
+                data={reportData}
+                logoPath="/cu-logo.png"
+                filename={`${(assessment?.title || "Contest-Report").replace(/[^a-zA-Z0-9]/g, "_")}_${user?.name || "Student"}.pdf`}
+                variant="outline"
+                size="sm"
+              />
+            </div>
+          )}
         </div>
 
         {/* Scorecard Hero Banner */}
         <div
           className={`relative overflow-hidden rounded-lg p-6 sm:p-8 border bg-card text-card-foreground shadow-xs ${
-            attempt.passed
+            attempt.passed === true
               ? "border-emerald-200 dark:border-emerald-900/70"
               : "border-border"
           }`}
@@ -241,15 +353,17 @@ export default function AssessmentResultPage({
               </div>
             </div>
 
-            <div className="sm:hidden">
-              <ContestReportDownloadButton
-                data={reportData}
-                logoPath="/cu-logo.png"
-                filename={`Contest_Report_${user?.name || "Student"}.pdf`}
-                variant="outline"
-                size="sm"
-              />
-            </div>
+            {hasScore && (
+              <div className="sm:hidden">
+                <ContestReportDownloadButton
+                  data={reportData}
+                  logoPath="/cu-logo.png"
+                  filename={`Contest_Report_${user?.name || "Student"}.pdf`}
+                  variant="outline"
+                  size="sm"
+                />
+              </div>
+            )}
           </div>
 
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -257,18 +371,24 @@ export default function AssessmentResultPage({
               <div className="flex items-center gap-2 mb-2">
                 <span
                   className={`px-3 py-1 rounded text-xs font-bold uppercase tracking-wider inline-flex items-center gap-1.5 ${
-                    attempt.passed
+                    attempt.passed === true
                       ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                      : "bg-rose-50 text-rose-700 border border-rose-200"
+                      : attempt.passed === false
+                      ? "bg-rose-50 text-rose-700 border border-rose-200"
+                      : "bg-emerald-50 text-emerald-700 border border-emerald-200"
                   }`}
                 >
-                  {attempt.passed ? (
+                  {attempt.passed === true ? (
                     <>
                       <CheckCircle2 className="w-4 h-4" /> PASSED EXAMINATION
                     </>
-                  ) : (
+                  ) : attempt.passed === false ? (
                     <>
                       <XCircle className="w-4 h-4" /> NEEDS IMPROVEMENT
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" /> ASSESSMENT COMPLETED
                     </>
                   )}
                 </span>
@@ -286,60 +406,116 @@ export default function AssessmentResultPage({
             </div>
 
             {/* Score Pill */}
-            <div className="bg-card/90 backdrop-blur-md border border-border px-8 py-5 rounded-3xl text-center shadow-lg shrink-0">
-              <span className="text-xs uppercase font-bold text-muted-foreground tracking-wider">
-                Overall Score
-              </span>
-              <div className="text-4xl font-extrabold text-foreground mt-1 font-mono">
-                {attempt.score}{" "}
-                <span className="text-lg font-normal text-muted-foreground">
-                  / {attempt.maxScore}
+            {hasScore ? (
+              <div className="bg-card/90 backdrop-blur-md border border-border px-8 py-5 rounded-3xl text-center shadow-lg shrink-0">
+                <span className="text-xs uppercase font-bold text-muted-foreground tracking-wider">
+                  Overall Score
                 </span>
+                <div className="text-4xl font-extrabold text-foreground mt-1 font-mono">
+                  {attempt.score}{" "}
+                  <span className="text-lg font-normal text-muted-foreground">
+                    / {attempt.maxScore}
+                  </span>
+                </div>
+                {attempt.percentage !== undefined && (
+                  <div className="text-xs font-bold text-primary mt-0.5">
+                    {attempt.percentage}% Aggregate
+                  </div>
+                )}
               </div>
-              <div className="text-xs font-bold text-primary mt-0.5">
-                {attempt.percentage}% Aggregate
+            ) : (
+              <div className="bg-card/90 backdrop-blur-md border border-border px-6 py-4 rounded-3xl text-center shadow-lg shrink-0">
+                <span className="text-xs uppercase font-bold text-muted-foreground tracking-wider">
+                  Submission Status
+                </span>
+                <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1.5 justify-center">
+                  <CheckCircle2 className="w-5 h-5" /> Recorded
+                </div>
+                <span className="text-[11px] text-muted-foreground">Score withheld</span>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
         {/* Detailed KPI Metrics */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="bg-card border border-border p-5 rounded-2xl">
-            <span className="text-xs text-muted-foreground font-bold uppercase tracking-wider flex items-center gap-1.5">
-              <BarChart3 className="w-3.5 h-3.5 text-primary" /> Accuracy
-            </span>
-            <div className="text-2xl font-bold text-foreground mt-1">
-              {attempt.accuracy}%
-            </div>
-            <span className="text-[11px] text-muted-foreground">
-              {attempt.totalCorrect} of {attempt.totalAttempted} attempted correct
-            </span>
-          </div>
+          {hasScore ? (
+            <>
+              <div className="bg-card border border-border p-5 rounded-2xl">
+                <span className="text-xs text-muted-foreground font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <BarChart3 className="w-3.5 h-3.5 text-primary" /> Accuracy
+                </span>
+                <div className="text-2xl font-bold text-foreground mt-1">
+                  {attempt.accuracy}%
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  {attempt.totalCorrect} of {attempt.totalAttempted} attempted correct
+                </span>
+              </div>
 
-          <div className="bg-card border border-emerald-500/30 p-5 rounded-2xl">
-            <span className="text-xs text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Correct
-            </span>
-            <div className="text-2xl font-bold text-emerald-400 mt-1">
-              {attempt.totalCorrect}
-            </div>
-            <span className="text-[11px] text-muted-foreground">
-              +{attempt.totalCorrect * 1} marks earned
-            </span>
-          </div>
+              <div className="bg-card border border-emerald-500/30 p-5 rounded-2xl">
+                <span className="text-xs text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Correct
+                </span>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">
+                  {attempt.totalCorrect}
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  +{attempt.totalCorrect * 1} marks earned
+                </span>
+              </div>
 
-          <div className="bg-card border border-rose-500/30 p-5 rounded-2xl">
-            <span className="text-xs text-rose-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
-              <XCircle className="w-3.5 h-3.5" /> Incorrect
-            </span>
-            <div className="text-2xl font-bold text-rose-400 mt-1">
-              {attempt.totalWrong}
-            </div>
-            <span className="text-[11px] text-muted-foreground">
-              Negative penalties applied
-            </span>
-          </div>
+              <div className="bg-card border border-rose-500/30 p-5 rounded-2xl">
+                <span className="text-xs text-rose-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <XCircle className="w-3.5 h-3.5" /> Incorrect
+                </span>
+                <div className="text-2xl font-bold text-rose-400 mt-1">
+                  {attempt.totalWrong}
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  Negative penalties applied
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="bg-card border border-border p-5 rounded-2xl">
+                <span className="text-xs text-muted-foreground font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <BarChart3 className="w-3.5 h-3.5 text-primary" /> Attempted
+                </span>
+                <div className="text-2xl font-bold text-foreground mt-1">
+                  {attempt.totalAttempted ?? 0}
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  Questions answered
+                </span>
+              </div>
+
+              <div className="bg-card border border-emerald-500/30 p-5 rounded-2xl">
+                <span className="text-xs text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Status
+                </span>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">
+                  Submitted
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  Recorded in gradebook
+                </span>
+              </div>
+
+              <div className="bg-card border border-border p-5 rounded-2xl">
+                <span className="text-xs text-muted-foreground font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Proctoring
+                </span>
+                <div className="text-2xl font-bold text-foreground mt-1">
+                  Verified
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  Integrity telemetry saved
+                </span>
+              </div>
+            </>
+          )}
 
           <div className="bg-card border border-border p-5 rounded-2xl">
             <span className="text-xs text-muted-foreground font-bold uppercase tracking-wider flex items-center gap-1.5">
@@ -448,16 +624,21 @@ export default function AssessmentResultPage({
                         const isStudentChoice = Array.isArray(q.selectedAnswers)
                           ? q.selectedAnswers.includes(optIdx)
                           : q.selectedAnswer === optIdx;
-                        const isCorrectOption = Array.isArray(q.correctAnswers)
-                          ? q.correctAnswers.includes(optIdx)
-                          : q.correctAnswer === optIdx;
+                        const hasCorrectAnswerData = q.correctAnswer !== undefined || (Array.isArray(q.correctAnswers) && q.correctAnswers.length > 0);
+                        const isCorrectOption = hasCorrectAnswerData && (
+                          Array.isArray(q.correctAnswers)
+                            ? q.correctAnswers.includes(optIdx)
+                            : q.correctAnswer === optIdx
+                        );
                         const letter = String.fromCharCode(65 + optIdx);
 
                         let optStyle = "border-border bg-muted/20 text-muted-foreground";
                         if (isCorrectOption) {
                           optStyle = "border-emerald-500/50 bg-emerald-500/10 text-emerald-300 font-semibold";
-                        } else if (isStudentChoice && !isCorrect) {
-                          optStyle = "border-rose-500/50 bg-rose-500/10 text-rose-300 font-semibold";
+                        } else if (isStudentChoice) {
+                          optStyle = hasCorrectAnswerData && !isCorrect
+                            ? "border-rose-500/50 bg-rose-500/10 text-rose-300 font-semibold"
+                            : "border-primary/50 bg-primary/10 text-primary font-semibold";
                         }
 
                         return (
@@ -475,9 +656,14 @@ export default function AssessmentResultPage({
                                 <Check className="w-3 h-3" /> Correct Answer
                               </span>
                             )}
-                            {isStudentChoice && !isCorrect && (
+                            {isStudentChoice && hasCorrectAnswerData && !isCorrect && (
                               <span className="text-[10px] uppercase font-bold text-rose-400 flex items-center gap-1">
                                 <X className="w-3 h-3" /> Your Answer
+                              </span>
+                            )}
+                            {isStudentChoice && !hasCorrectAnswerData && (
+                              <span className="text-[10px] uppercase font-bold text-primary flex items-center gap-1">
+                                <Check className="w-3 h-3" /> Selected Choice
                               </span>
                             )}
                           </div>
@@ -508,13 +694,15 @@ export default function AssessmentResultPage({
             <ArrowLeft className="w-4 h-4" /> Return to Assessments
           </Link>
 
-          <ContestReportDownloadButton
-            data={reportData}
-            logoPath="/cu-logo.png"
-            filename={`${(assessment?.title || "Contest-Report").replace(/[^a-zA-Z0-9]/g, "_")}_${user?.name || "Student"}.pdf`}
-            variant="primary"
-            size="lg"
-          />
+          {hasScore && (
+            <ContestReportDownloadButton
+              data={reportData}
+              logoPath="/cu-logo.png"
+              filename={`${(assessment?.title || "Contest-Report").replace(/[^a-zA-Z0-9]/g, "_")}_${user?.name || "Student"}.pdf`}
+              variant="primary"
+              size="lg"
+            />
+          )}
 
           {data?.canRetake !== false ? (
             <button
