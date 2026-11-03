@@ -45,11 +45,33 @@ interface OverviewData {
   };
   metrics?: {
     avgScore?: number;
+    attemptAvgScore?: number;
     maxScore?: number;
     minScore?: number;
+    medianScore?: number;
+    stdDevScore?: number;
     avgTimeSpent?: number;
     totalPassed?: number;
     passRate?: number;
+    attemptPassRate?: number;
+  };
+  scoreDistribution?: Array<{
+    bracket: string;
+    count: number;
+    percentage: number;
+    passStatus: "fail" | "pass" | "distinction";
+  }>;
+  codingVerdicts?: {
+    ac: number;
+    partial: number;
+    failed: number;
+    total: number;
+  };
+  integritySummary?: {
+    cleanCandidates: number;
+    minorRiskCandidates: number;
+    highRiskCandidates: number;
+    integrityRate: number;
   };
   proctoring?: {
     totalViolations?: number;
@@ -82,8 +104,13 @@ interface QuestionStat {
   type: string;
   difficulty?: string;
   totalAttempts: number;
+  attemptedCount?: number;
+  skippedCount?: number;
   correctCount: number;
+  partialCreditCount?: number;
   successRate: number;
+  difficultyP?: number;
+  discriminationIndex?: number | null;
   avgTimeSpent: number;
   avgMarksAwarded: number;
 }
@@ -352,10 +379,15 @@ export default function AnalyticsDashboardPage({
   const metrics = overview?.metrics;
   const proctoring = overview?.proctoring;
   const auditLogs = overview?.auditLogs ?? [];
+  const scoreDistributionData = overview?.scoreDistribution || [];
+  const codingVerdicts = overview?.codingVerdicts;
+  const integritySummary = overview?.integritySummary;
 
   const totalParticipants = participation?.total ?? 0;
   const completedCandidates = participation?.completed ?? 0;
   const avgScore = metrics?.avgScore != null ? Number(metrics.avgScore).toFixed(1) : "0.0";
+  const medianScore = metrics?.medianScore != null ? Number(metrics.medianScore).toFixed(1) : avgScore;
+  const stdDevScore = metrics?.stdDevScore != null ? Number(metrics.stdDevScore).toFixed(1) : "0.0";
   const maxScore = metrics?.maxScore ?? 0;
   const minScore = metrics?.minScore ?? 0;
   const totalPassed = metrics?.totalPassed ?? 0;
@@ -516,11 +548,9 @@ export default function AnalyticsDashboardPage({
               / {assessment?.totalMarks || 100}
             </span>
           </div>
-          <div className="text-xs text-muted-foreground mt-2 flex items-center justify-between border-t border-border/50 pt-2">
-            <span>Score Range</span>
-            <span className="font-semibold text-foreground">
-              Min {minScore} · Max {maxScore}
-            </span>
+          <div className="text-xs text-muted-foreground mt-2 flex items-center justify-between border-t border-border/50 pt-2 font-mono">
+            <span>Median: <strong className="text-foreground">{medianScore}</strong></span>
+            <span>σ: <strong className="text-foreground">±{stdDevScore}</strong></span>
           </div>
         </div>
 
@@ -567,17 +597,66 @@ export default function AnalyticsDashboardPage({
         </div>
       </div>
 
-      {/* Assessment Recharts Score Distribution Visualization */}
+      {/* Real Assessment Score Distribution Histogram */}
       <ScoreDistributionChart
-        data={[
-          { bracket: "0-20%", count: Math.round(Number(totalParticipants || 0) * 0.08), percentage: 8, passStatus: "fail" },
-          { bracket: "21-40%", count: Math.round(Number(totalParticipants || 0) * 0.16), percentage: 16, passStatus: "fail" },
-          { bracket: "41-60%", count: Math.round(Number(totalParticipants || 0) * 0.32), percentage: 32, passStatus: "pass" },
-          { bracket: "61-80%", count: Math.round(Number(totalParticipants || 0) * 0.28), percentage: 28, passStatus: "pass" },
-          { bracket: "81-100%", count: Math.round(Number(totalParticipants || 0) * 0.16), percentage: 16, passStatus: "distinction" },
-        ]}
+        data={scoreDistributionData}
         passingScorePercent={assessment?.passingMarks && assessment?.totalMarks ? Math.round((assessment.passingMarks / assessment.totalMarks) * 100) : 40}
       />
+
+      {/* Coding Question Test Case Verdict Breakdown */}
+      {codingVerdicts && codingVerdicts.total > 0 && (
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border pb-3 mb-4">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
+                <Target className="w-4 h-4 text-primary" />
+                Algorithmic Code Execution Telemetry
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Distribution of test case pass rates across candidate algorithmic submissions.
+              </p>
+            </div>
+            <span className="text-xs font-mono text-muted-foreground">
+              {codingVerdicts.total} Total Code Evaluations
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5">
+              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold uppercase tracking-wider">
+                Full AC (100% Passed)
+              </span>
+              <div className="text-2xl font-bold font-mono text-emerald-700 dark:text-emerald-400 mt-1">
+                {codingVerdicts.ac}
+              </div>
+              <span className="text-[11px] text-muted-foreground block mt-0.5">
+                {Math.round((codingVerdicts.ac / codingVerdicts.total) * 100)}% of coding attempts
+              </span>
+            </div>
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5">
+              <span className="text-xs text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-wider">
+                Partial Credit
+              </span>
+              <div className="text-2xl font-bold font-mono text-amber-700 dark:text-amber-400 mt-1">
+                {codingVerdicts.partial}
+              </div>
+              <span className="text-[11px] text-muted-foreground block mt-0.5">
+                {Math.round((codingVerdicts.partial / codingVerdicts.total) * 100)}% partial test passes
+              </span>
+            </div>
+            <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3.5">
+              <span className="text-xs text-rose-600 dark:text-rose-400 font-semibold uppercase tracking-wider">
+                Failed / Syntax Error
+              </span>
+              <div className="text-2xl font-bold font-mono text-rose-700 dark:text-rose-400 mt-1">
+                {codingVerdicts.failed}
+              </div>
+              <span className="text-[11px] text-muted-foreground block mt-0.5">
+                {Math.round((codingVerdicts.failed / codingVerdicts.total) * 100)}% failed or zero marks
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Proctoring & Security Telemetry Section */}
       <div className="bg-card border border-border rounded-2xl p-6 shadow-xs">
@@ -593,7 +672,12 @@ export default function AnalyticsDashboardPage({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {integritySummary && (
+              <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-lg font-mono font-bold">
+                Cohort Integrity: {integritySummary.integrityRate}% Clean
+              </span>
+            )}
             <span className="px-3 py-1 bg-secondary rounded-lg font-mono">
               Total Violations: <strong className="text-foreground">{totalViolations}</strong>
             </span>
@@ -729,6 +813,9 @@ export default function AnalyticsDashboardPage({
                   <th className="px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Avg Score
                   </th>
+                  <th className="px-4 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Psychometrics (D / P)
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border text-sm">
@@ -777,6 +864,11 @@ export default function AnalyticsDashboardPage({
                           {q.correctCount ?? 0}
                         </strong>{" "}
                         / {q.totalAttempts ?? 0}
+                        {q.partialCreditCount != null && q.partialCreditCount > 0 && (
+                          <span className="text-[10px] text-amber-500 ml-1 block">
+                            +{q.partialCreditCount} partial
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-muted-foreground text-xs font-mono">
                         {formatDuration(q.avgTimeSpent ?? 0)}
@@ -785,6 +877,33 @@ export default function AnalyticsDashboardPage({
                         {q.avgMarksAwarded != null
                           ? Number(q.avgMarksAwarded).toFixed(1)
                           : "0.0"}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-xs font-mono">
+                        <div className="flex flex-col gap-1">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
+                              q.discriminationIndex == null
+                                ? "bg-muted text-muted-foreground"
+                                : q.discriminationIndex >= 0.35
+                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                  : q.discriminationIndex >= 0.15
+                                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                    : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                            }`}
+                            title={
+                              q.discriminationIndex == null
+                                ? "Candidate cohort too small (<4) for psychometric discrimination"
+                                : q.discriminationIndex < 0
+                                  ? "Negative discrimination: weaker students scored higher than top students. Check question ambiguity or key."
+                                  : "Item Discrimination Index (D): differentiation between upper and lower quartiles"
+                            }
+                          >
+                            D: {q.discriminationIndex != null ? (q.discriminationIndex >= 0 ? `+${q.discriminationIndex}` : `${q.discriminationIndex}`) : "N/A"}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground" title="Item Difficulty (P-value): ratio of correct answers">
+                            Diff P: {q.difficultyP != null ? `${q.difficultyP}` : "—"}
+                          </span>
+                        </div>
                       </td>
                     </tr>
                   );

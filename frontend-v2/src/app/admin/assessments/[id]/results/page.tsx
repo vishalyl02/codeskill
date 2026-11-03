@@ -23,7 +23,9 @@ import {
   Key,
   Code,
   RotateCcw,
-  Layers
+  Layers,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { adminAssessmentsAPI } from "@/config/api";
 import toast from "react-hot-toast";
@@ -128,6 +130,46 @@ export default function AssessmentResultsPage({
       (a.studentEmail && a.studentEmail.toLowerCase().includes(q))
     );
   });
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, viewMode]);
+
+  const currentList = viewMode === "candidates" ? filteredAttempts : filteredRawAttempts;
+  const totalItems = currentList.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalItems);
+
+  const paginatedAttempts =
+    viewMode === "candidates"
+      ? filteredAttempts.slice(startIndex, endIndex)
+      : [];
+
+  const paginatedRawAttempts =
+    viewMode === "all_attempts"
+      ? filteredRawAttempts.slice(startIndex, endIndex)
+      : [];
+
+  const getPageNumbers = (current: number, total: number): (number | string)[] => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    if (current <= 4) {
+      return [1, 2, 3, 4, 5, "...", total];
+    }
+    if (current >= total - 3) {
+      return [1, "...", total - 4, total - 3, total - 2, total - 1, total];
+    }
+    return [1, "...", current - 1, current, current + 1, "...", total];
+  };
+
+  const pageNumbers = getPageNumbers(safePage, totalPages);
 
   const getViolationIcon = (type: string) => {
     switch (type) {
@@ -329,7 +371,7 @@ export default function AssessmentResultsPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredAttempts.map((att: any) => {
+                {paginatedAttempts.map((att: any) => {
                   const totalV = att.violations?.length || 0;
                   const isSuspicious = totalV >= 3 || (att.tabSwitchCount || 0) >= 3;
 
@@ -456,12 +498,12 @@ export default function AssessmentResultsPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredRawAttempts.map((att: any, idx: number) => {
+                {paginatedRawAttempts.map((att: any, idx: number) => {
                   const totalV = att.violations?.length || 0;
                   const isSuspicious = totalV >= 3 || (att.tabSwitchCount || 0) >= 3;
 
                   return (
-                    <tr key={att._id || idx} className="hover:bg-muted/20 transition-colors">
+                    <tr key={att._id || `${safePage}-${idx}`} className="hover:bg-muted/20 transition-colors">
                       <td className="p-3.5">
                         <div className="font-semibold text-foreground">{resultText(att.studentName)}</div>
                         <div className="text-[11px] text-muted-foreground">{resultText(att.studentEmail)}</div>
@@ -471,7 +513,7 @@ export default function AssessmentResultsPage({
                       </td>
                       <td className="p-3.5 text-center font-mono">
                         <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary border border-primary/20">
-                          Attempt #{att.attemptNumber || idx + 1}
+                          Attempt #{att.attemptNumber || startIndex + idx + 1}
                         </span>
                       </td>
                       <td className="p-3.5 text-center">
@@ -537,6 +579,99 @@ export default function AssessmentResultsPage({
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination Footer */}
+        {totalItems > 0 && (
+          <div className="p-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground bg-muted/10">
+            <div className="flex flex-wrap items-center gap-3">
+              <span>
+                Showing <strong className="text-foreground font-mono">{startIndex + 1}</strong> to{" "}
+                <strong className="text-foreground font-mono">{endIndex}</strong> of{" "}
+                <strong className="text-foreground font-mono">{totalItems}</strong>{" "}
+                {viewMode === "candidates" ? "candidates" : "attempts"}
+              </span>
+              <div className="flex items-center gap-1.5 border-l border-border pl-3">
+                <span>Per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-background border border-border rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-medium shadow-2xs"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={safePage <= 1}
+                className="px-2 py-1 rounded-lg border border-border disabled:opacity-40 hover:bg-muted text-foreground transition-colors disabled:cursor-not-allowed font-medium text-[11px]"
+                title="First page"
+              >
+                First
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="p-1.5 rounded-lg border border-border disabled:opacity-40 hover:bg-muted text-foreground transition-colors disabled:cursor-not-allowed"
+                title="Previous page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-1">
+                {pageNumbers.map((p, idx) =>
+                  p === "..." ? (
+                    <span key={`ellipsis-${idx}`} className="px-1.5 text-muted-foreground select-none">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={`page-${p}`}
+                      type="button"
+                      onClick={() => setCurrentPage(Number(p))}
+                      className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-semibold transition-colors ${
+                        safePage === p
+                          ? "bg-primary text-primary-foreground shadow-xs"
+                          : "border border-border hover:bg-muted text-foreground"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="p-1.5 rounded-lg border border-border disabled:opacity-40 hover:bg-muted text-foreground transition-colors disabled:cursor-not-allowed"
+                title="Next page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safePage >= totalPages}
+                className="px-2 py-1 rounded-lg border border-border disabled:opacity-40 hover:bg-muted text-foreground transition-colors disabled:cursor-not-allowed font-medium text-[11px]"
+                title="Last page"
+              >
+                Last
+              </button>
+            </div>
           </div>
         )}
       </div>

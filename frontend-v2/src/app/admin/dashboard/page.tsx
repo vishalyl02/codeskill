@@ -19,6 +19,8 @@ import {
   RefreshCw,
   CheckCircle2,
   Cpu,
+  AlertTriangle,
+  Zap,
 } from "lucide-react";
 import { adminDashboardAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
@@ -278,6 +280,50 @@ export default function AdminDashboardPage() {
             >
               <Plus className="w-3.5 h-3.5" />
               <span>New Assessment</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* Live Operations & Operational Command Strip */}
+        <div className="bg-gradient-to-r from-card/80 via-card to-card/80 border border-border/70 rounded-2xl p-4 shadow-xs backdrop-blur-md flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+              </span>
+              <Activity className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-foreground">Live Examination Operations</h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                  Real-Time
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Active student sessions, code execution throughput, and real-time proctoring telemetry.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <div className="px-3 py-1.5 rounded-xl bg-muted/40 border border-border flex items-center gap-2 font-mono">
+              <Zap className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-muted-foreground">Execution Engine:</span>
+              <strong className="text-foreground">Piston Ready</strong>
+            </div>
+            <div className="px-3 py-1.5 rounded-xl bg-muted/40 border border-border flex items-center gap-2 font-mono">
+              <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+              <span className="text-muted-foreground">Proctoring Telemetry:</span>
+              <strong className="text-emerald-600 dark:text-emerald-400">Auditing Active</strong>
+            </div>
+            <Link
+              href={`${portalBase}/assessments`}
+              className="px-3 py-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 font-semibold transition-colors flex items-center gap-1.5"
+            >
+              <span>Active Drives</span>
+              <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
         </div>
