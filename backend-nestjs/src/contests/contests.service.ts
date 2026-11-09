@@ -342,14 +342,6 @@ export class ContestsService {
     };
   }
 
-  async getContestProblem(id: string, slug: string, userId: string) {
-    const contest = await this.eligibleContest(id, userId);
-    const result = await this.problemsService.getContestProblemBySlug(slug);
-    if (!contest.problems?.includes(String(result.data.id)))
-      throw new NotFoundException('Problem not found');
-    return result;
-  }
-
   async startAttempt(id: string, userId: string, password?: string) {
     const contest = await this.publishedContest(id);
     if (contest.isPrivate) {
