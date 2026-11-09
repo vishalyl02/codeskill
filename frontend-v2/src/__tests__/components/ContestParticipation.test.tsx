@@ -11,7 +11,7 @@ jest.mock("@/context/AuthContext", () => ({ useAuth: () => mockAuth }));
 jest.mock("@/config/api", () => ({ __esModule: true, default: { post: jest.fn(), get: jest.fn() } }));
 jest.mock("@/hooks/anti-cheat/useAntiCheatMaster", () => ({ useAntiCheatMaster: jest.fn() }));
 jest.mock("@/components/problems/ProblemWorkspace", () => function MockProblemWorkspace({ embedded }: { embedded?: boolean }) { return <div>Existing problem editor {embedded ? "embedded" : "standalone"}</div>; });
-jest.mock("@/app/contests/[id]/attempt/_components/ContestStartGate", () => ({ ContestStartGate: ({ onAccept }: { onAccept: () => void }) => <button onClick={onAccept}>Start live contest</button> }));
+jest.mock("@/app/contests/[id]/attempt/_components/ContestStartGate", () => ({ ContestStartGate: ({ onAccept }: { onAccept: () => void }) => <button onClick={() => onAccept()}>Start live contest</button> }));
 jest.mock("@/app/contests/[id]/attempt/_components/AntiCheatWarningDialog", () => ({ AntiCheatWarningDialog: () => null }));
 jest.mock("@/app/contests/[id]/attempt/_components/WatermarkOverlay", () => ({ WatermarkOverlay: () => null }));
 const get = jest.mocked(api.get); const post = jest.mocked(api.post); const proctor = jest.mocked(useAntiCheatMaster);

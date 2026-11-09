@@ -60,6 +60,14 @@ export class ContestsService {
     return list.map((contest) => this.safeContest(contest));
   }
 
+  async getPrivateContests() {
+    const list = await this.contestRepo.find({
+      where: { isPublished: true, isPrivate: true },
+      order: { startTime: 'DESC' },
+    });
+    return list.map((contest) => this.safeContest(contest));
+  }
+
   async getContest(slug: string) {
     const contest = await this.contestRepo.findOne({
       where: { slug, isPublished: true },
@@ -301,7 +309,7 @@ export class ContestsService {
     };
   }
 
-  private async eligibleContest(id: string, userId: string) {
+  private async publishedContest(id: string) {
     if (
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         id,
@@ -313,6 +321,11 @@ export class ContestsService {
     });
     if (!contest || !contest.isPublished)
       throw new NotFoundException('Contest not found');
+    return contest;
+  }
+
+  private async eligibleContest(id: string, userId: string) {
+    const contest = await this.publishedContest(id);
     if (!contest.participants?.includes(userId))
       throw new ForbiddenException('Register for this contest first');
     return contest;
@@ -320,15 +333,24 @@ export class ContestsService {
 
   /** Return only the sanitized data needed to render the start gate. */
   async getStartContext(id: string, userId: string) {
-    const contest = await this.eligibleContest(id, userId);
+    const contest = await this.publishedContest(id);
+    if (!contest.isPrivate && !contest.participants?.includes(userId))
+      throw new ForbiddenException('Register for this contest first');
     return {
       contest: this.safeContest(contest),
       antiCheatConfig: contest.antiCheatConfig as Record<string, unknown>,
     };
   }
 
-  async startAttempt(id: string, userId: string) {
-    const contest = await this.eligibleContest(id, userId);
+  async startAttempt(id: string, userId: string, password?: string) {
+    const contest = await this.publishedContest(id);
+    if (contest.isPrivate) {
+      if (!contest.password || contest.password !== password)
+        throw new ForbiddenException('Invalid contest password');
+    } else if (!contest.participants?.includes(userId)) {
+      throw new ForbiddenException('Register for this contest first');
+    }
+
     const now = Date.now();
     if (
       now < new Date(contest.startTime).getTime() ||
@@ -438,6 +460,11 @@ export class ContestsService {
 
     if (problems.length === 0 && (contest.problems || []).length > 0) {
       throw new NotFoundException('Problem not found');
+    }
+
+    if (contest.isPrivate && !contest.participants?.includes(userId)) {
+      contest.participants = [...(contest.participants || []), userId];
+      await this.contestRepo.save(contest);
     }
 
     // Create first attempt or ignore if row exists
