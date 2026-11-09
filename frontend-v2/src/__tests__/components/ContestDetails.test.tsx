@@ -1,6 +1,6 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { useParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/config/api";
@@ -36,7 +36,7 @@ it("loads the reported public slug and shows the actual contest details", async 
   expect(get).toHaveBeenCalledWith("/contests/contest", expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(screen.getAllByText("Contest description").length).toBeGreaterThan(0);
   expect(screen.getByText("Live", { exact: true })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Sign in to register" })).toHaveAttribute("href", "/login");
+  expect(screen.getByRole("link", { name: "Sign in to continue" })).toHaveAttribute("href", "/login");
 });
 
 it("handles a missing or unpublished contest without a framework 404", async () => {
@@ -64,18 +64,14 @@ it("registers with the database ID and immediately shows the registered state", 
   expect(screen.queryByRole("button", { name: "Register for contest" })).toBeNull();
 });
 
-it("passes a private contest password and permits retry after registration failure", async () => {
+it("routes a private contest through the secure start gate without registering on the detail page", async () => {
   auth.mockReturnValue({ user, loading: false } as ReturnType<typeof useAuth>);
   get.mockResolvedValueOnce({ data: { ...contest, isPrivate: true } });
-  post.mockRejectedValueOnce({ isAxiosError: true, response: { data: { message: "Invalid contest password" } } });
   render(<ContestDetails />);
-  fireEvent.change(await screen.findByLabelText("Contest password"), { target: { value: "incorrect" } });
-  fireEvent.click(screen.getByRole("button", { name: "Register for contest" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Invalid contest password");
-  fireEvent.change(screen.getByLabelText("Contest password"), { target: { value: "correct" } });
-  fireEvent.click(screen.getByRole("button", { name: "Register for contest" }));
-  await waitFor(() => expect(post).toHaveBeenLastCalledWith("/contests/contest-database-id/register", { password: "correct" }, expect.objectContaining({ signal: expect.any(AbortSignal) })));
-  expect(await screen.findByRole("status")).toHaveTextContent("You are registered");
+  const startLink = await screen.findByRole("link", { name: "Continue to secure start" });
+  expect(startLink).toHaveAttribute("href", "/contests/contest-database-id/attempt");
+  expect(screen.queryByLabelText("Contest password")).toBeNull();
+  expect(post).not.toHaveBeenCalled();
 });
 
 it.each(["ended", "registered"])("does not offer duplicate or closed registration when %s", async (state) => {

@@ -70,7 +70,8 @@ function ContestSession({ id }: { id: string }) {
     if (startRequest.current && !startRequest.current.signal.aborted) return;
     const controller = new AbortController(); startRequest.current = controller;
     try {
-      const { data } = await api.post(`/contests/${encodeURIComponent(id)}/start`, { password }, { signal: controller.signal });
+      const body = password === undefined ? {} : { password };
+      const { data } = await api.post(`/contests/${encodeURIComponent(id)}/start`, body, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (!Array.isArray(data.problems) || !data.contest || !data.sessionId) throw new Error("Invalid contest session response");
       setResult({ key, context: data });
