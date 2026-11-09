@@ -66,11 +66,11 @@ function ContestSession({ id }: { id: string }) {
     });
     return () => controller.abort();
   }, [id, user, authLoading, key]);
-  const startContest = useCallback(async () => {
+  const startContest = useCallback(async (password?: string) => {
     if (startRequest.current && !startRequest.current.signal.aborted) return;
     const controller = new AbortController(); startRequest.current = controller;
     try {
-      const { data } = await api.post(`/contests/${encodeURIComponent(id)}/start`, {}, { signal: controller.signal });
+      const { data } = await api.post(`/contests/${encodeURIComponent(id)}/start`, { password }, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (!Array.isArray(data.problems) || !data.contest || !data.sessionId) throw new Error("Invalid contest session response");
       setResult({ key, context: data });
@@ -136,6 +136,7 @@ function ContestSession({ id }: { id: string }) {
     return (
       <ContestStartGate
         onAccept={startContest}
+        isPrivate={!!preview.contest.isPrivate}
         requestFullscreen={proctor.requestFullscreen}
         isFullscreen={proctor.isFullscreen}
         hasRequestedFullscreen={proctor.hasRequestedFullscreen}
@@ -206,10 +207,11 @@ function ContestSession({ id }: { id: string }) {
                 embedded
               />
             ) : (
-              <ProblemWorkspace key={problem.id} params={workspaceParams} embedded />
+              <ProblemWorkspace key={problem.id} params={workspaceParams} contestId={id} embedded onPrevious={() => setSelected(index => Math.max(0, index - 1))} onNext={() => setSelected(index => Math.min(context.problems.length - 1, index + 1))} isFirstQuestion={selected === 0} isLastQuestion={selected === context.problems.length - 1} />
             )}
           </Suspense>
         </div>
+        {problem && isContestMcq(problem) && <footer className="flex h-16 shrink-0 items-center justify-end gap-3 border-t border-border bg-card px-4 sm:px-6"><span className="mr-auto text-xs text-muted-foreground">Question {selected + 1} of {context.problems.length}</span><Button variant="outline" disabled={selected === 0} onClick={() => setSelected(index => Math.max(0, index - 1))}>Previous</Button><Button variant="outline" disabled={selected === context.problems.length - 1} onClick={() => setSelected(index => Math.min(context.problems.length - 1, index + 1))}>Next</Button></footer>}
       </>
     )}
     </div>

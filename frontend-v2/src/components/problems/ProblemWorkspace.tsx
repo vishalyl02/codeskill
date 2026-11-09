@@ -82,7 +82,7 @@ const CONTEST_SIDEBAR_TABS = SIDEBAR_TABS.filter((t) =>
   ["description", "samples", "submissions", "notes"].includes(t.id),
 );
 
-export default function ProblemWorkspace({ params, embedded = false }: { params: Promise<{ id: string }>; embedded?: boolean }) {
+export default function ProblemWorkspace({ params, embedded = false, contestId, onPrevious, onNext, isFirstQuestion = false, isLastQuestion = false }: { params: Promise<{ id: string }>; embedded?: boolean; contestId?: string; onPrevious?: () => void; onNext?: () => void; isFirstQuestion?: boolean; isLastQuestion?: boolean }) {
   const unwrappedParams = use(params);
   const problemId = unwrappedParams.id;
   const { theme } = useTheme();
@@ -1611,13 +1611,13 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
       {/* ─── BOTTOM NAVIGATION BAR (STICKY ACTION BAR) ───────────────────── */}
       <footer className="coding-action-bar h-[64px] border-t border-[#1F2937] bg-[#0A0A0A] flex items-center justify-between px-6 shrink-0 shadow-[0_-4px_24px_rgba(0,0,0,0.04)] pb-[env(safe-area-inset-bottom)]">
 
-          <div className="flex items-center gap-2">
-            <Link href="/problems">
+          <div className={embedded ? "flex-1" : "flex items-center gap-2"}>
+            {!embedded && <Link href="/problems">
               <Button variant="ghost" className="h-[42px] px-4 text-[14px] font-semibold gap-2 text-[#9CA3AF] hover:text-[#F3F4F6] hover:bg-[#1F2937] rounded-[8px] btn-interactive">
                 <ArrowLeft className="w-4 h-4" />
                 <span className="hidden sm:inline">Back</span>
               </Button>
-            </Link>
+            </Link>}
           </div>
           <div className="flex items-center gap-3">
             <Button onClick={handleRun} disabled={isRunning || isSubmitting} className="h-[42px] px-5 text-[14px] font-bold gap-2 bg-[#1F2937] hover:bg-[#374151] text-[#E5E7EB] border border-[#374151] rounded-[8px] btn-interactive disabled:opacity-45 disabled:cursor-not-allowed">
@@ -1628,12 +1628,13 @@ export default function ProblemWorkspace({ params, embedded = false }: { params:
               {isSubmitting ? <Spinner className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               <span>Submit</span>
             </Button>
-            <Link href="/problems">
+            {embedded && <Button variant="ghost" onClick={onPrevious} disabled={isFirstQuestion} className="h-[42px] px-4 text-[14px] font-semibold gap-2 text-[#9CA3AF] hover:text-[#F3F4F6] hover:bg-[#1F2937] rounded-[8px] btn-interactive disabled:opacity-40"><ArrowLeft className="w-4 h-4" /><span className="hidden sm:inline">Previous</span><span className="sm:hidden">Prev</span></Button>}
+            {embedded ? <Button variant="outline" onClick={onNext} disabled={isLastQuestion} className="h-[42px] px-5 text-[14px] font-semibold gap-2 bg-transparent hover:bg-[#1F2937] text-[#D1D5DB] border border-[#4B5563] rounded-[8px] btn-interactive disabled:opacity-40"><span className="hidden sm:inline">Next</span><ArrowRight className="w-4 h-4" /></Button> : <Link href="/problems">
               <Button variant="outline" className="h-[42px] px-5 text-[14px] font-semibold gap-2 bg-transparent hover:bg-[#1F2937] text-[#D1D5DB] border border-[#4B5563] rounded-[8px] btn-interactive">
                 <span className="hidden sm:inline">Next</span>
                 <ArrowRight className="w-4 h-4" />
               </Button>
-            </Link>
+            </Link>}
           </div>
       </footer>
 

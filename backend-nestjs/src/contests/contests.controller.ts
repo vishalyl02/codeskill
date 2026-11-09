@@ -15,6 +15,14 @@ export class ContestsController {
     return this.contestsService.getContests();
   }
 
+  @Get('private')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get published password-protected contests' })
+  async getPrivateContests() {
+    return this.contestsService.getPrivateContests();
+  }
+
   @Get(':slug/leaderboard')
   async leaderboard(@Param('slug') slug: string) {
     return this.contestsService.leaderboard(slug);
@@ -49,8 +57,9 @@ export class ContestsController {
   async startAttempt(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
+    @Body('password') password?: string,
   ) {
-    return this.contestsService.startAttempt(id, userId);
+    return this.contestsService.startAttempt(id, userId, password);
   }
 
   @Post(':id/submit')
