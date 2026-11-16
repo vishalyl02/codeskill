@@ -132,14 +132,36 @@ flowchart TD
 CodeSkill defines three isolated infrastructure root environments in `terraform/environments/`:
 
 1. **`production` (`terraform/environments/production/`):**
-   - Multi-AZ VPC deployment across `ap-south-1`.
+   - Multi-AZ VPC deployment across `ap-south-1` (Mumbai).
    - RDS Multi-AZ PostgreSQL 15, ElastiCache Redis Cluster with in-transit TLS.
    - WAF rate limiting rules, CloudFront CDN edge caching.
    - Application ASG (API) and Judge Worker ASG with scaling policies.
+   - SSM Parameter Store configuration (`/codeskill-prod/*`) for secrets and runtime flags.
 2. **`dev` (`terraform/environments/dev/`):**
    - Single-AZ lightweight sandbox environment for staging and integration tests.
 3. **`judges` (`terraform/environments/judges/`):**
-   - Dedicated Auto Scaling Group for Piston and Judge0 container execution nodes.
+   - Independent Terraform root with dedicated state managing isolated judge infrastructure in `ap-south-1`.
+   - **Compute Topology:** Provisions two private ARM64 `t4g.small` instances (2 vCPU, 2 GiB RAM each) with encrypted gp3 disks, dedicated IAM roles/instance profiles, and dedicated security groups.
+     - `deployment_mode = "separate"` (default): Judge0 host managed under module address `shared_judges`; Piston host managed under `module.piston[0]`.
+     - Optional `deployment_mode = "shared"` co-locates both providers for development/budget setups.
+   - **Security & Network Isolation:**
+     - Instances reside in private subnets with zero public IP addresses and no SSH port 22 access (`0.0.0.0/0:22`).
+     - Remote administration is conducted strictly via **AWS Systems Manager (SSM) Session Manager**.
+     - IMDSv2 is strictly enforced (`http_put_response_hop_limit = 1`). Untrusted container processes are blocked from accessing the AWS Instance Metadata Service (`169.254.169.254`) via host iptables rules (`iptables -I DOCKER-USER -d 169.254.169.254 -j DROP`).
+     - Security group ingress restricts ports 2358 (Judge0) and 2001 (Piston) strictly to the backend application security group.
+   - **Native ARM64 Sandboxing Engine:**
+     - Native compilation and execution without cross-architecture emulation.
+     - Built from pinned Judge0 and Piston sources using cgroup-v2 Isolate revision (obsolete cgroup-v1 switches removed).
+     - Native runtimes: C (GCC), C++ (G++), Java (OpenJDK), Python 3, JavaScript (Node.js), and TypeScript.
+     - Compilation and execution use separate sandbox cgroups so compiler CPU/memory limits cannot deplete student execution quotas.
+     - Hard compiler artifact limit: **1 MiB**; program stdout/stderr capped at **64 KiB**.
+   - **Automated Host Verification (`verify.py`):**
+     - Runs automated multi-language smoke tests, I/O verification, auth checks, and resource limit audits upon EC2 bootstrap.
+     - Only upon 100% test passage does it generate `verification.json` and publish `/<name_prefix>/status=verified` along with a SecureString authentication token to SSM Parameter Store.
+     - Host bootstrap is logged to `/var/log/codeskill-judges-bootstrap.log`.
+   - **Backend Integration & Rollback:**
+     - Backend API and worker load settings dynamically from SSM parameter `/codeskill-prod/judges/backend_env` via pointer `JUDGE_CONFIG_PARAMETER`.
+     - Rollback procedure: Preserve Judge0 volume (`/var/lib/docker/volumes`), restore prior native bundle (e.g., `separate-arm-*.tgz`), and rebuild in-place via SSM. Never run `docker compose down -v` or `terraform destroy` on judges.
 
 ---
 
@@ -147,14 +169,26 @@ CodeSkill defines three isolated infrastructure root environments in `terraform/
 
 Located in `.github/workflows/`:
 
-### 1. `deploy.yml` (Main Deployment Pipeline)
+### 1. `deploy.yml` (Main Production Deployment Pipeline)
+- **Repository Target:** Production deployment runs on pushes to `main` in `maaze18864-web/codeskill` (configured under **Settings → Secrets and variables → Actions**).
 - **Triggers:** Push to `main` branch or manual `workflow_dispatch`.
-- **Steps:**
+- **Authentication Methods (Precedence & Credentials):**
+  1. **AWS OIDC Federation (Recommended):** Configured via repository variable or secret `AWS_ROLE_TO_ASSUME` pointing to an existing IAM deployment role ARN. The role must trust GitHub's OIDC provider (`token.actions.githubusercontent.com`) for the `main` branch with audience `sts.amazonaws.com`. Workflow requests `id-token: write`.
+  2. **Static Access Keys (Fallback):** Repository secrets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional `AWS_SESSION_TOKEN`.
+  3. **Resolution:** When both are present, OIDC takes precedence over static credentials.
+- **Required IAM Permissions:**
+  - S3 release upload: `s3:PutObject` on the deployment release bucket.
+  - Auto Scaling instance refresh: `autoscaling:StartInstanceRefresh` on the target application ASG.
+- **Configuration Check (`.github/scripts/check-aws-deployment-config.sh`):**
+  - Runs early in the workflow before tests and builds to fail fast if AWS credentials are missing (`"AWS deployment is not configured"`).
+  - Public PR validation executes the check with dummy values and completes static tests and builds without requiring AWS secrets.
+- **Pipeline Execution Steps:**
   1. Checks out repository on Node.js 22 runner.
-  2. Runs type-checks and test suites for `backend-nestjs` and `frontend-v2`.
-  3. Authenticates with AWS via OIDC role assumption (`AWS_ROLE_TO_ASSUME`).
-  4. Executes remote SSH script on target production EC2 nodes.
-  5. Compiles production assets and reloads processes via PM2 (`npm run restart`).
+  2. Type-checks and runs automated unit tests for `backend-nestjs` (91 spec files) and `frontend-v2` (71 test files).
+  3. Authenticates with AWS via OIDC role assumption (`AWS_ROLE_TO_ASSUME`) or access keys.
+  4. Builds production bundles and packages the release archive.
+  5. Uploads release bundle to S3 and triggers an Auto Scaling Group Instance Refresh with zero downtime.
+  6. Reloads PM2 processes on target application instances (`npm run restart`).
 
 ### 2. `piston-validation.yml` (Sandbox Integrity Pipeline)
 - **Triggers:** Changes to `scripts/piston/**` or `deployment/piston/**`.
@@ -208,13 +242,37 @@ Located in `scripts/k6/` and `terraform/load-tests/`:
 node scripts/backup-databases.cjs
 ```
 
-### PM2 Service Process Management
-```bash
-# Start all monorepo production processes
-npm start
-# Inspect running service health and logs
-pm2 status
-pm2 logs
-# Zero-downtime rolling reload with new environment variables
-npm run restart
-```
+### PM2 Service Process Management & PM2.io SSM Monitoring
+
+Both `backend-nestjs` and `frontend-v2` include PM2 as a production dependency and expose `npm run prod:start`. Production Docker containers run under `pm2-runtime` with systemd management.
+
+- **PM2.io Enterprise Monitoring Integration:**
+  - Docker containers link to PM2.io automatically at boot using `PM2_SECRET_KEY`, `PM2_PUBLIC_KEY`, and dynamic `PM2_MACHINE_NAME`.
+  - Keys are stored securely in AWS SSM Parameter Store as a `SecureString` referenced by the Terraform variable `pm2_io_parameter_name` (default: `/codeskill-prod/monitoring/pm2`).
+  - To provision PM2.io keys to SSM, create an owner-only, git-ignored `.env.pm2-ssm.json` file:
+    ```json
+    {
+      "Name": "/codeskill-prod/monitoring/pm2",
+      "Type": "SecureString",
+      "Value": "{\"PM2_SECRET_KEY\":\"YOUR_SECRET_KEY\",\"PM2_PUBLIC_KEY\":\"YOUR_PUBLIC_KEY\"}",
+      "Overwrite": true
+    }
+    ```
+  - Provision via deployment profile:
+    ```bash
+    AWS_REGION=ap-south-1 bash scripts/configure-pm2-ssm.sh
+    ```
+  - Set `pm2_io_parameter_name = ""` to run PM2 Runtime without connecting to PM2.io.
+  - In older `modules/asg` host deployments, setting `pm2_io_parameter_name` fetches the same keys from SSM and executes `pm2 link` under user `ec2-user`.
+
+- **Operational Process Commands:**
+  ```bash
+  # Start all monorepo production processes locally or on bare EC2:
+  npm start
+  # Inspect running service status, memory, and restarts:
+  pm2 status
+  # Tail real-time aggregated logs:
+  pm2 logs
+  # Zero-downtime rolling reload with new environment variables:
+  npm run restart
+  ```

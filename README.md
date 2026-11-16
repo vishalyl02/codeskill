@@ -12,7 +12,7 @@ CodeSkill is a high-concurrency, enterprise-grade technical examination and algo
 | [`docs/ENVIRONMENT_AND_CONFIG.md`](./docs/ENVIRONMENT_AND_CONFIG.md) | **Configuration Reference:** 100% of environment variables (121 keys), process roles, and runtime flags. |
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | **System Architecture:** End-to-end design, dual Judge0/Piston sandboxes, consistent sharding, and Cheating Radar. |
 | [`docs/DATABASE.md`](./docs/DATABASE.md) | **Database Reference:** ER diagram, all 49 tables/entities, 128-bucket sharding, and partitioning rules. |
-| [`docs/API_REFERENCE.md`](./docs/API_REFERENCE.md) | **API Reference:** Exhaustive catalog of all 115 REST routes, GraphQL schema, and WebSocket protocols. |
+| [`docs/API_REFERENCE.md`](./docs/API_REFERENCE.md) | **API Reference:** Exhaustive catalog of all 248 REST routes across 33 controllers, GraphQL schema, and WebSocket protocols. |
 | [`docs/BACKEND_MODULES.md`](./docs/BACKEND_MODULES.md) | **Backend Architecture:** All NestJS modules, providers, BullMQ queue processors, and PDF report generator. |
 | [`docs/FRONTEND.md`](./docs/FRONTEND.md) | **Frontend Architecture:** App Router (103 pages, 5 layouts, 5 route handlers), all 130 components, and hooks. |
 | [`docs/INFRASTRUCTURE_AND_OPERATIONS.md`](./docs/INFRASTRUCTURE_AND_OPERATIONS.md) | **Infrastructure & Ops:** 22 AWS Terraform modules, 3 environments, CI/CD, and k6 load testing suites. |

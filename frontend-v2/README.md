@@ -6,7 +6,7 @@ The responsive, high-performance web application for the **CodeSkill Assessment 
 
 ## 🌟 Key Features & UI Capabilities
 
-- **App Router Architecture (`src/app/`):** 79 optimized server and static routes covering Public Problems, Live Contests, Student Assessment Exam Taker, and Faculty/Admin Portals.
+- **App Router Architecture (`src/app/`):** 103 App Router pages, 5 layouts, and 5 route handlers covering Public Problems, Live Contests, Student Assessment Exam Taker, and Faculty/Admin Portals.
 - **Monaco Code Editor (`src/components/editor/`):** Full-featured code editor with syntax highlighting, LeetCode function signature support, Vim mode (`monaco-vim`), and custom testcase execution feedback.
 - **Client-Side Anti-Cheat & Proctoring (`src/hooks/anti-cheat/`):**
   - MediaPipe Vision face mesh (`@mediapipe/tasks-vision` / `@vladmandic/human`) for multi-face detection and gaze anomaly alerts.
@@ -43,7 +43,7 @@ Key environment variables:
 # Start development server with Webpack (Port 3000)
 npm run dev
 
-# Run full frontend test suite (64 test files):
+# Run full frontend test suite (71 test files):
 npm test -- --runInBand
 
 # Run single component test:
@@ -55,6 +55,15 @@ npm run typecheck
 # Build optimized production bundle:
 npm run build
 ```
+
+---
+
+## 📚 Complete Frontend Architecture Documentation
+
+For complete, zero-omission documentation of the frontend architecture:
+- **Frontend Architecture Reference:** [`../docs/FRONTEND.md`](../docs/FRONTEND.md) (All 103 pages, 5 layouts, 5 route handlers, 130 UI components, and 13 hooks)
+- **System Architecture:** [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) (End-to-end design, anti-cheat radar, and Monaco editor performance invariants)
+- **Environment & Runtime Config:** [`../docs/ENVIRONMENT_AND_CONFIG.md`](../docs/ENVIRONMENT_AND_CONFIG.md) (Client-side `NEXT_PUBLIC_*` and server-side environment variables)
 
 ---
 

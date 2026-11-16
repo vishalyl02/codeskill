@@ -8,7 +8,7 @@
 ## 1. Scope & Monorepo Topology
 
 - Two independent application packages (no npm workspace orchestrator):
-  - `backend-nestjs/`: NestJS 10 API, Apollo GraphQL, Socket.IO WebSockets, BullMQ Judge.
+  - `backend-nestjs/`: NestJS 11 API, Apollo GraphQL, Socket.IO WebSockets, BullMQ Judge.
   - `frontend-v2/`: Next.js 16 App Router (React 19, Webpack).
 - Infrastructure and ops code:
   - `terraform/`: AWS infrastructure definitions (`dev`, `production`, `judges` environments and 22 child modules).
@@ -61,13 +61,13 @@ npm run lint --prefix frontend-v2
 
 ### Automated Test Suites
 ```bash
-# Full backend unit suite (86 spec files)
+# Full backend unit suite (91 spec files)
 npm test --prefix backend-nestjs -- --runInBand
 
 # Single backend test file
 (cd backend-nestjs && npm test -- --runInBand --runTestsByPath src/auth/token.service.spec.ts)
 
-# Full frontend unit suite (70 test files)
+# Full frontend unit suite (71 test files)
 npm test --prefix frontend-v2 -- --runInBand
 
 # Single frontend test file
