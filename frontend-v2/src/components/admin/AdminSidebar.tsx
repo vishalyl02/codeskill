@@ -89,9 +89,35 @@ const adminNavItems = [
   { name: "Settings", href: "/admin/settings", icon: Settings },
 ];
 
-const teacherNavItems = adminNavItems.filter((item) =>
-  !["Companies", "Universities", "Settings", "Bugs"].includes(item.name),
-);
+const teacherNavItems = [
+  { name: "Home", href: "/", icon: Home },
+  { name: "Dashboard", href: "/teacher/dashboard", icon: LayoutDashboard },
+  {
+    name: "My Assessments",
+    href: "/teacher/assessments",
+    icon: ClipboardList,
+    subItems: [
+      { name: "All Assessments", href: "/teacher/assessments" },
+      { name: "Create Assessment", href: "/teacher/assessments/create" },
+    ],
+  },
+  {
+    name: "Question Bank",
+    href: "/teacher/questions",
+    icon: Code2,
+    subItems: [
+      { name: "All Questions", href: "/teacher/questions" },
+      { name: "Create Question", href: "/teacher/questions/create" },
+      { name: "Pending Review", href: "/teacher/questions/pending" },
+    ],
+  },
+  {
+    name: "My Batches & Students",
+    href: "/teacher/students",
+    icon: GraduationCap,
+  },
+  { name: "Contests", href: "/teacher/contests", icon: Trophy },
+];
 
 interface AdminSidebarProps {
   portal?: "admin" | "teacher";
@@ -156,7 +182,7 @@ export function AdminSidebar({
       <div className="admin-sidebar-scroll flex-1 overflow-y-auto py-4 px-3">
         <nav className="space-y-1">
           {navItems.map((item) => {
-            const href = isTeacher ? item.href.replace(/^\/admin\//, "/teacher/") : item.href;
+            const href = item.href;
             const isCategoryActive = pathname === href || (href !== "/" && Boolean(pathname?.startsWith(href)));
             const Icon = item.icon;
             
@@ -186,7 +212,7 @@ export function AdminSidebar({
                 {item.subItems && isCategoryActive && (
                   <div className="admin-subnav pl-8 pr-2 pb-1 space-y-1">
                     {item.subItems.map((sub) => {
-                      const subHref = isTeacher ? sub.href.replace(/^\/admin\//, "/teacher/") : sub.href;
+                      const subHref = sub.href;
                       const isSubActive = pathname === subHref;
                       return (
                         <Link

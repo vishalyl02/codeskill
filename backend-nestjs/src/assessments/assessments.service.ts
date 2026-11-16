@@ -1064,11 +1064,18 @@ export class AssessmentsService {
     return { ...assessment, _id: assessment.id };
   }
 
-  async findAll(query: any = {}) {
+  async findAll(query: any = {}, adminUser?: any) {
     const qb = this.assessmentRepo
       .createQueryBuilder('assessment')
       .leftJoinAndSelect('assessment.createdBy', 'createdBy')
       .orderBy('assessment.createdAt', 'DESC');
+
+    if (adminUser && ['teacher', 'faculty', 'instructor'].includes(adminUser.role)) {
+      const facultyId = adminUser.id || adminUser._id;
+      if (facultyId) {
+        qb.andWhere('assessment.created_by_id = :facultyId', { facultyId });
+      }
+    }
 
     if (query.status && query.status !== 'all') {
       qb.andWhere('assessment.status = :status', { status: query.status });
@@ -1093,11 +1100,18 @@ export class AssessmentsService {
     return { success: true, assessments, count: assessments.length };
   }
 
-  async findById(id: string) {
+  async findById(id: string, adminUser?: any) {
     const assessment = await this.findAssessmentByIdOrCode(id, { createdBy: true });
 
     if (!assessment) {
       throw new NotFoundException('Assessment not found');
+    }
+
+    if (adminUser && ['teacher', 'faculty', 'instructor'].includes(adminUser.role)) {
+      const facultyId = adminUser.id || adminUser._id;
+      if (facultyId && assessment.created_by_id && assessment.created_by_id !== facultyId) {
+        throw new ForbiddenException('You are not authorized to view this assessment');
+      }
     }
 
     // Resolve question details from both legacy top-level IDs and section references.

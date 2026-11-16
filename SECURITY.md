@@ -44,6 +44,14 @@ The CodeSkill codebase enforces defense-in-depth security mechanisms:
 
 ---
 
+## Architecture & Security References
+
+- **System Architecture & Defense-in-Depth:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- **Security Environment Variables & Token TTLs:** [`docs/ENVIRONMENT_AND_CONFIG.md`](docs/ENVIRONMENT_AND_CONFIG.md)
+- **Database Partitioning & Submission Sharding:** [`docs/DATABASE.md`](docs/DATABASE.md)
+
+---
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in CodeSkill:

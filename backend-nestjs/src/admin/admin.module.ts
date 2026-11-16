@@ -8,6 +8,7 @@ import { AdminContestsController } from './controllers/contests.controller';
 import { AdminCompaniesController } from './controllers/companies.controller';
 import { AdminUniversitiesController } from './controllers/universities.controller';
 import { AdminActivityController } from './controllers/activity.controller';
+import { AdminFacultyAssignmentsController } from './controllers/faculty-assignments.controller';
 import { AdminService } from './admin.service';
 
 import { User } from '../database/entities/user.entity';
@@ -24,6 +25,8 @@ import { University } from '../database/entities/university.entity';
 import { Submission } from '../database/entities/submission.entity';
 import { Assessment } from '../database/entities/assessment.entity';
 import { Question } from '../database/entities/question.entity';
+import { Batch } from '../database/entities/batch.entity';
+import { FacultyAssignment } from '../database/entities/faculty-assignment.entity';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
@@ -45,6 +48,8 @@ import { AuthModule } from '../auth/auth.module';
       Submission,
       Assessment,
       Question,
+      Batch,
+      FacultyAssignment,
     ]),
   ],
   controllers: [
@@ -55,6 +60,7 @@ import { AuthModule } from '../auth/auth.module';
     AdminCompaniesController,
     AdminUniversitiesController,
     AdminActivityController,
+    AdminFacultyAssignmentsController,
   ],
   providers: [AdminService],
   exports: [AdminService],

@@ -55,7 +55,7 @@ npm run admin:bootstrap
 # Start API in watch mode (Port 5001)
 NODE_ENV=development npm run start:dev
 
-# Run complete test suite (81 spec files):
+# Run complete test suite (91 spec files):
 npm test -- --runInBand
 
 # Run single test file:
@@ -76,7 +76,13 @@ pm2 start ecosystem.config.js
 
 ---
 
-## 📡 Interactive API Documentation
+## 📡 API Reference & Architecture Documentation
+
+For complete, zero-omission documentation of all backend components:
+- **API Reference:** [`../docs/API_REFERENCE.md`](../docs/API_REFERENCE.md) (All 248 REST routes across 33 controllers, GraphQL ping, and WebSocket proctoring protocols)
+- **Backend Modules & Queues:** [`../docs/BACKEND_MODULES.md`](../docs/BACKEND_MODULES.md) (All NestJS modules, providers, BullMQ execution queues, and PDF generator)
+- **Database Architecture:** [`../docs/DATABASE.md`](../docs/DATABASE.md) (All 49 entities, 128-bucket MD5 submission sharding, and PostgreSQL declarative partitions)
+- **Environment Variables:** [`../docs/ENVIRONMENT_AND_CONFIG.md`](../docs/ENVIRONMENT_AND_CONFIG.md) (100% of environment variables and configuration flags)
 
 When running locally, explore the interactive OpenAPI / Swagger catalog at:  
 👉 **`http://localhost:5001/api/docs`**

@@ -42,8 +42,11 @@ export class AssessmentsAdminController {
 
   @Get()
   @ApiOperation({ summary: 'List all assessments with filters' })
-  async findAll(@Query() query: any) {
-    return this.assessmentsService.findAll(query);
+  async findAll(
+    @Query() query: any,
+    @CurrentUser() adminUser: any,
+  ) {
+    return this.assessmentsService.findAll(query, adminUser);
   }
 
   @Get('targeting-options')
@@ -74,8 +77,11 @@ export class AssessmentsAdminController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get assessment details with populated questions' })
-  async findById(@Param('id') id: string) {
-    return this.assessmentsService.findById(id);
+  async findById(
+    @Param('id') id: string,
+    @CurrentUser() adminUser: any,
+  ) {
+    return this.assessmentsService.findById(id, adminUser);
   }
 
   @Put(':id')

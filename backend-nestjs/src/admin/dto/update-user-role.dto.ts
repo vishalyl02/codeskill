@@ -9,6 +9,9 @@ export const ALLOWED_USER_ROLES = [
   'company_admin',
   'student_admin',
   'assessment_admin',
+  'faculty',
+  'teacher',
+  'instructor',
 ] as const;
 
 export type UserRole = (typeof ALLOWED_USER_ROLES)[number];

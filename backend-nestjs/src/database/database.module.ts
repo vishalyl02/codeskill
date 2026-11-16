@@ -26,6 +26,7 @@ import { University } from './entities/university.entity';
 import { UniversityUser } from './entities/university-user.entity';
 import { Batch } from './entities/batch.entity';
 import { StudentEnrollment } from './entities/student-enrollment.entity';
+import { FacultyAssignment } from './entities/faculty-assignment.entity';
 import { Discussion } from './entities/discussion.entity';
 import { DiscussionReply } from './entities/discussion-reply.entity';
 import { AuditLog } from './entities/audit-log.entity';
@@ -84,6 +85,7 @@ const entities = [
   UniversityUser,
   Batch,
   StudentEnrollment,
+  FacultyAssignment,
   Discussion,
   DiscussionReply,
   AuditLog,

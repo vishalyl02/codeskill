@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ShieldCheck, ShieldOff, Search } from "lucide-react";
+import { ShieldCheck, ShieldOff, Search, GraduationCap, UserCheck } from "lucide-react";
 import { adminUsersAPI } from "@/config/api";
 import { useAuth } from "@/context/AuthContext";
 import toast from "react-hot-toast";
@@ -35,6 +35,22 @@ export default function AdminSettingsPage() {
     }, 500);
     return () => clearTimeout(delayDebounceFn);
   }, [search, adminsOnly]);
+
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    setActionLoading(userId);
+    try {
+      const res = await adminUsersAPI.updateRole(userId, {
+        role: newRole,
+        isAdmin: newRole === "admin" || newRole === "super_admin",
+      });
+      toast.success(res.data?.message || `User role updated to ${newRole}`);
+      fetchUsers();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to update user role");
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const handlePromote = async (userId: string) => {
     setActionLoading(userId);
@@ -142,13 +158,17 @@ export default function AdminSettingsPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      {u.isAdmin ? (
+                      {['faculty', 'teacher', 'instructor'].includes(u.role) ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <GraduationCap className="w-3.5 h-3.5" /> Faculty
+                        </span>
+                      ) : u.isAdmin || ['admin', 'super_admin', 'student_admin', 'assessment_admin'].includes(u.role) ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-500 border border-red-500/20">
-                          <ShieldCheck className="w-3.5 h-3.5" /> Admin
+                          <ShieldCheck className="w-3.5 h-3.5" /> {u.role === 'super_admin' ? 'Super Admin' : 'Admin'}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
-                          User
+                          <UserCheck className="w-3.5 h-3.5" /> Student
                         </span>
                       )}
                     </td>
@@ -156,29 +176,23 @@ export default function AdminSettingsPage() {
                       {new Date(u.createdAt).toLocaleDateString('en-GB')}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center justify-end gap-2 opacity-90 group-hover:opacity-100 transition-opacity">
                         {actionLoading === u._id ? (
                           <Spinner className="w-5 h-5 text-muted-foreground animate-spin" />
-                        ) : u.isAdmin ? (
-                          <button
-                            disabled={currentUser?.id === u._id}
-                            onClick={() => handleDemote(u._id)}
-                            className={`text-xs font-medium px-3 py-1.5 rounded-md transition-colors ${
-                              currentUser?.id === u._id
-                                ? "text-muted-foreground bg-muted/50 cursor-not-allowed"
-                                : "text-red-500 bg-red-500/10 hover:bg-red-500 hover:text-white"
-                            }`}
-                            title={currentUser?.id === u._id ? "You cannot demote yourself" : "Remove admin access"}
-                          >
-                            Demote
-                          </button>
                         ) : (
-                          <button
-                            onClick={() => handlePromote(u._id)}
-                            className="text-xs font-medium text-primary bg-primary/10 hover:bg-primary hover:text-primary-foreground px-3 py-1.5 rounded-md transition-colors"
-                          >
-                            Promote to Admin
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              value={['faculty', 'teacher', 'instructor'].includes(u.role) ? 'faculty' : u.isAdmin || ['admin', 'super_admin'].includes(u.role) ? 'admin' : 'student'}
+                              disabled={currentUser?.id === u._id}
+                              onChange={(e) => handleRoleChange(u._id, e.target.value)}
+                              className="text-xs bg-background border border-border rounded-md px-2 py-1 text-foreground focus:ring-1 focus:ring-primary outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              aria-label={`Change role for ${u.name}`}
+                            >
+                              <option value="student">Student</option>
+                              <option value="faculty">Faculty</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          </div>
                         )}
                       </div>
                     </td>

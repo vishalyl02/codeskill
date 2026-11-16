@@ -477,6 +477,14 @@ export const adminUsersAPI = {
   getReport: (userId: string) => api.get(`/admin/users/${userId}/report`),
   promote: (userId: string) => api.put(`/admin/users/${userId}/promote`),
   demote: (userId: string) => api.put(`/admin/users/${userId}/demote`),
+  updateRole: (userId: string, data: { role?: string; isAdmin?: boolean }) =>
+    api.patch(`/admin/users/${userId}/role`, data),
+  getFacultyAssignments: (userId: string) =>
+    api.get(`/admin/users/${userId}/faculty-assignments`),
+  createFacultyAssignment: (userId: string, data: { batchId: string; courseCode: string; section?: string }) =>
+    api.post(`/admin/users/${userId}/faculty-assignments`, data),
+  deleteFacultyAssignment: (assignmentId: string) =>
+    api.delete(`/admin/faculty-assignments/${assignmentId}`),
 };
 
 export const adminCompaniesAPI = {
@@ -495,6 +503,21 @@ export const adminUniversitiesAPI = {
 
 export const adminDashboardAPI = {
   getStats: () => api.get("/admin/dashboard/stats"),
+};
+
+export const facultyAPI = {
+  getDashboard: () => api.get("/faculty/dashboard"),
+  getAssessments: () => api.get("/faculty/assessments"),
+  getBatches: () => api.get("/faculty/batches"),
+  getStudents: (params?: { batchId?: string; search?: string; page?: number; limit?: number }) =>
+    api.get("/faculty/students", { params }),
+  getAttemptSnapshots: (assessmentId: string, attemptId: string) =>
+    api.get(`/faculty/assessments/${assessmentId}/attempts/${attemptId}/snapshots`),
+  reviewAttempt: (
+    assessmentId: string,
+    attemptId: string,
+    data: { manualScoreAdjustment?: number; instructorFeedback?: string; clearRadarFlags?: boolean },
+  ) => api.patch(`/faculty/assessments/${assessmentId}/attempts/${attemptId}/review`, data),
 };
 
 export const adminActivityAPI = {
