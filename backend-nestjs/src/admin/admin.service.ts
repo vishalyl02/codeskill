@@ -22,11 +22,14 @@ import { University } from '../database/entities/university.entity';
 import { SubmissionStore } from '../database/sharding/submission-store';
 import { Assessment } from '../database/entities/assessment.entity';
 import { Question } from '../database/entities/question.entity';
+import { Batch } from '../database/entities/batch.entity';
+import { FacultyAssignment } from '../database/entities/faculty-assignment.entity';
 import { CacheService } from '../redis/cache.service';
 import { TokenService } from '../auth/token.service';
 import { ActivityLogService } from '../audit/activity-log.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { CreateAdminUserDto } from './dto/create-admin-user.dto';
+import { CreateFacultyAssignmentDto } from './dto/create-faculty-assignment.dto';
 import { validatePasswordPolicy } from '../auth/password.util';
 
 const mcqQuestionTypes = new Set([
@@ -91,6 +94,12 @@ export class AdminService {
     private readonly reattemptGrantModel?: Repository<ContestReattemptGrant>,
     @Optional()
     private readonly activityLogService?: ActivityLogService,
+    @Optional()
+    @InjectRepository(FacultyAssignment)
+    private readonly facultyAssignmentModel?: Repository<FacultyAssignment>,
+    @Optional()
+    @InjectRepository(Batch)
+    private readonly batchModel?: Repository<Batch>,
   ) { }
 
   async getDashboardStats() {
@@ -216,12 +225,13 @@ export class AdminService {
     });
     if (!user) throw new NotFoundException('User not found');
 
-    const targetRole = roleData.role !== undefined ? roleData.role : user.role;
+    const rawRole = roleData.role !== undefined ? roleData.role : user.role;
+    const targetRole = ['teacher', 'instructor'].includes(rawRole) ? 'faculty' : rawRole;
     const targetIsAdmin =
       roleData.isAdmin !== undefined
         ? roleData.isAdmin
         : roleData.role !== undefined
-          ? ['admin', 'super_admin', 'student_admin', 'assessment_admin'].includes(roleData.role)
+          ? ['admin', 'super_admin', 'student_admin', 'assessment_admin'].includes(targetRole)
           : user.isAdmin;
 
     const isElevatingToAdmin =
@@ -325,11 +335,160 @@ export class AdminService {
     };
   }
 
+  async createFacultyAssignment(
+    userId: string,
+    dto: CreateFacultyAssignmentDto,
+    actor?: { id?: string; role?: string; isAdmin?: boolean },
+  ) {
+    if (!this.facultyAssignmentModel || !this.batchModel) {
+      throw new BadRequestException('Faculty assignment service unavailable');
+    }
+
+    const user = await this.userRepo.findOne({
+      where: [{ id: userId }, { mongoId: userId }],
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Ensure user has faculty role
+    if (!['faculty', 'teacher', 'instructor'].includes(user.role)) {
+      user.role = 'faculty';
+      await this.userRepo.save(user);
+    }
+
+    const batch = await this.batchModel.findOne({
+      where: [{ id: dto.batchId }, { mongoId: dto.batchId }],
+    });
+    if (!batch) {
+      throw new NotFoundException('Batch not found');
+    }
+
+    const courseCode = dto.courseCode.trim().toUpperCase();
+    const existing = await this.facultyAssignmentModel.findOne({
+      where: {
+        faculty_id: user.id,
+        batch_id: batch.id,
+        courseCode,
+      },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'Faculty assignment already exists for this batch and course code',
+      );
+    }
+
+    const assignment = this.facultyAssignmentModel.create({
+      faculty_id: user.id,
+      batch_id: batch.id,
+      courseCode,
+      section: dto.section?.trim() || undefined,
+    });
+
+    await this.facultyAssignmentModel.save(assignment);
+
+    this.activityLogService?.log({
+      action: 'ADMIN_CREATE_FACULTY_ASSIGNMENT',
+      actorId: actor?.id,
+      actorRole: actor?.role || 'admin',
+      target: assignment.id,
+      targetType: 'FacultyAssignment',
+      riskWeight: 1,
+      metadata: {
+        facultyId: user.id,
+        facultyEmail: user.email,
+        batchId: batch.id,
+        batchName: batch.name,
+        courseCode,
+        section: dto.section,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Faculty assignment created successfully',
+      assignment,
+    };
+  }
+
+  async getFacultyAssignments(userId: string) {
+    if (!this.facultyAssignmentModel) {
+      return { success: true, assignments: [] };
+    }
+
+    const user = await this.userRepo.findOne({
+      where: [{ id: userId }, { mongoId: userId }],
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const assignments = await this.facultyAssignmentModel.find({
+      where: { faculty_id: user.id },
+      relations: { batch: true, faculty: true },
+      order: { createdAt: 'DESC' },
+    });
+
+    return {
+      success: true,
+      assignments: assignments.map((a) => ({
+        id: a.id,
+        facultyId: a.faculty_id,
+        batchId: a.batch_id,
+        batchName: a.batch?.name || '',
+        department: a.batch?.department || '',
+        graduationYear: a.batch?.graduationYear,
+        courseCode: a.courseCode,
+        section: a.section || null,
+        createdAt: a.createdAt,
+      })),
+    };
+  }
+
+  async deleteFacultyAssignment(
+    assignmentId: string,
+    actor?: { id?: string; role?: string; isAdmin?: boolean },
+  ) {
+    if (!this.facultyAssignmentModel) {
+      throw new BadRequestException('Faculty assignment service unavailable');
+    }
+
+    const assignment = await this.facultyAssignmentModel.findOne({
+      where: { id: assignmentId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('Faculty assignment not found');
+    }
+
+    await this.facultyAssignmentModel.remove(assignment);
+
+    this.activityLogService?.log({
+      action: 'ADMIN_DELETE_FACULTY_ASSIGNMENT',
+      actorId: actor?.id,
+      actorRole: actor?.role || 'admin',
+      target: assignmentId,
+      targetType: 'FacultyAssignment',
+      riskWeight: 1,
+      metadata: {
+        assignmentId,
+        facultyId: assignment.faculty_id,
+        batchId: assignment.batch_id,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Faculty assignment deleted successfully',
+    };
+  }
+
   async createAdminUser(
     dto: CreateAdminUserDto,
     actor?: { id?: string; role?: string; isAdmin?: boolean },
   ) {
-    const targetRole = dto.role || 'admin';
+    const rawRole = dto.role || 'admin';
+    const targetRole = ['teacher', 'instructor'].includes(rawRole) ? 'faculty' : rawRole;
+    const isAdmin = ['admin', 'super_admin', 'student_admin', 'assessment_admin'].includes(targetRole);
     const isActorSuperAdmin = actor && actor.role === 'super_admin';
 
     if (actor && !isActorSuperAdmin) {
@@ -356,7 +515,7 @@ export class AdminService {
       email,
       password: dto.password,
       role: targetRole,
-      isAdmin: true,
+      isAdmin,
       isActive: true,
       forcePasswordChange: false,
       authProvider: 'local',

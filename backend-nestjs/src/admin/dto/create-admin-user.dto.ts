@@ -7,6 +7,9 @@ const ALLOWED_ADMIN_ROLES = [
   'super_admin',
   'student_admin',
   'assessment_admin',
+  'faculty',
+  'teacher',
+  'instructor',
 ] as const;
 
 export class CreateAdminUserDto {

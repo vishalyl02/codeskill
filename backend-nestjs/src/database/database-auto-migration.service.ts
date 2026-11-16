@@ -12,6 +12,7 @@ import { applyContestSecurityReattemptMigration } from './migrations/contest-sec
 import { applyAnalyticsOptimizationIndexesMigration } from './migrations/analytics-optimization-indexes';
 import { applyLearningModuleMigration } from './migrations/learning-module';
 import { applyQuestionHideMainMethodMigration } from './migrations/question-hide-main-method';
+import { applyFacultyAssignmentsMigration } from './migrations/faculty-assignments';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -124,6 +125,11 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       // 14. Question hide main method column
       await this.executeStep('question-hide-main-method', () =>
         applyQuestionHideMainMethodMigration(queryRunner),
+      );
+
+      // 15. Faculty assignments and attempt review schema
+      await this.executeStep('faculty-assignments', () =>
+        applyFacultyAssignmentsMigration(queryRunner),
       );
     } finally {
       await queryRunner.release();

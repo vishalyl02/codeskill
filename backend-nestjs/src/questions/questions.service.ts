@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Brackets, In, IsNull } from 'typeorm';
@@ -480,6 +481,12 @@ export class QuestionsService {
       throw new NotFoundException('Question not found');
     }
 
+    const isFaculty = adminUser && ['faculty', 'teacher', 'instructor'].includes(adminUser.role);
+    const userId = adminUser?.id || adminUser?._id;
+    if (isFaculty && question.created_by_id !== userId) {
+      throw new ForbiddenException('You are not authorized to modify this question');
+    }
+
     const type = String(dto.questionType || question.questionType || 'single_choice');
     const isMcqTitleType = ['single_choice', 'multiple_choice', 'MCQ', 'MULTIPLE_CHOICE', 'TRUE_FALSE', 'true_false'].includes(type);
     const isChoice = [
@@ -724,6 +731,15 @@ export class QuestionsService {
       throw new NotFoundException('No questions found matching provided IDs');
     }
 
+    const isFaculty = adminUser && ['faculty', 'teacher', 'instructor'].includes(adminUser.role);
+    const userId = adminUser?.id || adminUser?._id;
+    if (isFaculty) {
+      const unauthorized = questions.some((q) => q.created_by_id !== userId);
+      if (unauthorized) {
+        throw new ForbiddenException('You are not authorized to modify questions owned by other faculty');
+      }
+    }
+
     const { categories, visibility, contestOnly, ...restUpdates } = updates as any;
     for (const q of questions) {
       if (categories !== undefined) {
@@ -771,6 +787,12 @@ export class QuestionsService {
   async delete(id: string, adminUser: any, ip = '', userAgent = '') {
     const question = await this.questionRepository.findOne({ where: { id } });
     if (!question) throw new NotFoundException('Question not found');
+
+    const isFaculty = adminUser && ['faculty', 'teacher', 'instructor'].includes(adminUser.role);
+    const userId = adminUser?.id || adminUser?._id;
+    if (isFaculty && question.created_by_id !== userId) {
+      throw new ForbiddenException('You are not authorized to delete this question');
+    }
 
     question.status = 'archived';
     await this.questionRepository.save(question);

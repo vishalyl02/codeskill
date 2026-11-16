@@ -158,6 +158,21 @@ export class AssessmentAttempt {
   @Column({ type: 'text', nullable: true, default: '' })
   disqualifiedReason?: string;
 
+  @Column({ name: 'manual_score_adjustment', type: 'float', default: 0, nullable: true })
+  manualScoreAdjustment?: number;
+
+  @Column({ name: 'instructor_feedback', type: 'text', nullable: true })
+  instructorFeedback?: string;
+
+  @Column({ name: 'reviewed_by_id', type: 'uuid', nullable: true })
+  reviewedById?: string;
+
+  @Column({ name: 'reviewed_at', type: 'timestamp', nullable: true })
+  reviewedAt?: Date;
+
+  @Column({ name: 'radar_flags_cleared', type: 'boolean', default: false, nullable: true })
+  radarFlagsCleared?: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 
