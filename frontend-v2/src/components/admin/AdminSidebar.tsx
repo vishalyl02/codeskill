@@ -19,6 +19,7 @@ import {
   CircleHelp,
   Bug,
   Compass,
+  Activity,
   X,
 } from "lucide-react";
 import gsap from "gsap";
@@ -26,6 +27,7 @@ import gsap from "gsap";
 const adminNavItems = [
   { name: "Home", href: "/", icon: Home },
   { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
+  { name: "Activity Monitor", href: "/admin/activity", icon: Activity },
   { name: "Analytics", href: "/admin/analytics", icon: BarChart3 },
   {
     name: "Learning Studio",

@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ForbiddenException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -10,6 +11,8 @@ import * as crypto from 'crypto';
 import { Assessment } from '../database/entities/assessment.entity';
 import { ExamSession } from '../database/entities/exam-session.entity';
 import { ExamSecurityEvent } from '../database/entities/exam-security-event.entity';
+import { CheatingRadarService } from '../audit/cheating-radar.service';
+import { AlertWebhookService } from '../audit/alert-webhook.service';
 
 @Injectable()
 export class ExamSecurityService {
@@ -20,6 +23,8 @@ export class ExamSecurityService {
     private readonly sessionRepo: Repository<ExamSession>,
     @InjectRepository(ExamSecurityEvent)
     private readonly eventRepo: Repository<ExamSecurityEvent>,
+    @Optional() private readonly cheatingRadarService?: CheatingRadarService,
+    @Optional() private readonly alertWebhookService?: AlertWebhookService,
   ) {}
 
   async initSecureSession(
@@ -240,6 +245,29 @@ export class ExamSecurityService {
     }
 
     await this.sessionRepo.save(session);
+
+    // Evaluate Cheating Radar for violation bursts
+    void this.cheatingRadarService?.recordProctoringViolation({
+      studentId: candidateId,
+      assessmentId: session.assessmentId,
+      eventType,
+    });
+
+    if (session.status === 'SUSPENDED') {
+      void this.alertWebhookService?.sendAlert({
+        action: 'ASSESSMENT_SESSION_SUSPENDED',
+        severity: 'CRITICAL',
+        riskWeight: 4,
+        target: `Assessment ${session.assessmentId}`,
+        targetType: 'Assessment',
+        details: {
+          candidateId,
+          sessionId: session.id,
+          violations: session.violationCount,
+          lastEventType: eventType,
+        },
+      });
+    }
 
     return {
       success: true,

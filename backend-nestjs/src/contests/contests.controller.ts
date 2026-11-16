@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ContestsService } from './contests.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { GetContestResultsQueryDto } from './dto/get-contest-results.dto';
 
 @ApiTags('Contests')
 @Controller('contests')
@@ -50,6 +52,33 @@ export class ContestsController {
   @UseGuards(JwtAuthGuard)
   async startContext(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.contestsService.getStartContext(id, userId);
+  }
+
+  @Get(':id/results')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      'Get paginated contest results, problem matrix, and personal scorecard',
+  })
+  async getResults(
+    @Param('id') id: string,
+    @Query() query: GetContestResultsQueryDto,
+    @CurrentUser() user?: { id: string; role: string },
+  ) {
+    return this.contestsService.getResults(id, query, user?.id);
+  }
+
+  @Get(':id/editorials')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      'Get official contest editorials and reference solutions (security-gated)',
+  })
+  async getEditorials(
+    @Param('id') id: string,
+    @CurrentUser() user?: { id: string; role: string },
+  ) {
+    return this.contestsService.getEditorials(id, user);
   }
 
   @Post(':id/start')

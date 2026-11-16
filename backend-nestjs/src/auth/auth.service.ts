@@ -20,6 +20,7 @@ import { OAuth2Client } from 'google-auth-library';
 import axios from 'axios';
 import { randomBytes } from 'crypto';
 import { RedisService } from '../redis/redis.service';
+import { ActivityLogService } from '../audit/activity-log.service';
 import { isOriginAllowed, resolveAllowedCorsOrigins } from '../common/cors.util';
 import {
   RegisterDto,
@@ -98,6 +99,7 @@ export class AuthService {
     private tokenService: TokenService,
     private loginThrottleService: LoginThrottleService,
     @Optional() private readonly redisService?: RedisService,
+    @Optional() private readonly activityLogService?: ActivityLogService,
   ) {
     this.googleClient = new OAuth2Client(
       this.configService.get<string>('oauth.googleClientId'),
@@ -197,6 +199,13 @@ export class AuthService {
         reason: 'User not found',
         ip,
       });
+      this.activityLogService?.log({
+        action: 'AUTH_LOGIN_FAILED',
+        actorEmail: raw,
+        riskWeight: 2,
+        ipAddress: ip,
+        metadata: { reason: 'User not found' },
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -208,6 +217,17 @@ export class AuthService {
         userId: user.id,
         reason: 'Account deactivated',
         ip,
+      });
+      this.activityLogService?.log({
+        action: 'AUTH_LOGIN_FAILED',
+        actorId: user.id,
+        actorEmail: user.email,
+        actorName: user.name,
+        actorRole: user.role || 'student',
+        actorUid: user.uid,
+        riskWeight: 3,
+        ipAddress: ip,
+        metadata: { reason: 'Account deactivated' },
       });
       throw new UnauthorizedException(
         'Your account has been deactivated. Please contact your administrator.',
@@ -237,6 +257,17 @@ export class AuthService {
         reason: 'Invalid password',
         ip,
       });
+      this.activityLogService?.log({
+        action: 'AUTH_LOGIN_FAILED',
+        actorId: user.id,
+        actorEmail: user.email,
+        actorName: user.name,
+        actorRole: user.role || (user.isAdmin ? 'admin' : 'student'),
+        actorUid: user.uid,
+        riskWeight: 2,
+        ipAddress: ip,
+        metadata: { reason: 'Invalid password' },
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -250,6 +281,17 @@ export class AuthService {
       email: user.email,
       role: user.role || (user.isAdmin ? 'admin' : 'student'),
       ip,
+    });
+
+    this.activityLogService?.log({
+      action: 'AUTH_LOGIN_SUCCESS',
+      actorId: user.id,
+      actorEmail: user.email,
+      actorName: user.name,
+      actorRole: user.role || (user.isAdmin ? 'admin' : 'student'),
+      actorUid: user.uid,
+      riskWeight: 0,
+      ipAddress: ip,
     });
 
     return await this.authResponse(user);
@@ -306,6 +348,13 @@ export class AuthService {
         reason: 'Invalid credentials or inactive admin',
         ip,
       });
+      this.activityLogService?.log({
+        action: 'AUTH_ADMIN_LOGIN_FAILED',
+        actorEmail: raw,
+        riskWeight: 3,
+        ipAddress: ip,
+        metadata: { reason: 'Invalid credentials or inactive admin' },
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -318,6 +367,17 @@ export class AuthService {
         userId: user.id,
         reason: 'Invalid password',
         ip,
+      });
+      this.activityLogService?.log({
+        action: 'AUTH_ADMIN_LOGIN_FAILED',
+        actorId: user.id,
+        actorEmail: user.email,
+        actorName: user.name,
+        actorRole: user.role || 'admin',
+        actorUid: user.uid,
+        riskWeight: 3,
+        ipAddress: ip,
+        metadata: { reason: 'Invalid password' },
       });
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -332,6 +392,17 @@ export class AuthService {
       email: user.email,
       role: 'admin',
       ip,
+    });
+
+    this.activityLogService?.log({
+      action: 'AUTH_ADMIN_LOGIN_SUCCESS',
+      actorId: user.id,
+      actorEmail: user.email,
+      actorName: user.name,
+      actorRole: user.role || 'admin',
+      actorUid: user.uid,
+      riskWeight: 0,
+      ipAddress: ip,
     });
 
     return await this.authResponse(user);
