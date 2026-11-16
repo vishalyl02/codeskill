@@ -43,6 +43,8 @@ export class ActivityLogService implements OnModuleDestroy {
   private readonly FLUSH_INTERVAL_MS = 1500;
   private isFlushing = false;
   private flushTimer: NodeJS.Timeout | null = null;
+  private purgeTimer: NodeJS.Timeout | null = null;
+  private readonly PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours (daily retention check)
 
   constructor(
     @InjectRepository(AuditLog)
@@ -53,12 +55,24 @@ export class ActivityLogService implements OnModuleDestroy {
         this.logger.error('Error during scheduled audit log flush', err);
       });
     }, this.FLUSH_INTERVAL_MS);
+    this.flushTimer?.unref();
+
+    this.purgeTimer = setInterval(() => {
+      this.purgeExpiredAuditLogs().catch((err) => {
+        this.logger.error('Error during scheduled audit log retention purge', err);
+      });
+    }, this.PURGE_INTERVAL_MS);
+    this.purgeTimer?.unref();
   }
 
   async onModuleDestroy(): Promise<void> {
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = null;
+    }
+    if (this.purgeTimer) {
+      clearInterval(this.purgeTimer);
+      this.purgeTimer = null;
     }
     // Drain remaining buffer safely on shutdown
     while (this.buffer.length > 0) {
@@ -533,5 +547,43 @@ export class ActivityLogService implements OnModuleDestroy {
         qb.andWhere('log.timestamp <= :eDate', { eDate });
       }
     }
+  }
+
+  /**
+   * AUD-PRV-002: Purges audit log records older than the retention threshold.
+   * Defaults to 180 days unless configured via AUDIT_LOG_RETENTION_DAYS.
+   */
+  async purgeExpiredAuditLogs(retentionDays?: number): Promise<{ deleted: number; cutoffDate: Date }> {
+    const days = retentionDays ?? this.getRetentionDays();
+    if (days <= 0) {
+      this.logger.log('Audit log purging disabled (retention days <= 0).');
+      return { deleted: 0, cutoffDate: new Date() };
+    }
+
+    const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    try {
+      const result = await this.auditLogRepo
+        .createQueryBuilder()
+        .delete()
+        .from(AuditLog)
+        .where('timestamp < :cutoffDate', { cutoffDate })
+        .execute();
+
+      const deleted = result?.affected || 0;
+      if (deleted > 0) {
+        this.logger.log(
+          `[Audit Retention] Purged ${deleted} audit logs older than ${days} days (cutoff: ${cutoffDate.toISOString()})`,
+        );
+      }
+      return { deleted, cutoffDate };
+    } catch (err: any) {
+      this.logger.error(`Error purging expired audit logs: ${err?.message}`, err?.stack);
+      return { deleted: 0, cutoffDate };
+    }
+  }
+
+  getRetentionDays(): number {
+    const envVal = parseInt(process.env.AUDIT_LOG_RETENTION_DAYS || '', 10);
+    return Number.isFinite(envVal) && envVal > 0 ? envVal : 180;
   }
 }

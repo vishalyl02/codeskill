@@ -1,10 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useQuestionEditorStore } from "../_store/QuestionEditorProvider";
 import SectionCard from "./SectionCard";
-import Editor from "@monaco-editor/react";
 import { FileText, Eye, Edit3, Bold, Italic, Heading, Code, Table, Image, Link, List } from "lucide-react";
+
+const Editor = dynamic(() => import("@monaco-editor/react"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[350px] w-full flex items-center justify-center bg-card text-muted-foreground animate-pulse text-sm">
+      Loading Editor...
+    </div>
+  ),
+});
 
 export default function ProblemStatement() {
   const { statement, updateStatement, isDarkMode } = useQuestionEditorStore();

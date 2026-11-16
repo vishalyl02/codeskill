@@ -1,9 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useQuestionStore } from "../_store/useQuestionStore";
 import SectionCard from "./SectionCard";
-import Editor from "@monaco-editor/react";
 import { BookOpen } from "lucide-react";
+
+const Editor = dynamic(() => import("@monaco-editor/react"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[250px] w-full flex items-center justify-center bg-card text-muted-foreground animate-pulse text-sm">
+      Loading Editor...
+    </div>
+  ),
+});
 
 const inputClass =
   "w-full px-3.5 py-2.5 bg-muted/50 dark:bg-card border border-border dark:border-border rounded-xl text-sm text-foreground dark:text-white placeholder:text-gray-400 dark:placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all";

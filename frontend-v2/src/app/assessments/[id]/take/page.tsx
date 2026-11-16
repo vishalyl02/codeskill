@@ -41,6 +41,7 @@ import { AssessmentReadingZoom } from "@/components/assessment/AssessmentReading
 import { ResizableAssessmentPanels } from "@/components/assessment/ResizableAssessmentPanels";
 import { FloatingAssessmentMonitor } from "@/components/assessment/FloatingAssessmentMonitor";
 import { CodeSnippet } from "@/components/assessment/CodeSnippet";
+import { useModalAccessibility } from "@/hooks/useModalAccessibility";
 import {
   checkAssessmentFace,
   getAssessmentFaceReference,
@@ -223,6 +224,11 @@ export default function TakeAssessmentPage({
   const [showViolationModal, setShowViolationModal] = useState(false);
   const [violationMessage, setViolationMessage] = useState("");
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  useModalAccessibility(Boolean(showSubmitModal || showSectionSubmitModal), () => {
+    setShowSubmitModal(false);
+    setShowSectionSubmitModal(false);
+  });
   const [warningToast, setWarningToast] = useState<{ id: number; message: string; type: "warning" | "alert" } | null>(null);
   const [faceWarningCount, setFaceWarningCount] = useState(0);
   const [faceMonitorStatus, setFaceMonitorStatus] = useState("Waiting for camera");
@@ -1916,7 +1922,12 @@ export default function TakeAssessmentPage({
 
       {/* Section Submit Confirmation Modal */}
       {showSectionSubmitModal && activeSection && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Submit & Lock Section ${activeSection.title}`}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-card border border-border rounded-3xl p-6 max-w-md w-full space-y-5 animate-in fade-in zoom-in-95 shadow-2xl">
             <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400">
               <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
@@ -1976,7 +1987,12 @@ export default function TakeAssessmentPage({
 
       {/* Confirmation Modal */}
       {showSubmitModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Submit Assessment"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-card border border-border rounded-3xl p-6 max-w-md w-full space-y-5 animate-in fade-in zoom-in-95 shadow-2xl">
             <div className="flex items-center gap-3 text-primary">
               <div className="w-10 h-10 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">

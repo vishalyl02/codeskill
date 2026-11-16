@@ -27,6 +27,7 @@ import {
 import { adminStudentsAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { getStandardizedSectionOptions } from "@/lib/sections";
+import { useModalAccessibility } from "@/hooks/useModalAccessibility";
 
 interface StudentProfile {
   university?: string;
@@ -106,6 +107,13 @@ export default function AdminStudentsPage() {
   });
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  useModalAccessibility(Boolean(isCreateOpen || editingStudent || resetModalData || createdStudentResult), () => {
+    setIsCreateOpen(false);
+    setEditingStudent(null);
+    setResetModalData(null);
+    setCreatedStudentResult(null);
+  });
 
   const fetchStudents = useCallback(async () => {
     setIsLoading(true);
@@ -618,7 +626,12 @@ export default function AdminStudentsPage() {
 
       {/* Modal: Create or Edit Student */}
       {(isCreateOpen || editingStudent) && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={editingStudent ? "Edit Student Record" : "Add Assessment Student"}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-card border border-border rounded-2xl max-w-lg w-full p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => {
@@ -874,7 +887,12 @@ export default function AdminStudentsPage() {
 
       {/* Modal: Reset Password with Temporary Password Display */}
       {resetModalData && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Reset Student Password"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-card border border-border rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
             <button
               onClick={() => setResetModalData(null)}
@@ -994,7 +1012,12 @@ export default function AdminStudentsPage() {
 
       {/* Modal: Created Student Credentials Info Box */}
       {createdStudentResult && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Student Account Created"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-card border border-border rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
             <button
               onClick={() => {
