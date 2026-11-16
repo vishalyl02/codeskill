@@ -24,6 +24,7 @@ import { Assessment } from '../database/entities/assessment.entity';
 import { Question } from '../database/entities/question.entity';
 import { CacheService } from '../redis/cache.service';
 import { TokenService } from '../auth/token.service';
+import { ActivityLogService } from '../audit/activity-log.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { CreateAdminUserDto } from './dto/create-admin-user.dto';
 import { validatePasswordPolicy } from '../auth/password.util';
@@ -88,6 +89,8 @@ export class AdminService {
     @Optional()
     @InjectRepository(ContestReattemptGrant)
     private readonly reattemptGrantModel?: Repository<ContestReattemptGrant>,
+    @Optional()
+    private readonly activityLogService?: ActivityLogService,
   ) { }
 
   async getDashboardStats() {
@@ -266,6 +269,21 @@ export class AdminService {
 
     await this.userRepo.save(user);
 
+    this.activityLogService?.log({
+      action: 'ADMIN_UPDATE_USER_ROLE',
+      actorId: actor?.id,
+      actorRole: actor?.role || 'admin',
+      target: user.id,
+      targetType: 'User',
+      studentId: user.id,
+      riskWeight: 2,
+      metadata: {
+        targetEmail: user.email,
+        targetRole: user.role,
+        targetIsAdmin: user.isAdmin,
+      },
+    });
+
     // Invalidate user sessions immediately upon role change
     if (this.tokenService) {
       await this.tokenService.invalidateUserSessions(user.id);
@@ -348,6 +366,20 @@ export class AdminService {
     });
 
     await this.userRepo.save(user);
+
+    this.activityLogService?.log({
+      action: 'ADMIN_CREATE_ADMIN_USER',
+      actorId: actor?.id,
+      actorRole: actor?.role || 'admin',
+      target: user.id,
+      targetType: 'User',
+      studentId: user.id,
+      riskWeight: 2,
+      metadata: {
+        createdAdminEmail: user.email,
+        createdAdminRole: user.role,
+      },
+    });
 
     const { password, mfaSecret, ...rest } = user;
     return { ...rest, _id: user.id };

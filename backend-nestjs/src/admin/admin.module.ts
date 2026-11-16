@@ -7,6 +7,7 @@ import { AdminProblemsController } from './controllers/problems.controller';
 import { AdminContestsController } from './controllers/contests.controller';
 import { AdminCompaniesController } from './controllers/companies.controller';
 import { AdminUniversitiesController } from './controllers/universities.controller';
+import { AdminActivityController } from './controllers/activity.controller';
 import { AdminService } from './admin.service';
 
 import { User } from '../database/entities/user.entity';
@@ -53,6 +54,7 @@ import { AuthModule } from '../auth/auth.module';
     AdminContestsController,
     AdminCompaniesController,
     AdminUniversitiesController,
+    AdminActivityController,
   ],
   providers: [AdminService],
   exports: [AdminService],

@@ -8,7 +8,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { ProblemsService } from '../problems/problems.service';
 import { Contest } from '../database/entities/contest.entity';
@@ -17,6 +17,8 @@ import { SubmissionStore } from '../database/sharding/submission-store';
 import { ContestReattemptGrant } from '../database/entities/contest-reattempt-grant.entity';
 import { Question } from '../database/entities/question.entity';
 import { ProblemMetadata } from '../database/entities/problem-metadata.entity';
+import { User } from '../database/entities/user.entity';
+import { GetContestResultsQueryDto } from './dto/get-contest-results.dto';
 
 export interface ContestProblemSummary {
   id: string;
@@ -741,5 +743,753 @@ export class ContestsService {
     }
 
     return result;
+  }
+
+  async getResults(
+    idOrSlug: string,
+    query: GetContestResultsQueryDto,
+    currentUserId?: string,
+  ) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOrSlug,
+      );
+    const contest = await this.contestRepo.findOne({
+      where: isUuid
+        ? [{ id: idOrSlug }, { mongoId: idOrSlug }, { slug: idOrSlug }]
+        : { slug: idOrSlug },
+    });
+    if (!contest || !contest.isPublished) {
+      throw new NotFoundException('Contest not found');
+    }
+
+    if (
+      contest.isPrivate &&
+      (!currentUserId || !contest.participants?.includes(currentUserId))
+    ) {
+      const user = currentUserId
+        ? await this.contestRepo.manager
+            .getRepository(User)
+            .findOne({ where: { id: currentUserId } })
+        : null;
+      const isStaff =
+        user && ['admin', 'teacher', 'superadmin'].includes(user.role);
+      if (!isStaff) {
+        throw new ForbiddenException(
+          'You must register for this private contest to view results',
+        );
+      }
+    }
+
+    // 1. Fetch problem summaries
+    const rawProblemIds = contest.problems || [];
+    const problemSummaries: Array<{
+      id: string;
+      index: string;
+      title: string;
+      slug: string;
+      maxPoints: number;
+      difficulty: string;
+      totalSolved: number;
+      firstSolver?: { name: string; username: string; timeInMinutes: number };
+    }> = [];
+
+    for (let i = 0; i < rawProblemIds.length; i++) {
+      const pid = rawProblemIds[i];
+      const index = String.fromCharCode(65 + i);
+      let title = `Problem ${index}`;
+      let slug = `problem-${index.toLowerCase()}`;
+      let difficulty = 'Medium';
+      const maxPoints = 100;
+
+      const pidIsUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          pid,
+        );
+
+      if (pidIsUuid) {
+        try {
+          const execProblem =
+            await this.problemsService.getExecutionProblem(pid);
+          if (execProblem) {
+            title = execProblem.title;
+            slug = execProblem.slug;
+          }
+        } catch {
+          // ignore execution problem error
+        }
+
+        try {
+          const metaRepo =
+            this.problemMetadataRepo ||
+            this.contestRepo.manager?.getRepository(ProblemMetadata);
+          if (metaRepo) {
+            const meta = await metaRepo.findOne({ where: { id: pid } });
+            if (meta) {
+              title = meta.title || title;
+              slug = meta.slug || slug;
+              difficulty = meta.difficulty || difficulty;
+            }
+          }
+        } catch {
+          // ignore metadata error
+        }
+      }
+
+      try {
+        const questionRepo =
+          this.questionRepo ||
+          this.contestRepo.manager?.getRepository(Question);
+        if (questionRepo) {
+          const q = await questionRepo.findOne({
+            where: pidIsUuid
+              ? [{ id: pid }, { mongoId: pid }]
+              : { mongoId: pid },
+          });
+          if (q) {
+            title = q.title?.trim() || q.question || title;
+            slug = q.slug?.trim() || slug;
+            difficulty = q.difficulty || difficulty;
+          }
+        }
+      } catch {
+        // ignore question error
+      }
+
+      problemSummaries.push({
+        id: pid,
+        index,
+        title,
+        slug,
+        maxPoints,
+        difficulty,
+        totalSolved: 0,
+      });
+    }
+
+    // 2. Fetch attempts and users
+    const attempts = await this.attemptRepo.find({
+      where: { contest_id: contest.id },
+      order: { createdAt: 'ASC' },
+    });
+
+    const participantIds = Array.from(
+      new Set([
+        ...(contest.participants || []),
+        ...attempts.map((a) => a.user_id),
+      ]),
+    ).filter(Boolean);
+
+    const userRepo = this.contestRepo.manager.getRepository(User);
+    const users: User[] =
+      participantIds.length > 0
+        ? await userRepo.find({
+            where: { id: In(participantIds) },
+          })
+        : [];
+
+    const userMap = new Map<string, User>(users.map((u) => [u.id, u]));
+    const attemptMap = new Map<string, ContestAttempt>(
+      attempts.map((a) => [a.user_id, a]),
+    );
+
+    // 3. Fetch submissions
+    const validProblemUuids = problemSummaries
+      .map((p) => p.id)
+      .filter((pid) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          pid,
+        ),
+      );
+
+    let submissions: Array<{
+      id: string;
+      userId: string;
+      problemId: string;
+      status: string;
+      createdAt: Date;
+      code?: string;
+      language?: string;
+    }> = [];
+
+    if (validProblemUuids.length > 0 && participantIds.length > 0) {
+      try {
+        submissions = await this.attemptRepo.query(
+          `SELECT s.id, s."userId"::text as "userId", s."problemId"::text as "problemId",
+                  lower(s.status) as status, s."createdAt", s.code, s.language
+           FROM submissions s
+           WHERE s."problemId" = ANY($1::uuid[])
+             AND s."userId"::text = ANY($2::text[])
+             AND s."createdAt" >= $3::timestamp
+             AND s."createdAt" <= $4::timestamp
+           ORDER BY s."createdAt" ASC`,
+          [
+            validProblemUuids,
+            participantIds,
+            contest.startTime,
+            new Date(
+              Math.max(Date.now(), new Date(contest.endTime).getTime()),
+            ),
+          ],
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to query submissions for contest results: ${err?.message || err}`,
+        );
+      }
+    }
+
+    const userSubmissionsMap = new Map<string, typeof submissions>();
+    for (const sub of submissions) {
+      const list = userSubmissionsMap.get(sub.userId) || [];
+      list.push(sub);
+      userSubmissionsMap.set(sub.userId, list);
+    }
+
+    // 4. Evaluate candidates and segregate disqualified
+    const antiCheatConfig = (contest.antiCheatConfig || {}) as Record<
+      string,
+      any
+    >;
+    const warningLimit = Math.max(
+      1,
+      Number(
+        antiCheatConfig.maxTabSwitchViolations ??
+          antiCheatConfig.warningLimit ??
+          3,
+      ),
+    );
+    const autoSubmit =
+      antiCheatConfig.actionOnMaxViolations !== 'flag_review' &&
+      antiCheatConfig.autoSubmitOnViolation !== false;
+
+    const disqualified: Array<{
+      userId: string;
+      name: string;
+      username: string;
+      avatar: string;
+      department?: string;
+      batch?: string;
+      reason: string;
+      warnings: number;
+      violationsCount: number;
+      submittedAt: Date | null;
+      activityJourneyUrl: string;
+    }> = [];
+
+    const competitiveCandidates: Array<{
+      userId: string;
+      name: string;
+      username: string;
+      avatar: string;
+      department: string;
+      batch: string;
+      status: string;
+      warnings: number;
+      violationsCount: number;
+      startedAt?: Date;
+      submittedAt?: Date;
+      problemsSolved: number;
+      totalScore: number;
+      totalPenaltyMinutes: number;
+      lastSolveTime: number | null;
+      problemResults: Record<
+        string,
+        {
+          status: 'accepted' | 'failed' | 'attempted' | 'unattempted';
+          score: number;
+          attempts: number;
+          timeInMinutes?: number;
+          isFirstSolve?: boolean;
+          savedCode?: string;
+          language?: string;
+          solvedAt?: Date;
+        }
+      >;
+      rank: number;
+      departmentRank?: number;
+      isCurrentUser: boolean;
+    }> = [];
+
+    const contestStartMs = new Date(contest.startTime).getTime();
+    const contestEndMs = new Date(contest.endTime).getTime();
+
+    for (const userId of participantIds) {
+      const user = userMap.get(userId);
+      const attempt = attemptMap.get(userId);
+
+      const isTerminated = attempt?.status === 'Terminated';
+      const isLocked = attempt?.status === 'Locked';
+      const isViolationMax =
+        (attempt?.warnings || 0) >= warningLimit && autoSubmit;
+      const isDisqualified = isTerminated || isLocked || isViolationMax;
+
+      const department = user?.studentProfile?.department || 'General';
+      const batch =
+        user?.studentProfile?.batch ||
+        (user?.studentProfile?.year
+          ? String(user?.studentProfile?.year)
+          : 'N/A');
+
+      if (isDisqualified) {
+        disqualified.push({
+          userId,
+          name: user?.name || 'Anonymous',
+          username: user?.username || '',
+          avatar: user?.avatar || '',
+          department,
+          batch,
+          reason: isTerminated
+            ? 'Session terminated: Security threshold exceeded'
+            : isLocked
+              ? 'Attempt locked by proctor'
+              : 'Proctoring violation limit reached',
+          warnings: attempt?.warnings || 0,
+          violationsCount: Array.isArray(attempt?.violations)
+            ? attempt.violations.length
+            : 0,
+          submittedAt: attempt?.submittedAt || attempt?.updatedAt || null,
+          activityJourneyUrl: `/admin/activity?actorId=${userId}`,
+        });
+        continue;
+      }
+
+      const userSubs = userSubmissionsMap.get(userId) || [];
+      const startTime = attempt?.startedAt
+        ? Math.max(new Date(attempt.startedAt).getTime(), contestStartMs)
+        : contestStartMs;
+      const endTime = attempt?.submittedAt
+        ? Math.min(new Date(attempt.submittedAt).getTime(), contestEndMs)
+        : contestEndMs;
+
+      const problemResults: Record<
+        string,
+        {
+          status: 'accepted' | 'failed' | 'attempted' | 'unattempted';
+          score: number;
+          attempts: number;
+          timeInMinutes?: number;
+          isFirstSolve?: boolean;
+          savedCode?: string;
+          language?: string;
+          solvedAt?: Date;
+        }
+      > = {};
+
+      let problemsSolved = 0;
+      let totalScore = 0;
+      let totalPenaltyMinutes = 0;
+      let lastSolveTime: number | null = null;
+
+      for (const prob of problemSummaries) {
+        const pSubs = userSubs.filter(
+          (s) =>
+            s.problemId === prob.id &&
+            new Date(s.createdAt).getTime() >= startTime &&
+            new Date(s.createdAt).getTime() <= endTime,
+        );
+
+        const firstAccepted = pSubs.find((s) => s.status === 'accepted');
+        const savedItem = (attempt?.savedCode || []).find(
+          (sc) => sc.problemId === prob.id,
+        );
+
+        if (firstAccepted) {
+          const failedBefore = pSubs.filter(
+            (s) =>
+              s.status !== 'accepted' &&
+              new Date(s.createdAt).getTime() <
+                new Date(firstAccepted.createdAt).getTime(),
+          ).length;
+          const solvedAt = new Date(firstAccepted.createdAt);
+          const timeInMin = Math.max(
+            0,
+            Math.floor((solvedAt.getTime() - contestStartMs) / 60000),
+          );
+          const penalty = timeInMin + failedBefore * 20;
+
+          problemResults[prob.id] = {
+            status: 'accepted',
+            score: prob.maxPoints,
+            attempts: failedBefore + 1,
+            timeInMinutes: timeInMin,
+            solvedAt,
+            savedCode: firstAccepted.code || savedItem?.code,
+            language: firstAccepted.language || savedItem?.language,
+          };
+          problemsSolved += 1;
+          totalScore += prob.maxPoints;
+          totalPenaltyMinutes += penalty;
+          lastSolveTime = Math.max(
+            lastSolveTime ?? -Infinity,
+            solvedAt.getTime(),
+          );
+        } else if (pSubs.length > 0) {
+          const latest = pSubs[pSubs.length - 1];
+          problemResults[prob.id] = {
+            status: 'failed',
+            score: 0,
+            attempts: pSubs.length,
+            savedCode: latest.code || savedItem?.code,
+            language: latest.language || savedItem?.language,
+          };
+        } else if (savedItem?.code) {
+          problemResults[prob.id] = {
+            status: 'attempted',
+            score: 0,
+            attempts: 0,
+            savedCode: savedItem.code,
+            language: savedItem.language,
+          };
+        } else {
+          problemResults[prob.id] = {
+            status: 'unattempted',
+            score: 0,
+            attempts: 0,
+          };
+        }
+      }
+
+      competitiveCandidates.push({
+        userId,
+        name: user?.name || 'Anonymous',
+        username: user?.username || '',
+        avatar: user?.avatar || '',
+        department,
+        batch,
+        status: attempt?.status || 'Registered',
+        warnings: attempt?.warnings || 0,
+        violationsCount: Array.isArray(attempt?.violations)
+          ? attempt.violations.length
+          : 0,
+        startedAt: attempt?.startedAt,
+        submittedAt: attempt?.submittedAt,
+        problemsSolved,
+        totalScore,
+        totalPenaltyMinutes,
+        lastSolveTime,
+        problemResults,
+        rank: 0,
+        isCurrentUser: userId === currentUserId,
+      });
+    }
+
+    // 5. Determine first solvers across legitimate candidates
+    for (const prob of problemSummaries) {
+      const solvers = competitiveCandidates
+        .filter((c) => c.problemResults[prob.id]?.status === 'accepted')
+        .sort(
+          (a, b) =>
+            (a.problemResults[prob.id].solvedAt?.getTime() || 0) -
+            (b.problemResults[prob.id].solvedAt?.getTime() || 0),
+        );
+
+      prob.totalSolved = solvers.length;
+      if (solvers.length > 0) {
+        const first = solvers[0];
+        first.problemResults[prob.id].isFirstSolve = true;
+        prob.firstSolver = {
+          name: first.name,
+          username: first.username,
+          timeInMinutes: first.problemResults[prob.id].timeInMinutes || 0,
+        };
+      }
+    }
+
+    // 6. Global Sorting
+    const isIcpc = contest.contestFormat === 'icpc';
+    competitiveCandidates.sort((a, b) => {
+      if (isIcpc) {
+        return (
+          b.problemsSolved - a.problemsSolved ||
+          a.totalPenaltyMinutes - b.totalPenaltyMinutes ||
+          (a.lastSolveTime ?? Infinity) - (b.lastSolveTime ?? Infinity) ||
+          a.name.localeCompare(b.name)
+        );
+      }
+      return (
+        b.totalScore - a.totalScore ||
+        a.totalPenaltyMinutes - b.totalPenaltyMinutes ||
+        b.problemsSolved - a.problemsSolved ||
+        (a.lastSolveTime ?? Infinity) - (b.lastSolveTime ?? Infinity) ||
+        a.name.localeCompare(b.name)
+      );
+    });
+
+    competitiveCandidates.forEach((c, index) => {
+      c.rank = index + 1;
+    });
+
+    // 7. Extract filter lists
+    const departments = Array.from(
+      new Set(
+        competitiveCandidates
+          .map((c) => c.department)
+          .filter((d) => Boolean(d) && d !== 'General'),
+      ),
+    ).sort();
+    const batches = Array.from(
+      new Set(
+        competitiveCandidates
+          .map((c) => c.batch)
+          .filter((b) => Boolean(b) && b !== 'N/A'),
+      ),
+    ).sort();
+
+    // 8. Filter standings for current view
+    let filtered = [...competitiveCandidates];
+    if (query.department && query.department !== 'all') {
+      filtered = filtered.filter(
+        (c) =>
+          c.department.toLowerCase() === query.department?.toLowerCase(),
+      );
+    }
+    if (query.batch && query.batch !== 'all') {
+      filtered = filtered.filter(
+        (c) => c.batch.toLowerCase() === query.batch?.toLowerCase(),
+      );
+    }
+    if (query.search && query.search.trim()) {
+      const s = query.search.trim().toLowerCase();
+      filtered = filtered.filter(
+        (c) =>
+          c.name.toLowerCase().includes(s) ||
+          c.username.toLowerCase().includes(s),
+      );
+    }
+
+    // Assign departmentRank / filtered rank
+    filtered.forEach((c, index) => {
+      c.departmentRank = index + 1;
+    });
+
+    // 9. Pagination
+    const page = Math.max(1, parseInt(query.page || '1', 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(query.limit || '50', 10) || 50),
+    );
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const paginatedStandings = filtered.slice(
+      (page - 1) * limit,
+      page * limit,
+    );
+
+    // 10. Compute myResult
+    let myResult: any = null;
+    if (currentUserId) {
+      const myComp = competitiveCandidates.find(
+        (c) => c.userId === currentUserId,
+      );
+      const myDisq = disqualified.find((d) => d.userId === currentUserId);
+
+      if (myComp) {
+        const filteredIdx = filtered.findIndex(
+          (c) => c.userId === currentUserId,
+        );
+        const myPage =
+          filteredIdx >= 0 ? Math.floor(filteredIdx / limit) + 1 : 1;
+        const totalLegit = competitiveCandidates.length;
+        const percentile =
+          totalLegit > 1
+            ? Math.round(
+                ((totalLegit - myComp.rank) / (totalLegit - 1)) * 100,
+              )
+            : 100;
+
+        myResult = {
+          rank: myComp.rank,
+          departmentRank: myComp.departmentRank || myComp.rank,
+          percentile,
+          totalScore: myComp.totalScore,
+          totalPenaltyMinutes: myComp.totalPenaltyMinutes,
+          problemsSolved: myComp.problemsSolved,
+          totalProblems: problemSummaries.length,
+          status: myComp.status,
+          warnings: myComp.warnings,
+          proctoringVerified:
+            myComp.warnings === 0 && myComp.violationsCount === 0,
+          page: myPage,
+          problemResults: myComp.problemResults,
+        };
+      } else if (myDisq) {
+        myResult = {
+          rank: null,
+          departmentRank: null,
+          percentile: 0,
+          totalScore: 0,
+          totalPenaltyMinutes: 0,
+          problemsSolved: 0,
+          totalProblems: problemSummaries.length,
+          status: 'Disqualified',
+          reason: myDisq.reason,
+          warnings: myDisq.warnings,
+          proctoringVerified: false,
+          page: 1,
+          problemResults: {},
+        };
+      }
+    }
+
+    return {
+      contest: {
+        id: contest.id,
+        slug: contest.slug,
+        title: contest.title,
+        description: contest.description,
+        startTime: contest.startTime,
+        endTime: contest.endTime,
+        contestFormat: contest.contestFormat || 'coding',
+        resultsPublished: !!contest.resultsPublished,
+        isPrivate: contest.isPrivate,
+      },
+      problems: problemSummaries,
+      standings: paginatedStandings,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+      myResult,
+      departments,
+      batches,
+      disqualified,
+    };
+  }
+
+  async getEditorials(idOrSlug: string, user?: { id: string; role: string }) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOrSlug,
+      );
+    const contest = await this.contestRepo.findOne({
+      where: isUuid
+        ? [{ id: idOrSlug }, { mongoId: idOrSlug }, { slug: idOrSlug }]
+        : { slug: idOrSlug },
+    });
+    if (!contest || !contest.isPublished) {
+      throw new NotFoundException('Contest not found');
+    }
+
+    const now = Date.now();
+    const isEnded = now >= new Date(contest.endTime).getTime();
+    const isStaff =
+      user && ['admin', 'teacher', 'superadmin'].includes(user.role);
+
+    if (!isStaff && (!isEnded || !contest.resultsPublished)) {
+      throw new ForbiddenException(
+        'Editorials and official reference solutions are locked until the contest concludes and results are published.',
+      );
+    }
+
+    const results: Array<{
+      problemId: string;
+      index: string;
+      title: string;
+      slug: string;
+      difficulty: string;
+      editorial: string;
+      referenceSolutions: Array<{ language: string; sourceCode: string }>;
+    }> = [];
+
+    const problems = contest.problems || [];
+    for (let i = 0; i < problems.length; i++) {
+      const pid = problems[i];
+      const index = String.fromCharCode(65 + i);
+      let title = `Problem ${index}`;
+      let slug = `problem-${index.toLowerCase()}`;
+      let difficulty = 'Medium';
+      let editorial = '';
+      let referenceSolutions: Array<{ language: string; sourceCode: string }> =
+        [];
+
+      const pidIsUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          pid,
+        );
+
+      if (pidIsUuid) {
+        try {
+          const metaRepo =
+            this.problemMetadataRepo ||
+            this.contestRepo.manager?.getRepository(ProblemMetadata);
+          if (metaRepo) {
+            const meta = await metaRepo.findOne({
+              where: { id: pid },
+              relations: { statement: true, config: true },
+            });
+            if (meta) {
+              title = meta.title || title;
+              slug = meta.slug || slug;
+              difficulty = meta.difficulty || difficulty;
+              editorial =
+                meta.statement?.description || meta.metaDescription || '';
+              if (meta.config?.referenceSolution) {
+                referenceSolutions = Object.entries(
+                  meta.config.referenceSolution,
+                ).map(([language, sourceCode]) => ({
+                  language,
+                  sourceCode,
+                }));
+              }
+            }
+          }
+        } catch {
+          // ignore lookup error
+        }
+      }
+
+      if (!editorial) {
+        try {
+          const qRepo =
+            this.questionRepo ||
+            this.contestRepo.manager?.getRepository(Question);
+          if (qRepo) {
+            const q = await qRepo.findOne({
+              where: pidIsUuid
+                ? [{ id: pid }, { mongoId: pid }]
+                : { mongoId: pid },
+            });
+            if (q) {
+              title = q.title?.trim() || q.question || title;
+              slug = q.slug || `question-${q.id}`;
+              difficulty = q.difficulty || difficulty;
+              editorial =
+                q.explanation ||
+                q.problemStatement ||
+                q.description ||
+                q.question ||
+                '';
+              if (Array.isArray(q.referenceSolutions)) {
+                referenceSolutions = q.referenceSolutions;
+              }
+            }
+          }
+        } catch {
+          // ignore lookup error
+        }
+      }
+
+      if (!editorial) {
+        editorial = `Detailed walkthrough and editorial analysis for ${title}. Review the optimal approach, time complexity, and reference implementations below.`;
+      }
+
+      results.push({
+        problemId: pid,
+        index,
+        title,
+        slug,
+        difficulty,
+        editorial,
+        referenceSolutions,
+      });
+    }
+
+    return {
+      contest: this.safeContest(contest),
+      editorials: results,
+    };
   }
 }

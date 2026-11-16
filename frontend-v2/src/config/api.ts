@@ -497,6 +497,49 @@ export const adminDashboardAPI = {
   getStats: () => api.get("/admin/dashboard/stats"),
 };
 
+export const adminActivityAPI = {
+  getLogs: (params: {
+    cursor?: string;
+    limit?: number;
+    search?: string;
+    category?: string;
+    role?: string;
+    severity?: string;
+    action?: string;
+    actorId?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== "" && val !== "all") {
+        query.append(key, String(val));
+      }
+    });
+    return api.get(`/admin/activity?${query.toString()}`);
+  },
+  getCountSince: (since: string, params: Record<string, any> = {}) => {
+    const query = new URLSearchParams({ since });
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== "" && val !== "all" && key !== "cursor") {
+        query.append(key, String(val));
+      }
+    });
+    return api.get(`/admin/activity/count?${query.toString()}`);
+  },
+  getStats: () => api.get("/admin/activity/stats"),
+  getRadarAlerts: (limit = 20) => api.get(`/admin/activity/radar?limit=${limit}`),
+  exportCsv: (params: Record<string, any> = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== "" && val !== "all" && key !== "cursor") {
+        query.append(key, String(val));
+      }
+    });
+    return api.get(`/admin/activity/export?${query.toString()}`, { responseType: "blob" });
+  },
+};
+
 export const companyAPI = {
   register: (data: any) => api.post("/company", data),
   getMyCompanies: () => api.get("/company/my-companies"),
@@ -792,6 +835,30 @@ export const adminLearningAPI = {
 
 export const certificateVerificationAPI = {
   verify: (credentialId: string) => api.get(`/certificates/verify/${credentialId}`),
+};
+
+export const contestsAPI = {
+  getResults: (
+    idOrSlug: string,
+    params: {
+      page?: number;
+      limit?: number;
+      department?: string;
+      batch?: string;
+      search?: string;
+    } = {},
+  ) => {
+    const q = new URLSearchParams();
+    if (params.page) q.set("page", String(params.page));
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.department) q.set("department", params.department);
+    if (params.batch) q.set("batch", params.batch);
+    if (params.search) q.set("search", params.search);
+    const qs = q.toString();
+    return api.get(`/contests/${encodeURIComponent(idOrSlug)}/results${qs ? `?${qs}` : ""}`);
+  },
+  getEditorials: (idOrSlug: string) =>
+    api.get(`/contests/${encodeURIComponent(idOrSlug)}/editorials`),
 };
 
 export default api;

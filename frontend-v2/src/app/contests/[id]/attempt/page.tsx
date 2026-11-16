@@ -91,7 +91,7 @@ function ContestSession({ id }: { id: string }) {
       await api.post(`/contests/${encodeURIComponent(id)}/submit`, { sessionId: context.sessionId }, { signal: controller.signal });
       if (controller.signal.aborted) return;
       setEnded(true);
-      router.replace(`/contests/leaderboard?contest=${encodeURIComponent(context.contest.slug)}`);
+      router.replace(`/contests/${encodeURIComponent(id)}/results`);
     } catch { if (!controller.signal.aborted) { setSubmissionError("Your contest could not be finalized. Please retry submission."); submission.current = false; } }
     finally { if (!controller.signal.aborted) setBusy(false); }
   }, [id, context, router]);

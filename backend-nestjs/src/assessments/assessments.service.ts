@@ -17,6 +17,7 @@ import { Assessment } from '../database/entities/assessment.entity';
 import { AssessmentAttempt } from '../database/entities/assessment-attempt.entity';
 import { Question } from '../database/entities/question.entity';
 import { AuditLog } from '../database/entities/audit-log.entity';
+import { calculateStateDiff } from '../audit/object-diff.util';
 import { User } from '../database/entities/user.entity';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateAssessmentDto } from './dto/update-assessment.dto';
@@ -1156,6 +1157,8 @@ export class AssessmentsService {
         throw new ForbiddenException('You are not authorized to modify this assessment');
       }
     }
+
+    const beforeState = { ...assessment };
     assessment.status = 'archived';
     await this.assessmentRepo.save(assessment);
     return { success: true, message: 'Assessment archived successfully' };
@@ -1173,6 +1176,8 @@ export class AssessmentsService {
         throw new ForbiddenException('You are not authorized to modify this assessment');
       }
     }
+
+    const beforeState = { ...assessment };
 
     if (dto.title !== undefined) assessment.title = dto.title;
     if (dto.code !== undefined) assessment.code = dto.code.toUpperCase().trim();
@@ -1318,6 +1323,8 @@ export class AssessmentsService {
     }
     await this.assessmentRepo.save(assessment);
 
+    const diff = calculateStateDiff(beforeState, assessment);
+
     await this.auditLogRepo.save(
       this.auditLogRepo.create({
         action: 'UPDATE_ASSESSMENT',
@@ -1326,6 +1333,11 @@ export class AssessmentsService {
         targetType: 'Assessment',
         assessmentId: assessment.id,
         target: assessment.title,
+        metadata: {
+          actorName: adminUser?.name,
+          actorRole: adminUser?.role || 'admin',
+          diff,
+        },
       }),
     );
 
@@ -1349,6 +1361,8 @@ export class AssessmentsService {
         throw new ForbiddenException('You are not authorized to modify this assessment');
       }
     }
+
+    const beforeState = { ...assessment };
 
     assessment.status = status;
     await this.assessmentRepo.save(assessment);
