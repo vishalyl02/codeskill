@@ -121,9 +121,14 @@ const entities = [
           throw new Error('DB_SYNCHRONIZE must be disabled when using submission shards');
         }
 
+        // AUD-DAT-001: Enforce bounded connection pool default (15 in prod, 20 in dev)
+        // to prevent PostgreSQL connection starvation across scaled API and worker instances
         const poolConfig = {
-          max: parseInt(process.env.DB_POOL_MAX || '50', 10),
-          min: parseInt(process.env.DB_POOL_MIN || '5', 10),
+          max: parseInt(
+            process.env.DB_POOL_MAX || (isProduction ? '15' : '20'),
+            10,
+          ),
+          min: parseInt(process.env.DB_POOL_MIN || '2', 10),
           idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000', 10),
           connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONN_TIMEOUT || '5000', 10),
         };

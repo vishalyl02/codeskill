@@ -2286,7 +2286,27 @@ export class AssessmentsService {
         })),
       });
 
-      await this.attemptRepo.save(attempt);
+      try {
+        await this.attemptRepo.save(attempt);
+      } catch (err: any) {
+        // AUD-CON-008: Handle concurrent attempt creation race condition (PostgreSQL 23505)
+        if (
+          err?.code === '23505' ||
+          String(err?.message || '').includes('idx_unique_in_progress_assessment_attempt') ||
+          String(err?.message || '').includes('duplicate key')
+        ) {
+          const concurrentAttempt = await this.attemptRepo.findOne({
+            where: [{ assessmentId: assessment.id, studentId, status: 'in_progress' }],
+          });
+          if (concurrentAttempt) {
+            attempt = concurrentAttempt;
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
     } else {
       if (now.getTime() >= this.attemptExpiresAt(assessment, attempt).getTime()) {
         throw new BadRequestException('This assessment attempt has run out of time.');
@@ -3480,7 +3500,15 @@ export class AssessmentsService {
       penaltyMarks: isPartialProctored ? penaltyPerViolation : 0,
     };
 
-    attempt.violations = [...existingViolations, newViolation];
+    const totalViolationCount = existingViolations.length + 1;
+    const allViolations = [...existingViolations, newViolation];
+    // AUD-DAT-006: Prevent unbounded JSONB growth by capping stored violations to 100 entries
+    // (retains initial 10 baseline security events and latest 90)
+    attempt.violations =
+      allViolations.length > 100
+        ? [...allViolations.slice(0, 10), ...allViolations.slice(-90)]
+        : allViolations;
+
     if (dto.type === 'tab_switch') {
       attempt.tabSwitchCount = (attempt.tabSwitchCount || 0) + 1;
     }
@@ -3504,7 +3532,7 @@ export class AssessmentsService {
     const forceSubmit = autoSubmitOnViolation && faceWarningCount >= warningLimit;
 
     const totalPenaltyMarks = isPartialProctored
-      ? attempt.violations.length * penaltyPerViolation
+      ? totalViolationCount * penaltyPerViolation
       : 0;
     attempt.proctoringPenalty = totalPenaltyMarks;
 
@@ -3551,8 +3579,15 @@ export class AssessmentsService {
       where: { id: attempt.id },
     });
     const targetAttempt = freshAttempt || attempt;
+    // AUD-DAT-006: Prevent unbounded JSONB growth by capping stored captures to 50 entries
+    // (retains initial 5 baseline verification captures and latest 45)
+    const MAX_STORED_CAPTURES = 50;
     const captures = Array.isArray((targetAttempt as any).captures) ? (targetAttempt as any).captures : [];
-    const updatedCaptures = [...captures, { type: dto.type, url, objectKey, timestamp: capturedAt, filename: dto.filename }];
+    const allCaptures = [...captures, { type: dto.type, url, objectKey, timestamp: capturedAt, filename: dto.filename }];
+    const updatedCaptures =
+      allCaptures.length > MAX_STORED_CAPTURES
+        ? [...allCaptures.slice(0, 5), ...allCaptures.slice(-45)]
+        : allCaptures;
     (targetAttempt as any).captures = updatedCaptures;
 
     await this.attemptRepo.save(targetAttempt);

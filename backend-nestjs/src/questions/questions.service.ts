@@ -1024,14 +1024,19 @@ export class QuestionsService {
       raw: true,
       dense: true,
     });
-    const sheetNames = workbook.SheetNames;
+    const sheetNames = (workbook.SheetNames || []).filter(
+      (s) => s && !['__proto__', 'constructor', 'prototype'].includes(s.trim().toLowerCase()),
+    );
     if (!sheetNames.length) {
       throw new BadRequestException(
-        'The uploaded spreadsheet contains no sheets.',
+        'The uploaded spreadsheet contains no valid sheets.',
       );
     }
 
     const selectedSheet = sheetName || (!requireSheetSelection || sheetNames.length === 1 ? sheetNames[0] : null);
+    if (selectedSheet && ['__proto__', 'constructor', 'prototype'].includes(selectedSheet.trim().toLowerCase())) {
+      throw new BadRequestException('Disallowed worksheet name.');
+    }
     if (selectedSheet && !sheetNames.includes(selectedSheet)) {
       throw new BadRequestException('Selected worksheet does not exist in the uploaded file.');
     }

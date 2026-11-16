@@ -53,6 +53,27 @@ describe('S3Service', () => {
       expect(getSignedUrl).not.toHaveBeenCalled();
     });
 
+    it('uses bounded 300-second expiration by default (AUD-SEC-004)', async () => {
+      await service.getPresignedUrl('proctoring/attempt-1/capture.jpg');
+      expect(getSignedUrl).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        { expiresIn: 300 },
+      );
+    });
+
+    it('respects S3_PRESIGNED_TTL_SECONDS environment override', async () => {
+      process.env.S3_PRESIGNED_TTL_SECONDS = '120';
+      const customService = new S3Service();
+      expect(customService.getDefaultPresignedTtl()).toBe(120);
+      await customService.getPresignedUrl('proctoring/attempt-1/capture.jpg');
+      expect(getSignedUrl).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        { expiresIn: 120 },
+      );
+    });
+
     it('returns input safely when bucketName is not configured', async () => {
       delete (service as any).bucketName;
       const result = await service.getPresignedUrl('proctoring/capture.jpg');

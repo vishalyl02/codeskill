@@ -421,7 +421,7 @@ export class FacultyService {
         let presignedUrl = cap.url;
         try {
           if (cap.url && typeof cap.url === 'string') {
-            presignedUrl = await this.s3Service.getPresignedUrl(cap.url, 3600);
+            presignedUrl = await this.s3Service.getPresignedUrl(cap.url, 300);
           }
         } catch {
           presignedUrl = cap.url;
