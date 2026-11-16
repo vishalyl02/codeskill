@@ -28,7 +28,7 @@ it("finalizes the persisted session and opens its actual contest rankings", asyn
   render(<Page />); const startButton = await screen.findByRole("button", { name: "Start live contest" }); await act(async () => { fireEvent.click(startButton); });
   fireEvent.click(screen.getByRole("button", { name: "Finish Contest" })); fireEvent.click(screen.getByRole("button", { name: "Submit Now" }));
   await waitFor(() => expect(post).toHaveBeenCalledWith("/contests/contest-id/submit", { sessionId: "server-session" }, expect.objectContaining({ signal: expect.any(AbortSignal) })));
-  expect(replace).toHaveBeenCalledWith("/contests/leaderboard?contest=real-contest");
+  expect(replace).toHaveBeenCalledWith("/contests/contest-id/results");
 });
 it("shows API failures and allows a manual retry instead of claiming success", async () => {
   render(<Page />); const startButton = await screen.findByRole("button", { name: "Start live contest" }); await act(async () => { fireEvent.click(startButton); });
