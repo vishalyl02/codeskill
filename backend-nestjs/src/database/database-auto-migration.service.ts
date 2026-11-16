@@ -13,6 +13,7 @@ import { applyAnalyticsOptimizationIndexesMigration } from './migrations/analyti
 import { applyLearningModuleMigration } from './migrations/learning-module';
 import { applyQuestionHideMainMethodMigration } from './migrations/question-hide-main-method';
 import { applyFacultyAssignmentsMigration } from './migrations/faculty-assignments';
+import { applyAssessmentInProgressUniqueIndexMigration } from './migrations/assessment-in-progress-unique-index';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -130,6 +131,11 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       // 15. Faculty assignments and attempt review schema
       await this.executeStep('faculty-assignments', () =>
         applyFacultyAssignmentsMigration(queryRunner),
+      );
+
+      // 16. Assessment in_progress unique index (AUD-CON-008)
+      await this.executeStep('assessment-in-progress-unique-index', () =>
+        applyAssessmentInProgressUniqueIndexMigration(queryRunner),
       );
     } finally {
       await queryRunner.release();

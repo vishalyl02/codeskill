@@ -493,6 +493,35 @@ describe('Assessment Integrity & Server-Side Scoring (AUD-002, NEW-001, NEW-002,
     expect(mockAttemptRepo.save).not.toHaveBeenCalled();
   });
 
+  it('recovers gracefully from concurrent start attempt race condition (AUD-CON-008)', async () => {
+    mockAssessmentRepo.findOne.mockResolvedValue(mockAssessment);
+    mockAttemptRepo.findOne.mockResolvedValueOnce(null);
+    mockAttemptRepo.find.mockResolvedValueOnce([]);
+    mockQuestionRepo.find.mockResolvedValue([
+      { id: 'q-mcq-1', questionType: 'single_choice', options: ['A', 'B', 'C'] },
+    ]);
+
+    const uniqueError: any = new Error('duplicate key value violates unique constraint "idx_unique_in_progress_assessment_attempt"');
+    uniqueError.code = '23505';
+    mockAttemptRepo.save.mockRejectedValueOnce(uniqueError);
+
+    const winningAttempt = {
+      id: 'winning-attempt-uuid',
+      assessmentId,
+      studentId: studentUser.id,
+      status: 'in_progress',
+      startedAt: new Date(),
+      questionOrder: ['q-mcq-1'],
+      responses: [],
+      resumeCount: 0,
+    };
+    mockAttemptRepo.findOne.mockResolvedValueOnce(winningAttempt);
+
+    const result = await service.startStudentAttempt(assessmentId, studentUser);
+    expect(result.success).toBe(true);
+    expect(result.attemptId).toBe('winning-attempt-uuid');
+  });
+
   it('grades shuffled multiple-choice answers using the stored order, ignoring client mappings', async () => {
     mockAssessmentRepo.findOne.mockResolvedValue(mockAssessment);
     mockAttemptRepo.findOne.mockResolvedValue({

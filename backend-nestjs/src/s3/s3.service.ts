@@ -97,9 +97,9 @@ export class S3Service {
         ServerSideEncryption: 'AES256',
       }));
 
-      // Return presigned URL when configured, or S3 direct URL fallback
+      // Return presigned URL when configured, or S3 direct URL fallback (AUD-SEC-004: bounded TTL)
       try {
-        const presigned = await this.getPresignedUrl(key, 3600);
+        const presigned = await this.getPresignedUrl(key, this.getDefaultPresignedTtl());
         if (presigned) return presigned;
       } catch (err) {
         this.logger.debug?.('Falling back to direct S3 URL', err);
@@ -112,9 +112,14 @@ export class S3Service {
     }
   }
 
+  getDefaultPresignedTtl(): number {
+    const configured = parseInt(process.env.S3_PRESIGNED_TTL_SECONDS || '', 10);
+    return Number.isFinite(configured) && configured > 0 ? configured : 300;
+  }
+
   async getPresignedUrl(
     keyOrUrl: string,
-    expiresInSeconds: number = 3600,
+    expiresInSeconds: number = this.getDefaultPresignedTtl(),
     allowedPrefixes: string[] = ['proctoring/', 'submissions/', 'avatars/'],
   ): Promise<string> {
     if (!this.bucketName || !keyOrUrl || typeof keyOrUrl !== 'string') {

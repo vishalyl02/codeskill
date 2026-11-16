@@ -237,4 +237,83 @@ describe('AssessmentsService — 3-Mode Proctoring & Violation Penalties', () =>
     expect(attempt.submissionPolicy).toBe('manual');
     expect(attempt.mode).toBe('partial_proctored');
   });
+
+  it('caps stored violations array at 100 to prevent JSONB document bloat (AUD-DAT-006)', async () => {
+    const assessment = {
+      id: 'assessment-uuid-1',
+      code: 'CAP-TEST',
+      proctoring: {
+        mode: 'partial_proctored',
+        autoSubmitOnViolation: false,
+        violationPenaltyMarks: 1,
+      },
+    };
+    // Pre-populate with 105 existing violations
+    const initialViolations = Array.from({ length: 105 }, (_, i) => ({
+      type: 'tab_switch',
+      warningIndex: i + 1,
+      timestamp: new Date(),
+    }));
+    const attempt = {
+      id: 'attempt-uuid-1',
+      assessmentId: 'assessment-uuid-1',
+      studentId: 'student-1',
+      status: 'in_progress',
+      violations: initialViolations,
+      tabSwitchCount: 105,
+      proctoringPenalty: 105,
+    };
+
+    jest.spyOn(service, 'findAssessmentByIdOrCode').mockResolvedValue(assessment as any);
+    attemptRepo.findOne.mockImplementation(async () => attempt);
+
+    await service.recordViolation(
+      'assessment-uuid-1',
+      { type: 'tab_switch', details: 'Excessive violation' },
+      { id: 'student-1' },
+    );
+
+    // Stored array must be capped at 100
+    expect(attempt.violations.length).toBe(100);
+    // Baseline first violation is preserved
+    expect(attempt.violations[0].warningIndex).toBe(1);
+    // Total penalty reflects true count (106 * 1 = 106)
+    expect(attempt.proctoringPenalty).toBe(106);
+  });
+
+  it('caps stored captures array at 50 to prevent JSONB document bloat (AUD-DAT-006)', async () => {
+    const assessment = {
+      id: 'assessment-uuid-1',
+      code: 'CAPTURE-CAP-TEST',
+    };
+    const initialCaptures = Array.from({ length: 55 }, (_, i) => ({
+      type: 'webcam',
+      url: `https://bucket.s3.amazonaws.com/proctoring/capture-${i}.jpg`,
+      timestamp: new Date(),
+    }));
+    const attempt = {
+      id: 'attempt-uuid-1',
+      assessmentId: 'assessment-uuid-1',
+      studentId: 'student-1',
+      status: 'in_progress',
+      captures: initialCaptures,
+    };
+
+    const mockS3Service = {
+      uploadBase64Image: jest.fn().mockResolvedValue('https://bucket.s3.amazonaws.com/proctoring/capture-new.jpg'),
+    };
+    (service as any).s3Service = mockS3Service;
+
+    jest.spyOn(service, 'findAssessmentByIdOrCode').mockResolvedValue(assessment as any);
+    jest.spyOn(service as any, 'isStudentTargeted').mockReturnValue(true);
+    attemptRepo.findOne.mockImplementation(async () => attempt);
+
+    await service.recordProctorCapture(
+      'assessment-uuid-1',
+      { type: 'webcam', image: 'data:image/jpeg;base64,...' },
+      { id: 'student-1' },
+    );
+
+    expect(attempt.captures.length).toBe(50);
+  });
 });

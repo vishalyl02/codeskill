@@ -23,7 +23,7 @@ export async function generateS3PresignedUrl(options: PresignOptions): Promise<s
     key,
     accessKeyId,
     secretAccessKey,
-    expiresInSeconds = 3600,
+    expiresInSeconds = 300,
     s3Client,
   } = options;
 

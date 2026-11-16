@@ -320,4 +320,11 @@ describe('Students Bulk Import & Validation', () => {
     expect((Object.prototype as any).admin).toBeUndefined();
     expect(result.validRows[0].__proto__).not.toEqual({ polluted: true });
   });
+
+  it('rejects disallowed prototype pollution sheet names (AUD-SEC-002)', async () => {
+    const buffer = createWorkbookBuffer([{ uid: 'CU_1', name: 'Valid User', email: 'v@test.com' }]);
+    await expect(
+      service.parseAndValidateImport(buffer, { sheetName: '__proto__' }),
+    ).rejects.toThrow('Disallowed worksheet name');
+  });
 });
