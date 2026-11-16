@@ -3173,17 +3173,38 @@ export class AssessmentsService {
     });
 
     if (!attempt) {
-      const inProgressAttempt = await this.attemptRepo.findOne({
+      // Look up active attempt (evaluating or in_progress) (AUD-PRF-001)
+      const activeAttempt = await this.attemptRepo.findOne({
         where: [
           {
             assessmentId: assessment.id,
             studentId,
-            status: 'in_progress',
+            status: In(['in_progress', 'evaluating']),
           },
         ],
       });
-      if (inProgressAttempt && this.isAttemptExpired(assessment, inProgressAttempt)) {
-        attempt = await this.autoFinalizeAttempt(assessment, inProgressAttempt, 'timed_out');
+      if (activeAttempt?.status === 'evaluating') {
+        return {
+          success: true,
+          status: 'evaluating',
+          resultsPending: true,
+          message:
+            'Your assessment submission is currently being evaluated. Please wait...',
+          assessment: {
+            title: assessment.title,
+            code: assessment.code,
+            totalMarks: assessment.totalMarks,
+            durationMinutes: assessment.durationMinutes,
+          },
+          attempt: {
+            _id: activeAttempt.id,
+            status: 'evaluating',
+            startedAt: activeAttempt.startedAt,
+          },
+        };
+      }
+      if (activeAttempt && activeAttempt.status === 'in_progress' && this.isAttemptExpired(assessment, activeAttempt)) {
+        attempt = await this.autoFinalizeAttempt(assessment, activeAttempt, 'timed_out');
       }
     }
 

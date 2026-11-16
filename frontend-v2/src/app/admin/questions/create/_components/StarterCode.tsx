@@ -1,12 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { ALL_LANGUAGES } from "../_store/useQuestionStore";
 import { useQuestionEditorStore } from "../_store/QuestionEditorProvider";
 import SectionCard from "./SectionCard";
-import Editor from "@monaco-editor/react";
 import { Code2 } from "lucide-react";
 import { ProgrammingLanguageIcon } from "@/components/ui/ProgrammingLanguageIcon";
+
+const Editor = dynamic(() => import("@monaco-editor/react"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[300px] w-full flex items-center justify-center bg-card text-muted-foreground animate-pulse text-sm">
+      Loading Editor...
+    </div>
+  ),
+});
 
 export default function StarterCode() {
   const { languages, starterCode, setStarterCode, hideMainMethod, setHideMainMethod, isDarkMode } = useQuestionEditorStore();

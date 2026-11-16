@@ -32,6 +32,12 @@ jest.mock("@/config/api", () => ({
     update: jest.fn(),
   },
 }));
+jest.mock("next/dynamic", () => (loader: any) => {
+  return function DynamicComponent(props: any) {
+    const Editor = require("@monaco-editor/react").default;
+    return <Editor {...props} />;
+  };
+});
 jest.mock("@monaco-editor/react", () => ({
   __esModule: true,
   default: ({

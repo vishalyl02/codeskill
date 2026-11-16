@@ -522,6 +522,24 @@ describe('Assessment Integrity & Server-Side Scoring (AUD-002, NEW-001, NEW-002,
     expect(result.attemptId).toBe('winning-attempt-uuid');
   });
 
+  it('returns pending evaluation status when attempt is being evaluated (AUD-PRF-001)', async () => {
+    mockAssessmentRepo.findOne.mockResolvedValue(mockAssessment);
+    mockAttemptRepo.findOne.mockResolvedValueOnce(null);
+    mockAttemptRepo.findOne.mockResolvedValueOnce({
+      id: 'attempt-eval-1',
+      assessmentId,
+      studentId: studentUser.id,
+      status: 'evaluating',
+      startedAt: new Date(),
+    });
+
+    const result = await service.getStudentResult(assessmentId, studentUser);
+    expect(result.success).toBe(true);
+    expect(result.status).toBe('evaluating');
+    expect(result.resultsPending).toBe(true);
+    expect(result.attempt._id).toBe('attempt-eval-1');
+  });
+
   it('grades shuffled multiple-choice answers using the stored order, ignoring client mappings', async () => {
     mockAssessmentRepo.findOne.mockResolvedValue(mockAssessment);
     mockAttemptRepo.findOne.mockResolvedValue({

@@ -108,4 +108,33 @@ describe('ActivityLogService', () => {
     const inserted = mockAuditLogRepo.insert.mock.calls[0][0];
     expect(inserted).toHaveLength(2);
   });
+
+  describe('purgeExpiredAuditLogs (AUD-PRV-002)', () => {
+    it('deletes audit logs older than configured retention days', async () => {
+      const mockDeleteQueryBuilder = {
+        delete: jest.fn().mockReturnThis(),
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 42 }),
+      };
+      mockAuditLogRepo.createQueryBuilder = jest.fn().mockReturnValue(mockDeleteQueryBuilder);
+
+      const result = await service.purgeExpiredAuditLogs(90);
+
+      expect(mockAuditLogRepo.createQueryBuilder).toHaveBeenCalled();
+      expect(mockDeleteQueryBuilder.delete).toHaveBeenCalled();
+      expect(mockDeleteQueryBuilder.where).toHaveBeenCalledWith(
+        'timestamp < :cutoffDate',
+        expect.objectContaining({ cutoffDate: expect.any(Date) }),
+      );
+      expect(result.deleted).toBe(42);
+    });
+
+    it('respects AUDIT_LOG_RETENTION_DAYS environment variable', () => {
+      process.env.AUDIT_LOG_RETENTION_DAYS = '60';
+      expect(service.getRetentionDays()).toBe(60);
+      delete process.env.AUDIT_LOG_RETENTION_DAYS;
+      expect(service.getRetentionDays()).toBe(180);
+    });
+  });
 });
