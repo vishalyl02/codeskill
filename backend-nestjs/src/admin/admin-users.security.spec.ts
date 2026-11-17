@@ -271,10 +271,15 @@ describe('Admin User Role Security (AUD-020 & X-06)', () => {
     const mockSubmissionModel = {
       find: jest.fn(),
     };
+    const mockAssessmentAttemptModel = {
+      find: jest.fn(),
+    };
 
     beforeEach(() => {
       (adminService as any).problemModel = mockProblemModel;
       (adminService as any).submissionModel = mockSubmissionModel;
+      (adminService as any).assessmentAttemptModel = mockAssessmentAttemptModel;
+      mockAssessmentAttemptModel.find.mockResolvedValue([]);
     });
 
     it('returns candidate report with calculated stats and resolved problem titles for UUID id', async () => {
@@ -334,6 +339,143 @@ describe('Admin User Role Security (AUD-020 & X-06)', () => {
       await expect(adminService.getReport('unknown-id')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    it('aggregates AssessmentAttempt stats (averageScore, totalAssessmentsPassed, totalViolations) and exposes studentProfile', async () => {
+      const studentUuid = '33333333-3333-3333-3333-333333333333';
+      const user = {
+        id: studentUuid,
+        uid: 'CS2026-042',
+        name: 'Aarav Patel',
+        email: 'aarav@university.edu',
+        role: 'student',
+        isAdmin: false,
+        passwordHash: 'secret-hash',
+        salt: 'random-salt',
+        tokenVersion: 4,
+        studentProfile: {
+          university: 'Apex University',
+          department: 'Computer Science',
+          semester: 6,
+          section: 'A',
+          batch: '2023-2027',
+        },
+      };
+      mockUserRepo.findOne.mockResolvedValue(user);
+      mockSubmissionModel.find.mockResolvedValue([
+        { id: 'sub-1', problemId: 'p-1', status: 'accepted', createdAt: new Date() },
+        { id: 'sub-2', problemId: 'p-1', status: 'accepted', createdAt: new Date() },
+        { id: 'sub-3', problemId: 'p-2', status: 'wrong_answer', createdAt: new Date() },
+      ]);
+      mockProblemModel.find.mockResolvedValue([{ id: 'p-1', title: 'Binary Search' }]);
+
+      mockAssessmentAttemptModel.find.mockResolvedValue([
+        {
+          id: 'att-1',
+          assessmentId: 'asmt-1',
+          assessment: { id: 'asmt-1', title: 'Midterm Algorithms', code: 'ALG101', totalMarks: 100 },
+          status: 'submitted',
+          score: 85,
+          maxScore: 100,
+          percentage: 85,
+          passed: true,
+          tabSwitchCount: 2,
+          fullscreenExitCount: 1,
+          violations: [{ type: 'audio' }],
+          createdAt: new Date('2026-11-01'),
+        },
+        {
+          id: 'att-2',
+          assessmentId: 'asmt-2',
+          assessment: { id: 'asmt-2', title: 'DBMS Quiz', code: 'DB201', totalMarks: 50 },
+          status: 'submitted',
+          score: 30,
+          maxScore: 50,
+          percentage: 60,
+          passed: false,
+          tabSwitchCount: 0,
+          fullscreenExitCount: 0,
+          violations: [],
+          createdAt: new Date('2026-11-02'),
+        },
+      ]);
+
+      const res = await adminService.getReport(studentUuid);
+
+      expect(res.report).toBeDefined();
+      expect(res.report.user.uid).toBe('CS2026-042');
+      expect(res.report.user.studentProfile.department).toBe('Computer Science');
+      expect((res.report.user as any).passwordHash).toBeUndefined();
+      expect((res.report.user as any).salt).toBeUndefined();
+      expect((res.report.user as any).tokenVersion).toBeUndefined();
+
+      // Assessment stats
+      expect(res.report.stats.totalAssessmentsAttempted).toBe(2);
+      expect(res.report.stats.totalAssessmentsCompleted).toBe(2);
+      expect(res.report.stats.totalAssessmentsPassed).toBe(1);
+      expect(res.report.stats.averageScore).toBe(72.5); // (85 + 60) / 2 = 72.5
+      expect(res.report.stats.highestScore).toBe(85);
+      expect(res.report.stats.totalViolations).toBe(4); // 2 tab switches + 1 fullscreen + 1 violation
+
+      // Formatted assessment attempts
+      expect(res.report.assessmentAttempts).toHaveLength(2);
+      expect(res.report.assessmentAttempts[0].assessmentTitle).toBe('Midterm Algorithms');
+      expect(res.report.assessmentAttempts[0].passed).toBe(true);
+
+      // Practice submissions (case-insensitive and unique problems solved)
+      expect(res.report.stats.totalSubmissions).toBe(3);
+      expect(res.report.stats.acceptedSubmissions).toBe(2);
+      expect(res.report.stats.uniqueProblemsSolved).toBe(1); // p-1 was solved twice
+    });
+
+    it('avoids querying studentUid when user.uid is empty or whitespace', async () => {
+      const studentUuid = '44444444-4444-4444-4444-444444444444';
+      const user = {
+        id: studentUuid,
+        uid: '   ',
+        name: 'Empty UID Student',
+        email: 'empty@example.com',
+        role: 'student',
+      };
+      mockUserRepo.findOne.mockResolvedValue(user);
+      mockSubmissionModel.find.mockResolvedValue([]);
+      mockAssessmentAttemptModel.find.mockResolvedValue([]);
+
+      await adminService.getReport(studentUuid);
+
+      expect(mockAssessmentAttemptModel.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: [{ studentId: studentUuid }],
+        }),
+      );
+    });
+
+    it('falls back cleanly when candidate has zero assessments and zero submissions', async () => {
+      const studentUuid = '55555555-5555-5555-5555-555555555555';
+      const user = {
+        id: studentUuid,
+        name: 'New Student',
+        email: 'new@example.com',
+        role: 'student',
+      };
+      mockUserRepo.findOne.mockResolvedValue(user);
+      mockSubmissionModel.find.mockResolvedValue([]);
+      mockAssessmentAttemptModel.find.mockResolvedValue([]);
+
+      const res = await adminService.getReport(studentUuid);
+
+      expect(res.report.stats.totalAssessmentsAttempted).toBe(0);
+      expect(res.report.stats.totalAssessmentsCompleted).toBe(0);
+      expect(res.report.stats.totalAssessmentsPassed).toBe(0);
+      expect(res.report.stats.averageScore).toBe(0);
+      expect(res.report.stats.highestScore).toBe(0);
+      expect(res.report.stats.totalViolations).toBe(0);
+      expect(res.report.stats.totalSubmissions).toBe(0);
+      expect(res.report.stats.acceptedSubmissions).toBe(0);
+      expect(res.report.stats.acceptanceRate).toBe(0);
+      expect(res.report.stats.uniqueProblemsSolved).toBe(0);
+      expect(res.report.assessmentAttempts).toEqual([]);
+      expect(res.report.recentSubmissions).toEqual([]);
     });
   });
 });

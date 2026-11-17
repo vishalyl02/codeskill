@@ -21,6 +21,7 @@ import { Company } from '../database/entities/company.entity';
 import { University } from '../database/entities/university.entity';
 import { SubmissionStore } from '../database/sharding/submission-store';
 import { Assessment } from '../database/entities/assessment.entity';
+import { AssessmentAttempt } from '../database/entities/assessment-attempt.entity';
 import { Question } from '../database/entities/question.entity';
 import { Batch } from '../database/entities/batch.entity';
 import { FacultyAssignment } from '../database/entities/faculty-assignment.entity';
@@ -100,6 +101,9 @@ export class AdminService {
     @Optional()
     @InjectRepository(Batch)
     private readonly batchModel?: Repository<Batch>,
+    @Optional()
+    @InjectRepository(AssessmentAttempt)
+    private readonly assessmentAttemptModel?: Repository<AssessmentAttempt>,
   ) { }
 
   async getDashboardStats() {
@@ -553,22 +557,156 @@ export class AdminService {
     });
     if (!user) throw new NotFoundException('User not found');
 
+    // 1. Query Assessment Attempts safely
+    let assessmentAttempts: any[] = [];
+    if (this.assessmentAttemptModel) {
+      try {
+        const attemptWhere: any[] = [{ studentId: user.id }];
+        if (user.uid && typeof user.uid === 'string' && user.uid.trim().length > 0) {
+          attemptWhere.push({ studentUid: user.uid.trim() });
+        }
+        if (user.mongoId && typeof user.mongoId === 'string' && user.mongoId.trim().length > 0) {
+          attemptWhere.push({ studentId: user.mongoId.trim() });
+        }
+
+        const rawAttempts = await this.assessmentAttemptModel.find({
+          where: attemptWhere,
+          relations: { assessment: true },
+          order: { createdAt: 'DESC' },
+        });
+
+        // Deduplicate attempts if matching both studentId and studentUid
+        const seenAttemptIds = new Set<string>();
+        for (const a of rawAttempts) {
+          if (!seenAttemptIds.has(a.id)) {
+            seenAttemptIds.add(a.id);
+            assessmentAttempts.push(a);
+          }
+        }
+      } catch {
+        // Fallback gracefully if assessment attempts query fails
+      }
+    }
+
+    // 2. Compute aggregated assessment KPIs
+    const completedStatuses = ['submitted', 'auto_submitted', 'timed_out'];
+    const totalAssessmentsAttempted = assessmentAttempts.length;
+    const completedAttempts = assessmentAttempts.filter((a) =>
+      completedStatuses.includes(a.status),
+    );
+    const totalAssessmentsCompleted = completedAttempts.length;
+    const totalAssessmentsPassed = completedAttempts.filter(
+      (a) => a.passed === true,
+    ).length;
+
+    let averageScore = 0;
+    let highestScore = 0;
+    if (completedAttempts.length > 0) {
+      const sumPercentage = completedAttempts.reduce((sum, a) => {
+        const maxScore = a.maxScore || a.assessment?.totalMarks || 100;
+        const pct =
+          a.percentage !== undefined && a.percentage !== null
+            ? Number(a.percentage)
+            : maxScore > 0
+              ? ((a.score || 0) / maxScore) * 100
+              : 0;
+        return sum + pct;
+      }, 0);
+      averageScore = Math.round((sumPercentage / completedAttempts.length) * 10) / 10;
+
+      const maxPct = Math.max(
+        ...completedAttempts.map((a) => {
+          const maxScore = a.maxScore || a.assessment?.totalMarks || 100;
+          return a.percentage !== undefined && a.percentage !== null
+            ? Number(a.percentage)
+            : maxScore > 0
+              ? ((a.score || 0) / maxScore) * 100
+              : 0;
+        }),
+      );
+      highestScore = Math.round(maxPct * 10) / 10;
+    }
+
+    const totalViolations = assessmentAttempts.reduce(
+      (sum, a) =>
+        sum +
+        (a.tabSwitchCount || 0) +
+        (a.fullscreenExitCount || 0) +
+        (Array.isArray(a.violations) ? a.violations.length : 0),
+      0,
+    );
+
+    const formattedAssessmentAttempts = assessmentAttempts.map((a) => {
+      const maxScore = a.maxScore || a.assessment?.totalMarks || 100;
+      const rawPct =
+        a.percentage !== undefined && a.percentage !== null
+          ? Number(a.percentage)
+          : maxScore > 0
+            ? ((a.score || 0) / maxScore) * 100
+            : 0;
+      const percentage = Math.round(Number(rawPct) * 10) / 10;
+
+      return {
+        id: a.id,
+        _id: a.id,
+        assessmentId: a.assessmentId || a.assessment?.id,
+        assessmentTitle: a.assessment?.title || 'Assessment',
+        assessmentCode: a.assessment?.code || '',
+        status: a.status,
+        score: a.score ?? 0,
+        rawScore: a.rawScore ?? a.score ?? 0,
+        maxScore,
+        percentage,
+        passed: Boolean(a.passed),
+        accuracy: a.accuracy ? Math.round(Number(a.accuracy) * 10) / 10 : 0,
+        totalAttempted: a.totalAttempted ?? 0,
+        totalCorrect: a.totalCorrect ?? 0,
+        totalWrong: a.totalWrong ?? 0,
+        timeSpentSeconds: a.timeSpentSeconds ?? 0,
+        tabSwitchCount: a.tabSwitchCount ?? 0,
+        fullscreenExitCount: a.fullscreenExitCount ?? 0,
+        violationsCount: Array.isArray(a.violations) ? a.violations.length : 0,
+        startedAt: a.startedAt,
+        submittedAt: a.submittedAt,
+        createdAt: a.createdAt,
+      };
+    });
+
+    // 3. Query practice submissions with case-insensitive check and bounded slice
     const submissions = await this.submissionModel.find({
       where: { userId: user.id },
       order: { createdAt: 'DESC' },
     });
 
     const totalSubmissions = submissions.length;
-    const acceptedSubmissions = submissions.filter((s) => s.status === 'Accepted').length;
-    const acceptanceRate = totalSubmissions > 0
-      ? Math.round((acceptedSubmissions / totalSubmissions) * 100)
-      : 0;
+    const acceptedSubmissions = submissions.filter(
+      (s) => s.status?.toLowerCase() === 'accepted',
+    ).length;
+    const acceptanceRate =
+      totalSubmissions > 0
+        ? Math.round((acceptedSubmissions / totalSubmissions) * 100)
+        : 0;
+
+    const acceptedProblemIds = new Set(
+      submissions
+        .filter((s) => s.status?.toLowerCase() === 'accepted')
+        .map((s) => s.problemId)
+        .filter(Boolean),
+    );
+    const uniqueProblemsSolved = acceptedProblemIds.size;
 
     const stats = {
+      totalAssessmentsAttempted,
+      totalAssessmentsCompleted,
+      totalAssessmentsPassed,
+      averageScore,
+      highestScore,
+      totalViolations,
       totalSubmissions,
       accepted: acceptedSubmissions,
       acceptedSubmissions,
       acceptanceRate,
+      uniqueProblemsSolved,
     };
 
     const slice = submissions.slice(0, 10);
@@ -606,12 +744,27 @@ export class AdminService {
       }
     }
 
-    const { password, ...userWithoutPassword } = user;
+    const {
+      password,
+      passwordHash,
+      salt,
+      tokenVersion,
+      refreshTokenHash,
+      mfaSecret,
+      ...userWithoutPassword
+    } = user as any;
 
     return {
       report: {
-        user: { ...userWithoutPassword, _id: user.id },
+        user: {
+          ...userWithoutPassword,
+          _id: user.id,
+          id: user.id,
+          uid: user.uid || '',
+          studentProfile: user.studentProfile || {},
+        },
         stats,
+        assessmentAttempts: formattedAssessmentAttempts,
         recentSubmissions: slice.map((s) => ({
           ...s,
           _id: s.id,

@@ -1,12 +1,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { adminUsersAPI } from "@/config/api";
-import { Search, ShieldCheck, User, FileText, Eye, X, AlertCircle } from "lucide-react";
+import { adminUsersAPI, adminAssessmentsAPI } from "@/config/api";
+import {
+  Search,
+  ShieldCheck,
+  User,
+  FileText,
+  Eye,
+  X,
+  AlertCircle,
+  Download,
+  Building2,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  ShieldAlert,
+  Award,
+  Layers,
+  Trophy,
+  Code2,
+} from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
 import { Spinner } from "@/components/ui/spinner";
 import { PDFDownloadButton } from "@/components/reports/pdf/PDFDownloadButton";
+import toast from "react-hot-toast";
 
 export default function CandidatesAdminPage() {
   const [users, setUsers] = useState<any[]>([]);
@@ -19,6 +38,7 @@ export default function CandidatesAdminPage() {
   const [previewReportData, setPreviewReportData] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [downloadingAttemptId, setDownloadingAttemptId] = useState<string | null>(null);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -40,6 +60,40 @@ export default function CandidatesAdminPage() {
     }
   };
 
+  const handleDownloadAttemptReport = async (attemptId: string) => {
+    if (!attemptId) return;
+    setDownloadingAttemptId(attemptId);
+    try {
+      const response = await adminAssessmentsAPI.getAttemptReport(attemptId);
+      const isPdf =
+        response.data?.type?.includes("pdf") ||
+        String(response.headers?.["content-type"] || "").includes("pdf") ||
+        response.data instanceof Blob;
+      if (!isPdf) {
+        throw new Error("The server did not return a PDF report.");
+      }
+      const blob =
+        response.data instanceof Blob
+          ? response.data
+          : new Blob([response.data], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const candidateUid = previewReportData?.student?.uid || previewUser?.name || attemptId;
+      link.download = `assessment-report-${candidateUid}-${attemptId.slice(-6)}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      toast.success("Assessment report downloaded successfully.");
+    } catch (err: any) {
+      console.error("Failed to download attempt report", err);
+      toast.error("Failed to download assessment report. Please try again.");
+    } finally {
+      setDownloadingAttemptId(null);
+    }
+  };
+
   const openPreview = async (candidate: any) => {
     const userId = candidate._id || candidate.id;
     setPreviewUser(candidate);
@@ -57,16 +111,34 @@ export default function CandidatesAdminPage() {
       const u = rep.user || candidate;
       const stats = rep.stats || {};
       const subs = Array.isArray(rep.recentSubmissions) ? rep.recentSubmissions : [];
+      const attempts = Array.isArray(rep.assessmentAttempts) ? rep.assessmentAttempts : [];
+      const studentProfile = u.studentProfile || {};
+      const uid = u.uid || studentProfile.uid || null;
+
       const userSubmissionsCount = stats.totalSubmissions ?? subs.length;
       const acceptedCount =
         stats.acceptedSubmissions ??
         stats.accepted ??
-        subs.filter((s: any) => s.status === "Accepted").length;
+        subs.filter((s: any) => s.status?.toLowerCase() === "accepted").length;
       const acceptanceRate =
         stats.acceptanceRate ??
         (userSubmissionsCount > 0 ? Math.round((acceptedCount / userSubmissionsCount) * 100) : 0);
-      const totalSolved = u.solvedProblems?.length || u.stats?.totalSolved || acceptedCount;
+      const totalSolved = stats.uniqueProblemsSolved ?? u.solvedProblems?.length ?? u.stats?.totalSolved ?? acceptedCount;
       const userScore = u.stats?.score ?? u.stats?.xp ?? (acceptedCount * 20);
+
+      const completedAttempts = attempts.filter((a: any) =>
+        ["submitted", "auto_submitted", "timed_out"].includes(a.status)
+      );
+      const totalAssessmentsCompleted = stats.totalAssessmentsCompleted ?? completedAttempts.length;
+      const totalAssessmentsAttempted = stats.totalAssessmentsAttempted ?? attempts.length;
+      const totalAssessmentsPassed = stats.totalAssessmentsPassed ?? completedAttempts.filter((a: any) => a.passed === true).length;
+      const passRate = totalAssessmentsCompleted > 0 ? Math.round((totalAssessmentsPassed / totalAssessmentsCompleted) * 100) : 0;
+      const averageScore = stats.averageScore ?? 0;
+      const highestScore = stats.highestScore ?? 0;
+
+      const latestCompleted = completedAttempts[0];
+      const realAssessmentName =
+        latestCompleted?.assessmentTitle || (attempts[0]?.assessmentTitle) || "Algorithmic Skills Assessment";
 
       setPreviewReportData({
         reportId: `CS-${new Date().getFullYear()}-${String(u._id || u.id || userId).slice(-6).toUpperCase()}`,
@@ -75,20 +147,37 @@ export default function CandidatesAdminPage() {
           month: "long",
           year: "numeric",
         }),
-        assessmentName: "Algorithmic Skills Assessment",
+        assessmentName: realAssessmentName,
         student: {
           name: u.name || u.email?.split("@")[0] || "Candidate",
           email: u.email || "N/A",
           role: u.isAdmin ? "Admin" : "Candidate",
           joinedAt: u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-GB") : "N/A",
           lastActiveAt: u.lastActive ? new Date(u.lastActive).toLocaleDateString("en-GB") : "Today",
+          uid,
+          studentProfile,
         },
         performance: {
           totalSolved,
-          score: userScore,
-          acceptanceRate,
+          score: latestCompleted ? latestCompleted.score : userScore,
+          maxScore: latestCompleted ? latestCompleted.maxScore : 100,
+          acceptanceRate: latestCompleted ? latestCompleted.percentage : acceptanceRate,
           streak: u.stats?.currentStreak ?? u.stats?.streak ?? 0,
         },
+        stats: {
+          totalAssessmentsAttempted,
+          totalAssessmentsCompleted,
+          totalAssessmentsPassed,
+          passRate,
+          averageScore,
+          highestScore,
+          totalViolations: stats.totalViolations ?? 0,
+          uniqueProblemsSolved: totalSolved,
+          totalSubmissions: userSubmissionsCount,
+          acceptedSubmissions: acceptedCount,
+          acceptanceRate,
+        },
+        assessmentAttempts: attempts,
         submissions: subs.map((s: any) => ({
           _id: s._id || s.id,
           problemTitle: s.problem?.title || s.problemTitle || "Coding Practice Problem",
@@ -241,18 +330,29 @@ export default function CandidatesAdminPage() {
         <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm p-4 md:p-8 animate-in fade-in duration-200">
           <div className="flex items-center justify-between mb-4 bg-card p-4 rounded-xl border border-border shadow-xs">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl font-bold text-foreground">
                   Candidate Report: {previewUser.name || previewUser.email}
                 </h2>
+                {previewReportData?.student?.uid && (
+                  <span className="font-mono bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded border border-primary/20">
+                    UID: {previewReportData.student.uid}
+                  </span>
+                )}
                 {previewUser.isAdmin && (
                   <span className="text-[10px] font-bold uppercase tracking-wider bg-red-500/10 text-red-500 px-2 py-0.5 rounded">
                     Admin
                   </span>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground">
-                Official performance scorecard, psychometric analytics, and code submission log.
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {previewReportData?.student?.studentProfile?.department
+                  ? `${previewReportData.student.studentProfile.department} ${
+                      previewReportData.student.studentProfile.university
+                        ? `• ${previewReportData.student.studentProfile.university}`
+                        : ""
+                    }`
+                  : "Official performance scorecard, assessment records, and code submission log."}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -291,41 +391,51 @@ export default function CandidatesAdminPage() {
                 </button>
               </div>
             ) : previewReportData ? (
-              <div className="w-full h-full p-4 flex flex-col items-center">
-                <div className="w-full max-w-4xl bg-card border border-border rounded-xl p-6 shadow-sm mb-4">
+              <div className="w-full h-full p-4 overflow-y-auto flex flex-col items-center gap-4">
+                {/* KPI Summary Tiles */}
+                <div className="w-full max-w-5xl bg-card border border-border rounded-xl p-5 shadow-sm">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
                     <div className="p-3 bg-muted/30 rounded-lg">
-                      <div className="text-xs text-muted-foreground font-medium">Problems Solved</div>
+                      <div className="text-xs text-muted-foreground font-medium">Exams Attempted</div>
                       <div className="text-2xl font-bold text-foreground mt-1">
-                        {previewReportData.performance.totalSolved}
+                        {previewReportData.stats?.totalAssessmentsCompleted ?? 0}{" "}
+                        <span className="text-xs text-muted-foreground font-normal">
+                          / {previewReportData.stats?.totalAssessmentsAttempted ?? 0}
+                        </span>
                       </div>
                     </div>
                     <div className="p-3 bg-muted/30 rounded-lg">
-                      <div className="text-xs text-muted-foreground font-medium">Score</div>
+                      <div className="text-xs text-muted-foreground font-medium">Exams Passed</div>
+                      <div className="text-2xl font-bold text-green-500 mt-1">
+                        {previewReportData.stats?.totalAssessmentsPassed ?? 0}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs text-muted-foreground font-medium">
+                        {previewReportData.assessmentAttempts?.length > 0 ? "Average Score" : "Acceptance Rate"}
+                      </div>
                       <div className="text-2xl font-bold text-amber-500 mt-1">
-                        {previewReportData.performance.score}
-                      </div>
-                    </div>
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <div className="text-xs text-muted-foreground font-medium">Acceptance Rate</div>
-                      <div className="text-2xl font-bold text-primary mt-1">
                         {previewReportData.performance.acceptanceRate}%
                       </div>
                     </div>
                     <div className="p-3 bg-muted/30 rounded-lg">
-                      <div className="text-xs text-muted-foreground font-medium">Recent Submissions</div>
-                      <div className="text-2xl font-bold text-foreground mt-1">
-                        {previewReportData.submissions.length}
+                      <div className="text-xs text-muted-foreground font-medium">Problems Solved</div>
+                      <div className="text-2xl font-bold text-primary mt-1">
+                        {previewReportData.performance.totalSolved}
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex-1 w-full max-w-4xl bg-card border border-border rounded-xl overflow-hidden flex flex-col">
+                {/* Section 1: Assessment Attempts & Exam Scores */}
+                <div className="w-full max-w-5xl bg-card border border-border rounded-xl overflow-hidden shadow-sm flex flex-col">
                   <div className="p-4 border-b border-border bg-muted/30 flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Recent Submission Activity
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <Award className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Assessment History &amp; Exam Scores
+                      </span>
+                    </div>
                     <Link
                       href={`/admin/candidates/${previewUser._id || previewUser.id}`}
                       className="text-xs font-medium text-primary hover:underline"
@@ -333,28 +443,115 @@ export default function CandidatesAdminPage() {
                       View Full Details &rarr;
                     </Link>
                   </div>
-                  <div className="flex-1 overflow-auto divide-y divide-border">
-                    {previewReportData.submissions.length === 0 ? (
-                      <div className="p-8 text-center text-sm text-muted-foreground">
-                        No code submissions recorded for this candidate.
+
+                  <div className="divide-y divide-border overflow-x-auto">
+                    {previewReportData.assessmentAttempts?.length === 0 ? (
+                      <div className="p-6 text-center text-sm text-muted-foreground">
+                        No assessment attempts recorded for this candidate.
                       </div>
                     ) : (
-                      previewReportData.submissions.map((sub: any) => (
-                        <div key={sub._id} className="p-4 flex items-center justify-between hover:bg-muted/20">
-                          <div>
-                            <div className="font-medium text-sm text-foreground">{sub.problemTitle}</div>
-                            <div className="text-xs text-muted-foreground mt-0.5">{sub.submittedAt}</div>
+                      previewReportData.assessmentAttempts.map((att: any) => {
+                        const isCompleted = ["submitted", "auto_submitted", "timed_out"].includes(att.status);
+                        return (
+                          <div
+                            key={att.id}
+                            className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-muted/20 transition-colors"
+                          >
+                            <div>
+                              <div className="font-medium text-sm text-foreground flex items-center gap-2">
+                                <span>{att.assessmentTitle}</span>
+                                {att.assessmentCode && (
+                                  <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                    {att.assessmentCode}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                {att.submittedAt
+                                  ? new Date(att.submittedAt).toLocaleDateString("en-GB")
+                                  : "Recent"}{" "}
+                                • Score:{" "}
+                                <span className="font-semibold text-foreground">
+                                  {att.score} / {att.maxScore}
+                                </span>{" "}
+                                ({att.percentage}%)
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              {att.passed ? (
+                                <span className="text-xs font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 rounded flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Passed
+                                </span>
+                              ) : att.status === "in_progress" ? (
+                                <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded flex items-center gap-1">
+                                  <Clock className="w-3.5 h-3.5" /> In Progress
+                                </span>
+                              ) : (
+                                <span className="text-xs font-semibold text-red-500 bg-red-500/10 px-2 py-0.5 rounded flex items-center gap-1">
+                                  <XCircle className="w-3.5 h-3.5" /> Failed
+                                </span>
+                              )}
+
+                              {isCompleted && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadAttemptReport(att.id)}
+                                  disabled={downloadingAttemptId === att.id}
+                                  className="text-xs font-medium text-primary hover:bg-primary/10 px-2.5 py-1 rounded border border-primary/20 flex items-center gap-1 transition-colors"
+                                  title="Download verified PDF scorecard"
+                                >
+                                  {downloadingAttemptId === att.id ? (
+                                    <Spinner className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Download className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>PDF</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-mono uppercase bg-muted px-2 py-0.5 rounded text-foreground">
-                              {sub.language}
-                            </span>
-                            <span className={`text-xs font-semibold ${sub.status === "Accepted" || sub.status === "Passed" ? "text-green-500" : "text-red-500"}`}>
-                              {sub.status}
-                            </span>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* Section 2: Recent Practice Submissions */}
+                <div className="w-full max-w-5xl bg-card border border-border rounded-xl overflow-hidden shadow-sm flex flex-col mb-4">
+                  <div className="p-4 border-b border-border bg-muted/30 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Code2 className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Recent Practice Submissions
+                      </span>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {previewReportData.submissions.length === 0 ? (
+                      <div className="p-6 text-center text-sm text-muted-foreground">
+                        No practice submissions recorded for this candidate.
+                      </div>
+                    ) : (
+                      previewReportData.submissions.slice(0, 5).map((sub: any) => {
+                        const isAccepted = sub.status?.toLowerCase() === "accepted";
+                        return (
+                          <div key={sub._id} className="p-3.5 flex items-center justify-between hover:bg-muted/20 text-xs">
+                            <div>
+                              <div className="font-medium text-sm text-foreground">{sub.problemTitle}</div>
+                              <div className="text-muted-foreground mt-0.5">{sub.submittedAt}</div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono uppercase bg-muted px-2 py-0.5 rounded text-foreground">
+                                {sub.language}
+                              </span>
+                              <span className={`font-semibold ${isAccepted ? "text-green-500" : "text-red-500"}`}>
+                                {sub.status}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
