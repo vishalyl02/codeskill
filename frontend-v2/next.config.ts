@@ -56,6 +56,36 @@ const nextConfig: NextConfig = {
         permanent: false,
       },
       {
+        source: "/admin/mcqs",
+        destination: "/admin/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/admin/companies",
+        destination: "/admin/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/admin/companies/:path*",
+        destination: "/admin/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/admin/universities",
+        destination: "/admin/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/admin/universities/:path*",
+        destination: "/admin/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/teacher/mcqs",
+        destination: "/teacher/dashboard",
+        permanent: false,
+      },
+      {
         source: "/teacher/faq",
         destination: "/teacher/dashboard",
         permanent: false,
