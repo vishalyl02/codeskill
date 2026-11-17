@@ -12,9 +12,7 @@ import {
   Settings,
   ExternalLink,
   ClipboardList,
-  ListChecks,
   Award,
-  BookOpen,
   BarChart3,
   Compass,
   Activity,
@@ -58,7 +56,6 @@ const adminNavItems = [
       { name: "Topics", href: "/admin/questions/topics" },
     ],
   },
-  { name: "MCQs", href: "/admin/mcqs", icon: ListChecks },
   {
     name: "Assessments",
     href: "/admin/assessments",
@@ -80,8 +77,6 @@ const adminNavItems = [
   { name: "Results & Scores", href: "/admin/candidates", icon: BarChart3 },
   { name: "Contests", href: "/admin/contests", icon: Trophy },
   { name: "Contest Results", href: "/admin/contest-results", icon: Award },
-  { name: "Companies", href: "/admin/companies", icon: Building2 },
-  { name: "Universities", href: "/admin/universities", icon: BookOpen },
   { name: "Settings", href: "/admin/settings", icon: Settings },
 ];
 
