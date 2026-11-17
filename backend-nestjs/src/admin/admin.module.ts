@@ -24,6 +24,7 @@ import { Company } from '../database/entities/company.entity';
 import { University } from '../database/entities/university.entity';
 import { Submission } from '../database/entities/submission.entity';
 import { Assessment } from '../database/entities/assessment.entity';
+import { AssessmentAttempt } from '../database/entities/assessment-attempt.entity';
 import { Question } from '../database/entities/question.entity';
 import { Batch } from '../database/entities/batch.entity';
 import { FacultyAssignment } from '../database/entities/faculty-assignment.entity';
@@ -47,6 +48,7 @@ import { AuthModule } from '../auth/auth.module';
       University,
       Submission,
       Assessment,
+      AssessmentAttempt,
       Question,
       Batch,
       FacultyAssignment,
