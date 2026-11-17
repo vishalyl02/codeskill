@@ -78,6 +78,7 @@ describe('API Utils', () => {
 
       localStorage.setItem('codeskill_token', 'old-access-token');
       localStorage.setItem('codeskill_refresh_token', 'valid-refresh-token');
+      localStorage.setItem('codeskill_remember_me', 'true');
 
       // @ts-ignore
       const errorHandler = api.interceptors.response.handlers[0].rejected;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
+import { authStorage } from "@/lib/auth-storage";
 
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -236,7 +237,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
   }, [problemId]);
 
   const refreshProblemStats = useCallback((id: string) => {
-    if (typeof window === "undefined" || !localStorage.getItem("codeskill_token")) return;
+    if (!authStorage.getAccessToken()) return;
     const request = ++statsRequestRef.current;
     submissionAPI.getProblemStats(id)
       .then(res => { if (request === statsRequestRef.current) setProblemStats(res.data ?? null); })
@@ -558,7 +559,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
 
   const handleRun = useCallback(async () => {
     if (!languageEnabled || !sourceReady) return;
-    if (typeof window !== "undefined" && !localStorage.getItem("codeskill_token")) {
+    if (!authStorage.getAccessToken()) {
       setShowLoginModal(true);
       return;
     }
@@ -619,7 +620,7 @@ export default function ProblemWorkspace({ params }: { params: Promise<{ id: str
 
   const handleSubmit = useCallback(async () => {
     if (!languageEnabled || !sourceReady) return;
-    if (typeof window !== "undefined" && !localStorage.getItem("codeskill_token")) {
+    if (!authStorage.getAccessToken()) {
       setShowLoginModal(true);
       return;
     }

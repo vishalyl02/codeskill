@@ -124,7 +124,7 @@ export default function AppLoginPage() {
     setLoading(true);
     try {
       const input = data.email.trim();
-      const res = await login({ email: input, password: data.password });
+      const res = await login({ email: input, password: data.password, rememberMe: Boolean(data.rememberMe) });
 
       const accountRole = String(res?.user?.role || "").toLowerCase();
       const isTeacher = Boolean(res?.user?.isTeacher) || ["teacher", "faculty", "instructor"].includes(accountRole);
@@ -290,7 +290,7 @@ export default function AppLoginPage() {
                 className="inline-flex items-center gap-1.5 font-medium text-muted-foreground/80 hover:text-foreground transition-colors"
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-muted-foreground" />
-                <span>Admin OTP</span>
+                <span>Admin Login</span>
               </Link>
             </div>
           </div>

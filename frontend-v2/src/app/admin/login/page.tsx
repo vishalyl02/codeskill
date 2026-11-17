@@ -24,6 +24,7 @@ const adminLoginSchema = z.object({
   email: z.string().min(1, { message: "Please enter your administrator email or ID." }),
   password: z.string().optional(),
   otp: z.string().optional(),
+  rememberMe: z.boolean().default(false).optional(),
 });
 
 type AdminLoginFormValues = z.infer<typeof adminLoginSchema>;
@@ -41,7 +42,7 @@ export default function AdminLoginPage() {
 
   const form = useForm<AdminLoginFormValues>({
     resolver: zodResolver(adminLoginSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { email: "", password: "", rememberMe: false },
     mode: "onSubmit",
     reValidateMode: "onChange",
   });
@@ -54,7 +55,11 @@ export default function AdminLoginPage() {
     setOtpErrorMessage("");
     try {
       if (!showOTP) {
-        const res = await adminLogin({ email: data.email, password: data.password });
+        const res = await adminLogin({
+          email: data.email,
+          password: data.password,
+          rememberMe: Boolean(data.rememberMe),
+        });
         if (res.requireOTP) {
           setShowOTP(true);
           if (res.message) setInfoMessage(res.message);
@@ -69,7 +74,11 @@ export default function AdminLoginPage() {
           form.setError("otp", { type: "manual", message: "OTP must be 6 digits" });
           return;
         }
-        await adminLoginVerify({ email: data.email, otp: otpCode });
+        await adminLoginVerify({
+          email: data.email,
+          otp: otpCode,
+          rememberMe: Boolean(data.rememberMe),
+        });
         setOtpStatus("success");
         setTimeout(() => {
           window.location.href = "/admin/dashboard";
@@ -217,6 +226,27 @@ export default function AdminLoginPage() {
                   {form.formState.errors.password && (
                     <p className="text-xs font-medium text-red-500 ml-1">{form.formState.errors.password.message}</p>
                   )}
+                </div>
+
+                <div className="flex items-start space-x-2 pt-1">
+                  <input
+                    id="adminRememberMe"
+                    type="checkbox"
+                    className="w-4 h-4 mt-0.5 rounded border-gray-300 text-primary focus:ring-primary/20 transition-colors cursor-pointer accent-primary"
+                    {...form.register("rememberMe")}
+                    disabled={isLoading}
+                  />
+                  <div className="flex flex-col">
+                    <label
+                      htmlFor="adminRememberMe"
+                      className="text-xs font-medium leading-tight text-foreground cursor-pointer select-none"
+                    >
+                      Remember me on this computer
+                    </label>
+                    <span className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                      Leave unchecked on shared computers
+                    </span>
+                  </div>
                 </div>
               </>
             ) : (

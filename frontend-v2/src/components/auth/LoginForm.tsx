@@ -151,25 +151,30 @@ export function LoginForm({
         </div>
 
         {/* Remember Me & Forgot Password */}
-        <div className="flex items-center justify-between pt-0.5 pb-1">
-          <div className="flex items-center space-x-2">
+        <div className="flex items-start justify-between gap-2 pt-0.5 pb-1">
+          <div className="flex items-start space-x-2">
             <input
               id="rememberMe"
               type="checkbox"
-              className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary/20 transition-colors cursor-pointer accent-primary"
+              className="w-4 h-4 mt-0.5 rounded border-gray-300 text-primary focus:ring-primary/20 transition-colors cursor-pointer accent-primary"
               {...form.register("rememberMe")}
               disabled={isDisabled}
             />
-            <label
-              htmlFor="rememberMe"
-              className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-muted-foreground cursor-pointer select-none"
-            >
-              Keep me signed in
-            </label>
+            <div className="flex flex-col">
+              <label
+                htmlFor="rememberMe"
+                className="text-xs font-medium leading-tight peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground cursor-pointer select-none"
+              >
+                Remember me on this computer
+              </label>
+              <span className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                Leave unchecked on college lab / shared computers
+              </span>
+            </div>
           </div>
           <Link
             href="/forgot-password"
-            className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+            className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors whitespace-nowrap shrink-0"
             tabIndex={-1}
           >
             Forgot password?

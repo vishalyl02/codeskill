@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
+import { authStorage } from "@/lib/auth-storage";
 
 import { authAPI } from "@/config/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -33,7 +34,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     async function checkAuth() {
       if (loading) return;
 
-      const token = typeof window !== "undefined" ? localStorage.getItem("codeskill_token") : null;
+      const token = authStorage.getAccessToken();
 
       if (isLoginPage) {
         if (user && user.isAdmin) {

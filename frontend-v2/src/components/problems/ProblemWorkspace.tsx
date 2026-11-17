@@ -1,6 +1,7 @@
 "use client";
 
 import { editorStarterCode } from "@/lib/editor-languages";
+import { authStorage } from "@/lib/auth-storage";
 
 import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
 
@@ -448,7 +449,7 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
   };
 
   const handleRun = useCallback(async () => {
-    if (typeof window !== "undefined" && !localStorage.getItem("codeskill_token")) {
+    if (!authStorage.getAccessToken()) {
       setShowLoginModal(true);
       return;
     }
@@ -499,7 +500,7 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
   }, [code, language, problem]);
 
   const handleSubmit = useCallback(async () => {
-    if (typeof window !== "undefined" && !localStorage.getItem("codeskill_token")) {
+    if (!authStorage.getAccessToken()) {
       setShowLoginModal(true);
       return;
     }
