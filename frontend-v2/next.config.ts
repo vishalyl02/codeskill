@@ -38,6 +38,30 @@ const nextConfig: NextConfig = {
     
     return config;
   },
+  async redirects() {
+    return [
+      {
+        source: "/admin/faq",
+        destination: "/admin/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/admin/bugs",
+        destination: "/admin/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/admin/bugs/:path*",
+        destination: "/admin/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/teacher/faq",
+        destination: "/teacher/dashboard",
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

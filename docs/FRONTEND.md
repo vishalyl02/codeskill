@@ -49,8 +49,6 @@
 | `/admin/assessments/[id]/analytics` | `src/app/admin/assessments/[id]/analytics/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/assessments/[id]/results` | `src/app/admin/assessments/[id]/results/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/assessments/create` | `src/app/admin/assessments/create/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
-| `/admin/bugs` | `src/app/admin/bugs/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
-| `/admin/bugs/[id]` | `src/app/admin/bugs/[id]/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/candidates` | `src/app/admin/candidates/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/candidates/[id]` | `src/app/admin/candidates/[id]/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/companies` | `src/app/admin/companies/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
@@ -59,7 +57,6 @@
 | `/admin/contests/[id]/edit` | `src/app/admin/contests/[id]/edit/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/contests/create` | `src/app/admin/contests/create/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/dashboard` | `src/app/admin/dashboard/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
-| `/admin/faq` | `src/app/admin/faq/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/learning` | `src/app/admin/learning/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/learning/paths` | `src/app/admin/learning/paths/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
 | `/admin/learning/paths/[id]/edit` | `src/app/admin/learning/paths/[id]/edit/page.tsx` | **Admin / Faculty** | Page view and workflow controller. |
@@ -130,7 +127,6 @@
 | `/teacher/contest-results` | `src/app/teacher/contest-results/page.tsx` | **Teacher / Faculty** | Page view and workflow controller. |
 | `/teacher/contests` | `src/app/teacher/contests/page.tsx` | **Teacher / Faculty** | Page view and workflow controller. |
 | `/teacher/dashboard` | `src/app/teacher/dashboard/page.tsx` | **Teacher / Faculty** | Page view and workflow controller. |
-| `/teacher/faq` | `src/app/teacher/faq/page.tsx` | **Teacher / Faculty** | Page view and workflow controller. |
 | `/teacher/mcqs` | `src/app/teacher/mcqs/page.tsx` | **Teacher / Faculty** | Page view and workflow controller. |
 | `/teacher/problems` | `src/app/teacher/problems/page.tsx` | **Teacher / Faculty** | Page view and workflow controller. |
 | `/teacher/problems/create` | `src/app/teacher/problems/create/page.tsx` | **Teacher / Faculty** | Page view and workflow controller. |
