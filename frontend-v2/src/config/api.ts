@@ -733,26 +733,6 @@ export const adminAssessmentsAPI = {
     api.get(`/reports/assessment-attempt/${encodeURIComponent(attemptId)}`, { responseType: "blob" }),
 };
 
-export const adminBugsAPI = {
-  getAll: (params?: { search?: string; sort?: "newest" | "oldest" | "priority" }) =>
-    api.get("/admin/bugs", { params }),
-  getById: (id: string) => api.get(`/admin/bugs/${id}`),
-  create: (data: FormData) =>
-    api.post("/admin/bugs", data, { headers: { "Content-Type": "multipart/form-data" } }),
-  assign: (id: string, assigneeName: string) =>
-    api.put(`/admin/bugs/${id}/assign`, { assigneeName }),
-  updateStatus: (id: string, status: "fixed" | "new") =>
-    api.put(`/admin/bugs/${id}/status`, { status }),
-  updateBug: (id: string, data: { title: string; description: string }) =>
-    api.put(`/admin/bugs/${id}`, data),
-  addImages: (id: string, data: FormData) =>
-    api.post(`/admin/bugs/${id}/images`, data, { headers: { "Content-Type": "multipart/form-data" } }),
-  addComment: (id: string, data: { commenterName: string; text: string }) =>
-    api.post(`/admin/bugs/${id}/comments`, data),
-  updateComment: (id: string, commentId: string, text: string) =>
-    api.put(`/admin/bugs/${id}/comments/${commentId}`, { text }),
-};
-
 export const studentAssessmentsAPI = {
   evaluateCode: (id: string, data: { questionId: string; code: string; language: string }) => awaitExecution(
     () => api.post(`/assessments/${id}/evaluate-code`, data), jobId => runAPI.getJob(jobId),
