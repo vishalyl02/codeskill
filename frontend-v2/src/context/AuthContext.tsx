@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { authAPI } from "@/config/api";
+import { authStorage, ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, AUTH_CHANGED_EVENT } from "@/lib/auth-storage";
 
 interface User {
   _id: string;
@@ -19,11 +20,11 @@ interface AuthContextType {
   registerSendOTP: (data: { email: string }) => Promise<any>;
   register: (data: any) => Promise<any>;
   login: (data: any) => Promise<any>;
-  studentLogin: (data: { uid: string; password: string }) => Promise<any>;
+  studentLogin: (data: { uid: string; password: string; rememberMe?: boolean }) => Promise<any>;
   forceChangePassword: (data: { currentPassword: string; newPassword: string }) => Promise<any>;
-  googleLogin: (token: string) => Promise<any>;
+  googleLogin: (token: string, rememberMe?: boolean) => Promise<any>;
   adminLogin: (data: any) => Promise<any>;
-  adminLoginVerify: (data: { email: string; otp: string }) => Promise<any>;
+  adminLoginVerify: (data: { email: string; otp: string; rememberMe?: boolean }) => Promise<any>;
   forgotPassword: (data: { email: string }) => Promise<any>;
   resetPassword: (data: any) => Promise<any>;
   logout: () => void;
@@ -41,15 +42,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Load user from token on mount
   useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("codeskill_token") : null;
+    const token = authStorage.getAccessToken();
     if (token) {
       authAPI
         .getMe()
         .then((res) => setUser(res.data.user))
         .catch(() => {
-          if (typeof window !== "undefined") {
-            localStorage.removeItem("codeskill_token");
-          }
+          authStorage.clearTokens();
         })
         .finally(() => setLoading(false));
     } else {
@@ -60,23 +59,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const clearSession = () => {
       setUser(null);
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("codeskill_token");
-        localStorage.removeItem("codeskill_refresh_token");
-      }
+      authStorage.clearTokens();
     };
     const handleStorage = (event: StorageEvent) => {
       if (
-        (event.key === "codeskill_token" || event.key === "codeskill_refresh_token") &&
+        (event.key === ACCESS_TOKEN_KEY || event.key === REFRESH_TOKEN_KEY) &&
         !event.newValue
       ) {
         clearSession();
       }
     };
+    const handleAuthChanged = () => {
+      const token = authStorage.getAccessToken();
+      if (!token) {
+        setUser(null);
+      }
+    };
     window.addEventListener("codeskill:session-expired", clearSession);
+    window.addEventListener(AUTH_CHANGED_EVENT, handleAuthChanged);
     window.addEventListener("storage", handleStorage);
     return () => {
       window.removeEventListener("codeskill:session-expired", clearSession);
+      window.removeEventListener(AUTH_CHANGED_EVENT, handleAuthChanged);
       window.removeEventListener("storage", handleStorage);
     };
   }, []);
@@ -97,12 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setError(null);
       const res = await authAPI.register(data);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("codeskill_token", res.data.token);
-        if (res.data.refreshToken) {
-          localStorage.setItem("codeskill_refresh_token", res.data.refreshToken);
-        }
-      }
+      authStorage.setTokens(res.data.token, res.data.refreshToken, Boolean(data?.rememberMe));
       setUser(res.data.user);
       return res.data;
     } catch (err: any) {
@@ -116,12 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setError(null);
       const res = await authAPI.login(data);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("codeskill_token", res.data.token);
-        if (res.data.refreshToken) {
-          localStorage.setItem("codeskill_refresh_token", res.data.refreshToken);
-        }
-      }
+      authStorage.setTokens(res.data.token, res.data.refreshToken, Boolean(data?.rememberMe));
       setUser(res.data.user);
       return res.data;
     } catch (err: any) {
@@ -131,16 +125,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const studentLogin = useCallback(async (data: { uid: string; password: string }) => {
+  const studentLogin = useCallback(async (data: { uid: string; password: string; rememberMe?: boolean }) => {
     try {
       setError(null);
       const res = await authAPI.studentLogin(data);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("codeskill_token", res.data.token);
-        if (res.data.refreshToken) {
-          localStorage.setItem("codeskill_refresh_token", res.data.refreshToken);
-        }
-      }
+      authStorage.setTokens(res.data.token, res.data.refreshToken, Boolean(data?.rememberMe));
       setUser(res.data.user);
       return res.data;
     } catch (err: any) {
@@ -154,13 +143,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setError(null);
       const res = await authAPI.forceChangePassword(data);
-      if (typeof window !== "undefined") {
-        if (res.data?.token) {
-          localStorage.setItem("codeskill_token", res.data.token);
-        }
-        if (res.data?.refreshToken) {
-          localStorage.setItem("codeskill_refresh_token", res.data.refreshToken);
-        }
+      if (res.data?.token) {
+        authStorage.setTokens(res.data.token, res.data.refreshToken);
       }
       if (res.data?.user) {
         setUser((prev) => (prev ? { ...prev, ...res.data.user, forcePasswordChange: false } : prev));
@@ -179,12 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null);
       const res = await authAPI.adminLogin(data);
       if (res.data?.token) {
-        if (typeof window !== "undefined") {
-          localStorage.setItem("codeskill_token", res.data.token);
-          if (res.data.refreshToken) {
-            localStorage.setItem("codeskill_refresh_token", res.data.refreshToken);
-          }
-        }
+        authStorage.setTokens(res.data.token, res.data.refreshToken, Boolean(data?.rememberMe));
         setUser(res.data.user);
       }
       return res.data;
@@ -195,16 +174,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const adminLoginVerify = useCallback(async (data: { email: string; otp: string }) => {
+  const adminLoginVerify = useCallback(async (data: { email: string; otp: string; rememberMe?: boolean }) => {
     try {
       setError(null);
       const res = await authAPI.adminLoginVerify(data);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("codeskill_token", res.data.token);
-        if (res.data.refreshToken) {
-          localStorage.setItem("codeskill_refresh_token", res.data.refreshToken);
-        }
-      }
+      authStorage.setTokens(res.data.token, res.data.refreshToken, Boolean(data?.rememberMe));
       setUser(res.data.user);
       return res.data;
     } catch (err: any) {
@@ -214,16 +188,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const googleLoginUser = useCallback(async (token: string) => {
+  const googleLoginUser = useCallback(async (token: string, rememberMe?: boolean) => {
     try {
       setError(null);
       const res = await authAPI.googleLogin(token);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("codeskill_token", res.data.token);
-        if (res.data.refreshToken) {
-          localStorage.setItem("codeskill_refresh_token", res.data.refreshToken);
-        }
-      }
+      authStorage.setTokens(res.data.token, res.data.refreshToken, Boolean(rememberMe));
       setUser(res.data.user);
       return res.data;
     } catch (err: any) {
@@ -259,12 +228,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logoutUser = useCallback(() => {
     if (typeof window !== "undefined") {
-      const refreshToken = localStorage.getItem("codeskill_refresh_token");
+      const refreshToken = authStorage.getRefreshToken();
       if (refreshToken) {
         authAPI.logout({ refreshToken }).catch(() => {});
       }
-      localStorage.removeItem("codeskill_token");
-      localStorage.removeItem("codeskill_refresh_token");
+      authStorage.clearTokens();
     }
     setUser(null);
   }, []);

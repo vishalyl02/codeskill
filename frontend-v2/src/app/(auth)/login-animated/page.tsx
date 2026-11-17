@@ -119,6 +119,7 @@ export default function AnimatedLoginPage() {
   const [formData, setFormData] = useState({
     uid: '',
     password: '',
+    rememberMe: false,
   });
   const [errorField, setErrorField] = useState('');
 
@@ -143,6 +144,7 @@ export default function AnimatedLoginPage() {
       const res = await login({
         email: input,
         password: formData.password,
+        rememberMe: formData.rememberMe,
       });
 
       if (res?.user?.isAdmin) {

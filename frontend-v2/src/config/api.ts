@@ -1,6 +1,7 @@
 import { awaitExecution } from "@/lib/await-execution";
 import { awaitSubmission } from "@/lib/submission-feedback";
 import axios from "axios";
+import { authStorage } from "@/lib/auth-storage";
 import { getBrowserApiBaseURL } from "@/lib/api-base-url";
 import { normalizeProblemQuery } from "@/lib/public-problems";
 import { logger } from "@/lib/logger";
@@ -41,7 +42,7 @@ api.interceptors.request.use((config) => {
   }
 
   if (typeof window !== "undefined") {
-    const token = localStorage.getItem("codeskill_token");
+    const token = authStorage.getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -209,7 +210,7 @@ api.interceptors.response.use(
         reqUrl.includes("auth/register") ||
         reqUrl.includes("auth/refresh");
 
-      const refreshToken = localStorage.getItem("codeskill_refresh_token");
+      const refreshToken = authStorage.getRefreshToken();
 
       if (!isAuthPage && !isAuthRequest && refreshToken) {
         if (isRefreshing) {
@@ -233,10 +234,7 @@ api.interceptors.response.use(
             const newToken = refreshRes.data?.token;
             const newRefreshToken = refreshRes.data?.refreshToken;
             if (newToken) {
-              localStorage.setItem("codeskill_token", newToken);
-              if (newRefreshToken) {
-                localStorage.setItem("codeskill_refresh_token", newRefreshToken);
-              }
+              authStorage.setTokens(newToken, newRefreshToken);
               onRefreshed(newToken);
               if (originalRequest.headers) {
                 originalRequest.headers.Authorization = `Bearer ${newToken}`;
@@ -247,8 +245,7 @@ api.interceptors.response.use(
           })
           .catch((refreshErr) => {
             onRefreshFailed();
-            localStorage.removeItem("codeskill_token");
-            localStorage.removeItem("codeskill_refresh_token");
+            authStorage.clearTokens();
             window.dispatchEvent(new Event("codeskill:session-expired"));
             const isPublicPage =
               pathname === "/" ||
@@ -266,8 +263,7 @@ api.interceptors.response.use(
 
       // If no refresh token or on auth page/request:
       if (!isAuthPage && !isAuthRequest) {
-        localStorage.removeItem("codeskill_token");
-        localStorage.removeItem("codeskill_refresh_token");
+        authStorage.clearTokens();
         window.dispatchEvent(new Event("codeskill:session-expired"));
         const isPublicPage =
           pathname === "/" ||
