@@ -20,7 +20,7 @@ import { applyProblemConfigDefaultLanguageMigration } from './migrations/problem
 import { applyAnalyticsOptimizationIndexesMigration } from './migrations/analytics-optimization-indexes';
 import { applyQuestionHideMainMethodMigration } from './migrations/question-hide-main-method';
 import { applyAssessmentSequentialSectionsMigration } from './migrations/assessment-sequential-sections';
-import { applyContestSubmissionScopeMigration } from './migrations/contest-submission-scope';
+import { applyContestSubmissionScopeMigration, migrateContestSubmissionShards } from './migrations/contest-submission-scope';
 
 export function practiceSubmissionMigrationOptions(): DataSourceOptions {
   const postgres = databaseConfig().postgres;
@@ -92,25 +92,8 @@ export async function runPracticeSubmissionSourceMigration(): Promise<void> {
     }
   }
 
-  // A partially completed deployment is safe to retry: each shard change is idempotent.
   const sharding = parseSubmissionShardingConfig();
-  if (sharding) {
-    for (const shard of sharding.shards) {
-      const source = new DataSource({
-        type: 'postgres', url: shard.url, synchronize: false, logging: false,
-        ssl: shard.ssl ? { rejectUnauthorized: true } : false,
-      });
-      try {
-        await source.initialize();
-        await source.transaction(async (manager) => {
-          await manager.query('SELECT pg_advisory_xact_lock(1902230159)');
-          await applyContestSubmissionScopeMigration(manager);
-        });
-      } finally {
-        if (source.isInitialized) await source.destroy();
-      }
-    }
-  }
+  if (sharding) await migrateContestSubmissionShards(sharding);
 }
 
 if (require.main === module) {
