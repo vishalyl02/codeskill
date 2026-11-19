@@ -4,6 +4,8 @@ import {
   ForbiddenException,
   NotFoundException,
   Optional,
+  OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -28,7 +30,9 @@ function compareVersions(v1: string, v2: string): number {
 }
 
 @Injectable()
-export class ExamSecurityService {
+export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
+  private flushTimer?: NodeJS.Timeout;
+
   constructor(
     @InjectRepository(Assessment)
     private readonly assessmentRepo: Repository<Assessment>,
@@ -40,6 +44,26 @@ export class ExamSecurityService {
     @Optional() private readonly alertWebhookService?: AlertWebhookService,
     @Optional() private readonly redisService?: RedisService,
   ) {}
+
+  onModuleInit() {
+    this.flushTimer = setInterval(async () => {
+      try {
+        await this.flushTelemetryBuffer(200);
+      } catch {
+        // non-blocking
+      }
+    }, 5000);
+    if (this.flushTimer?.unref) {
+      this.flushTimer.unref();
+    }
+  }
+
+  onModuleDestroy() {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = undefined;
+    }
+  }
 
   async initSecureSession(
     assessmentId: string,
@@ -137,6 +161,29 @@ export class ExamSecurityService {
         throw new ForbiddenException(
           `Your Safe Exam Browser version (${clientVersion}) is not supported for this assessment. Please install an approved version.`,
         );
+      }
+    }
+
+    if (this.redisService) {
+      const activeDeviceKey = `exam:active-device:${assessment.id}:${candidateId}`;
+      const existingDevice = await this.redisService.get<{
+        deviceFingerprint: string;
+        attestationToken?: string;
+        boundAt: string;
+      }>(activeDeviceKey);
+
+      const rawUserAgent = headers?.['user-agent'];
+      const userAgentStr = Array.isArray(rawUserAgent) ? rawUserAgent.join(' ') : rawUserAgent;
+      const incomingFingerprint =
+        clientBody?.deviceFingerprint ||
+        headers?.['x-device-fingerprint'] ||
+        (userAgentStr ? crypto.createHash('md5').update(userAgentStr).digest('hex') : null);
+
+      if (existingDevice && incomingFingerprint && existingDevice.deviceFingerprint && existingDevice.deviceFingerprint !== incomingFingerprint) {
+        throw new ForbiddenException({
+          code: 'CONCURRENT_SESSION_DETECTED',
+          message: 'Concurrent session detected. This assessment attempt is already active on another device or browser.',
+        });
       }
     }
 
@@ -477,11 +524,26 @@ export class ExamSecurityService {
       }
     }
 
-    const minVersion = process.env.LOCKDOWN_MIN_VERSION || '1.0.0';
+    let minVersion = process.env.LOCKDOWN_MIN_VERSION || '1.0.0';
+    if (body.assessmentId) {
+      try {
+        const assessment = await this.assessmentRepo.findOne({
+          where: [{ id: body.assessmentId }, { mongoId: body.assessmentId }],
+        });
+        if ((assessment as any)?.minLockdownVersion) {
+          minVersion = (assessment as any).minLockdownVersion;
+        }
+      } catch {
+        // safe fallback
+      }
+    }
+
     if (!body.clientVersion || compareVersions(body.clientVersion, minVersion) < 0) {
-      throw new ForbiddenException(
-        `LockDown client version (${body.clientVersion || 'unknown'}) is below minimum required version (${minVersion}). Please update your application.`,
-      );
+      throw new ForbiddenException({
+        code: 'CLIENT_UPDATE_REQUIRED',
+        minVersion,
+        message: `LockDown client version (${body.clientVersion || 'unknown'}) is below minimum required version (${minVersion}). Please update your application.`,
+      });
     }
 
     const attestedSessionId = crypto.randomUUID();
@@ -489,6 +551,44 @@ export class ExamSecurityService {
     const attestationTier = body.attestationTier || 'software_binary_bound';
     const kioskMode = body.kioskMode || 'standard';
     const clientBinaryHash = body.clientBinaryHash || 'unknown';
+
+    if (this.redisService && body.assessmentId) {
+      const activeDeviceKey = `exam:active-device:${body.assessmentId}:${userId}`;
+      const existingDevice = await this.redisService.get<{
+        deviceFingerprint: string;
+        attestationToken?: string;
+        boundAt: string;
+      }>(activeDeviceKey);
+
+      const incomingFingerprint =
+        (body as any).deviceFingerprint ||
+        (body as any).fingerprint ||
+        ip ||
+        'unknown-device';
+
+      if (
+        existingDevice &&
+        existingDevice.deviceFingerprint &&
+        existingDevice.deviceFingerprint !== incomingFingerprint
+      ) {
+        throw new ForbiddenException({
+          code: 'CONCURRENT_SESSION_DETECTED',
+          message: 'Concurrent session detected. This assessment attempt is already active on another device.',
+        });
+      }
+
+      if (!existingDevice) {
+        await this.redisService.set(
+          activeDeviceKey,
+          {
+            deviceFingerprint: incomingFingerprint,
+            attestationToken: attestedSessionId,
+            boundAt: new Date().toISOString(),
+          },
+          14400,
+        );
+      }
+    }
 
     const attestationRecord: Record<string, any> = {
       userId,
@@ -708,5 +808,117 @@ export class ExamSecurityService {
     }
 
     return summary;
+  }
+
+  async clearConcurrentDeviceLock(assessmentId: string, candidateId: string): Promise<void> {
+    if (this.redisService) {
+      await this.redisService.del(`exam:active-device:${assessmentId}:${candidateId}`);
+    }
+  }
+
+  async enqueueTelemetryBatch(
+    userId: string,
+    body: {
+      assessmentId?: string;
+      sessionId?: string;
+      events: Array<{
+        eventType: string;
+        severity?: string;
+        metadata?: any;
+        timestamp?: number;
+      }>;
+      pacingMetrics?: any;
+    },
+  ): Promise<{ accepted: boolean; count: number }> {
+    const events = Array.isArray(body?.events) ? body.events : [];
+
+    if (this.redisService && events.length > 0) {
+      for (const ev of events) {
+        const item = JSON.stringify({
+          userId,
+          assessmentId: body.assessmentId,
+          sessionId: body.sessionId,
+          eventType: ev.eventType || 'TELEMETRY_EVENT',
+          severity: ev.severity || 'INFO',
+          metadata: {
+            ...(ev.metadata || {}),
+            timestamp: ev.timestamp || Date.now(),
+            pacingMetrics: body.pacingMetrics,
+          },
+          createdAt: new Date(ev.timestamp || Date.now()).toISOString(),
+        });
+        await this.redisService.rpush('exam:telemetry:buffer', item);
+      }
+    } else if (events.length > 0 && this.eventRepo) {
+      const entities = events.map((ev) =>
+        this.eventRepo.create({
+          candidate: { id: userId } as any,
+          candidateId: userId,
+          assessmentId: body.assessmentId || undefined,
+          sessionId: body.sessionId || undefined,
+          eventType: ev.eventType || 'TELEMETRY_EVENT',
+          severity: ev.severity || 'INFO',
+          metadata: {
+            ...(ev.metadata || {}),
+            timestamp: ev.timestamp || Date.now(),
+            pacingMetrics: body.pacingMetrics,
+          },
+        }),
+      );
+      await this.eventRepo.save(entities);
+    }
+
+    return { accepted: true, count: events.length };
+  }
+
+  async flushTelemetryBuffer(batchLimit = 100): Promise<number> {
+    if (!this.redisService || !this.eventRepo) return 0;
+    try {
+      const items: any[] = [];
+      for (let i = 0; i < batchLimit; i++) {
+        const raw = await this.redisService.lpop('exam:telemetry:buffer');
+        if (!raw) break;
+        try {
+          items.push(typeof raw === 'string' ? JSON.parse(raw) : raw);
+        } catch {
+          // ignore parsing error
+        }
+      }
+
+      if (items.length === 0) return 0;
+
+      const entities = items.map((item) =>
+        this.eventRepo.create({
+          candidate: { id: item.userId } as any,
+          candidateId: item.userId,
+          assessmentId: item.assessmentId,
+          sessionId: item.sessionId,
+          eventType: item.eventType,
+          severity: item.severity || 'INFO',
+          metadata: item.metadata || {},
+        }),
+      );
+
+      await this.eventRepo.save(entities);
+      return entities.length;
+    } catch {
+      return 0;
+    }
+  }
+
+  async getCachedLockdownAnalytics(assessmentId: string, computeFn: () => Promise<any>): Promise<any> {
+    const cacheKey = `exam:lockdown-analytics:${assessmentId}`;
+    if (this.redisService) {
+      const cached = await this.redisService.get(cacheKey);
+      if (cached) return cached;
+    }
+
+    const computed = await computeFn();
+
+    if (this.redisService && computed) {
+      await this.redisService.set(cacheKey, computed, 10); // 10s TTL
+    }
+
+    return computed;
   }
 }

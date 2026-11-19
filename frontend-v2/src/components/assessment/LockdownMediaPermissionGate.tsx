@@ -75,7 +75,7 @@ export default function LockdownMediaPermissionGate({
 
       // 2. Request browser media stream
       const constraints: MediaStreamConstraints = {
-        video: requireCamera ? { width: { ideal: 640 }, height: { ideal: 480 } } : false,
+        video: requireCamera ? { width: { ideal: 640, max: 1280 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } } : false,
         audio: requireMic,
       };
 

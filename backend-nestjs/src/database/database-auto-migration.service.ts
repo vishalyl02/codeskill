@@ -18,6 +18,7 @@ import { applyAssessmentVdiOverrideMigration } from './migrations/assessment-vdi
 import { applyAssessmentLockdownEnforcementMigration } from './migrations/assessment-lockdown-enforcement';
 import { applyAssessmentDockToolsMigration } from './migrations/assessment-dock-tools';
 import { applyAssessmentEnterpriseHardeningMigration } from './migrations/assessment-enterprise-hardening';
+import { applyExamSecurityCompositeIndexesMigration } from './migrations/exam-security-composite-indexes';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -160,6 +161,11 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       // 20. Assessment enterprise hardening (close other apps, spellcheck, find on page, url patterns, screen capture)
       await this.executeStep('assessment-enterprise-hardening', () =>
         applyAssessmentEnterpriseHardeningMigration(queryRunner),
+      );
+
+      // 21. Exam security composite indexes
+      await this.executeStep('exam-security-composite-indexes', () =>
+        applyExamSecurityCompositeIndexesMigration(queryRunner),
       );
     } finally {
       await queryRunner.release();

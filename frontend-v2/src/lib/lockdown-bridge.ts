@@ -9,6 +9,12 @@ export interface PreflightResult {
   vm_indicators?: string[];
 }
 
+export interface DisplayTopology {
+  monitorCount: number;
+  externalDisplaysDetected: boolean;
+  primaryResolution: string;
+}
+
 export interface AttestationInfo {
   public_key_pem: string;
   attestation_tier: string;
@@ -181,6 +187,20 @@ export async function setAttestedSessionId(sessionId: string): Promise<void> {
  */
 export async function runPreflightChecks(): Promise<PreflightResult> {
   return tauriInvoke<PreflightResult>('run_preflight_checks');
+}
+
+/**
+ * Retrieves client display topology (connected monitors, external displays, primary resolution).
+ */
+export async function getDisplayTopology(): Promise<DisplayTopology> {
+  if (!isLockdownClient()) {
+    return {
+      monitorCount: 1,
+      externalDisplaysDetected: false,
+      primaryResolution: typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : '1920x1080',
+    };
+  }
+  return tauriInvoke<DisplayTopology>('get_display_topology');
 }
 
 /**

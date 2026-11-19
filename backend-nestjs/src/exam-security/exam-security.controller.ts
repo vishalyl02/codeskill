@@ -98,6 +98,26 @@ export class ExamSecurityController {
     );
   }
 
+  @Post('telemetry-batch')
+  @HttpCode(202)
+  async ingestTelemetryBatch(
+    @CurrentUser('id') userId: string,
+    @Body()
+    body: {
+      assessmentId?: string;
+      sessionId?: string;
+      events: Array<{
+        eventType: string;
+        severity?: string;
+        metadata?: any;
+        timestamp?: number;
+      }>;
+      pacingMetrics?: any;
+    },
+  ) {
+    return this.examSecurityService.enqueueTelemetryBatch(userId, body);
+  }
+
   @Post('session/:sessionId/heartbeat')
   @HttpCode(200)
   async heartbeat(

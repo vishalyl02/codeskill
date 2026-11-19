@@ -165,6 +165,55 @@ pub fn hydrate_attestation_state_from_disk(app: &AppHandle) {
     }
 }
 
+struct QueuedWrite {
+    path: PathBuf,
+    json: String,
+}
+
+static WRITE_QUEUE: std::sync::Mutex<Option<QueuedWrite>> = std::sync::Mutex::new(None);
+static WORKER_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn schedule_async_debounced_write(path: PathBuf, json: String, immediate: bool) {
+    if immediate {
+        let temp_path = path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
+        if let Ok(_) = fs::write(&temp_path, json.as_bytes()) {
+            let _ = fs::rename(&temp_path, &path);
+        }
+        return;
+    }
+
+    if let Ok(mut lock) = WRITE_QUEUE.lock() {
+        *lock = Some(QueuedWrite {
+            path: path.clone(),
+            json: json.clone(),
+        });
+    }
+
+    if !WORKER_RUNNING.swap(true, Ordering::SeqCst) {
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+
+                let item = {
+                    let mut lock = WRITE_QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+                    lock.take()
+                };
+
+                if let Some(write_task) = item {
+                    // Atomic write-temp-and-rename
+                    let temp_path = write_task.path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
+                    if let Ok(_) = fs::write(&temp_path, write_task.json.as_bytes()) {
+                        let _ = fs::rename(&temp_path, &write_task.path);
+                    }
+                } else {
+                    WORKER_RUNNING.store(false, Ordering::SeqCst);
+                    break;
+                }
+            }
+        });
+    }
+}
+
 pub fn write_persisted_session_raw(
     app: &AppHandle,
     session: &PersistedExamSession,
@@ -177,8 +226,7 @@ pub fn write_persisted_session_raw(
     };
     let json = serde_json::to_string_pretty(&journal)
         .map_err(|e| format!("Failed to serialize session journal: {}", e))?;
-    fs::write(&path, json)
-        .map_err(|e| format!("Failed to write active_exam_session.json: {}", e))?;
+    schedule_async_debounced_write(path, json, session.is_submitted);
     Ok(())
 }
 

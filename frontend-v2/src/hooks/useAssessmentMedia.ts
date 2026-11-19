@@ -123,10 +123,10 @@ export function useAssessmentMedia(
         const preferredCamera = systemDefaultCamera ? undefined : getPreferredAssessmentCamera(sessionId);
         const stream = takeAssessmentStream(sessionId, preferredCamera) || await navigator.mediaDevices.getUserMedia({
           video: preferredCamera
-            ? { deviceId: { exact: preferredCamera }, width: { ideal: 320 }, height: { ideal: 240 } }
+            ? { deviceId: { exact: preferredCamera }, width: { ideal: 640, max: 1280 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } }
             : systemDefaultCamera
-              ? true
-              : { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: "user" },
+              ? { width: { ideal: 640, max: 1280 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } }
+              : { width: { ideal: 640, max: 1280 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 }, facingMode: "user" },
           audio: true,
         });
         // A permission prompt may settle after submission, navigation or a StrictMode cleanup.

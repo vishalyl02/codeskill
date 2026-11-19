@@ -927,8 +927,100 @@ pub fn release_os_kiosk(window: tauri::WebviewWindow) -> Result<(), String> {
         });
     }
 
+    clear_kiosk_dirty(&app);
+    close_secondary_monitor_shields(&app);
     log_diagnostic_entry("INFO", "KIOSK", "OS Kiosk mode released");
     Ok(())
+}
+
+fn get_kiosk_dirty_lock_path(app: &tauri::AppHandle) -> std::path::PathBuf {
+    if let Ok(dir) = app.path().app_data_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join("kiosk_dirty.lock")
+    } else {
+        std::env::temp_dir().join("codeskill_kiosk_dirty.lock")
+    }
+}
+
+pub fn mark_kiosk_dirty(app: &tauri::AppHandle) {
+    let path = get_kiosk_dirty_lock_path(app);
+    let pid = std::process::id();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let content = format!("pid={}\ntimestamp={}\n", pid, now);
+    let _ = std::fs::write(path, content);
+}
+
+pub fn clear_kiosk_dirty(app: &tauri::AppHandle) {
+    let path = get_kiosk_dirty_lock_path(app);
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+pub fn recover_dirty_kiosk_state(app: &tauri::AppHandle) {
+    let path = get_kiosk_dirty_lock_path(app);
+    if path.exists() {
+        log_diagnostic_entry(
+            "WARN",
+            "CRASH_RECOVERY",
+            "Found kiosk_dirty.lock from previous crash/abrupt exit. Recovering dirty kiosk state...",
+        );
+        release_os_kiosk_system();
+        clear_kiosk_dirty(app);
+        log_diagnostic_entry(
+            "INFO",
+            "CRASH_RECOVERY",
+            "Dirty kiosk state recovered successfully.",
+        );
+    }
+}
+
+pub fn spawn_secondary_monitor_shields(app: &tauri::AppHandle) {
+    if let Ok(monitors) = app.available_monitors() {
+        if monitors.len() <= 1 {
+            return;
+        }
+        let primary_name = app.primary_monitor().ok().flatten().and_then(|m| m.name().map(|s| s.to_string()));
+        for (i, monitor) in monitors.iter().enumerate() {
+            let is_primary = match &primary_name {
+                Some(name) => monitor.name() == Some(name),
+                None => i == 0,
+            };
+            if is_primary {
+                continue;
+            }
+            let label = format!("shield-window-{}", i);
+            if app.get_webview_window(&label).is_some() {
+                continue;
+            }
+            let pos = *monitor.position();
+            let size = *monitor.size();
+            let _ = tauri::WebviewWindowBuilder::new(
+                app,
+                &label,
+                tauri::WebviewUrl::App("data:text/html,<body style='background-color:black;margin:0;overflow:hidden;'></body>".into()),
+            )
+            .title("CodeSkill LockDown Shield")
+            .always_on_top(true)
+            .decorations(false)
+            .fullscreen(true)
+            .position(pos.x as f64, pos.y as f64)
+            .inner_size(size.width as f64, size.height as f64)
+            .build();
+        }
+    }
+}
+
+pub fn close_secondary_monitor_shields(app: &tauri::AppHandle) {
+    for i in 0..16 {
+        let label = format!("shield-window-{}", i);
+        if let Some(win) = app.get_webview_window(&label) {
+            let _ = win.close();
+        }
+    }
 }
 
 #[tauri::command]
@@ -939,6 +1031,7 @@ pub fn enable_kiosk_mode(
     clear_os_clipboard();
 
     let app = window.app_handle().clone();
+    mark_kiosk_dirty(&app);
     let att_state = app.state::<AttestationState>();
 
     #[cfg(target_os = "macos")]
@@ -1052,6 +1145,18 @@ pub fn disable_kiosk_mode(window: tauri::WebviewWindow) -> Result<(), String> {
 #[tauri::command]
 pub fn exit_lockdown_app(app: tauri::AppHandle) {
     release_os_kiosk_system();
+    close_secondary_monitor_shields(&app);
+    clear_kiosk_dirty(&app);
+    let _ = crate::state_persistence::clear_persisted_exam_session(app.clone());
+    if let Some(window) = app.get_webview_window("exam-kiosk") {
+        let _ = window.clear_all_browsing_data();
+    }
+    if let Ok(dir) = app.path().app_data_dir() {
+        let scoped = dir.join("scoped_webview_data");
+        if scoped.exists() {
+            let _ = std::fs::remove_dir_all(scoped);
+        }
+    }
     app.exit(0);
 }
 

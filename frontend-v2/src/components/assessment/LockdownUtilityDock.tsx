@@ -33,6 +33,17 @@ import {
   Terminal,
 } from "lucide-react";
 import api from "@/config/api";
+import dynamic from "next/dynamic";
+
+const ScientificCalculatorModal = dynamic(
+  () => import("./ScientificCalculatorModal"),
+  { ssr: false }
+);
+
+const PdfReferenceViewerModal = dynamic(
+  () => import("./PdfReferenceViewerModal"),
+  { ssr: false }
+);
 import {
   getBatteryStatus,
   getSystemVolume,
@@ -398,10 +409,11 @@ export default function LockdownUtilityDock({
     };
   }, []);
 
-  // Heartbeat polling to check session vitality and proctor remote force-quit
+  // Heartbeat polling to check session vitality and proctor remote force-quit (jittered 24s-36s)
   useEffect(() => {
     if (!sessionId || isSubmitted) return;
     let timer: NodeJS.Timeout | null = null;
+    let isCancelled = false;
 
     const sendHeartbeat = async () => {
       try {
@@ -420,9 +432,22 @@ export default function LockdownUtilityDock({
       }
     };
 
-    timer = setInterval(sendHeartbeat, 15000);
+    const scheduleNextHeartbeat = () => {
+      // Add ±20% jitter (24s–36s) to heartbeats to prevent thundering-herd spikes
+      const jitteredIntervalMs = 24000 + Math.random() * 12000;
+      timer = setTimeout(async () => {
+        if (isCancelled) return;
+        await sendHeartbeat();
+        if (!isCancelled && !isSubmitted) {
+          scheduleNextHeartbeat();
+        }
+      }, jitteredIntervalMs);
+    };
+
+    scheduleNextHeartbeat();
     return () => {
-      if (timer) clearInterval(timer);
+      isCancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [sessionId, isSubmitted, onProctorTerminated]);
 
@@ -993,128 +1018,12 @@ export default function LockdownUtilityDock({
       </aside>
 
       {/* =========================================================================
-          Modal 1: In-App Scientific Calculator (z-[70])
+          Modal 1: In-App Scientific Calculator (Dynamically Loaded)
       ========================================================================= */}
-      <AnimatePresence>
-        {activeModal === "calculator" && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-slate-900 border border-slate-700 rounded-2xl p-5 shadow-2xl w-full max-w-sm text-slate-100"
-            >
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-                <div className="flex items-center gap-2">
-                  <Calculator className="w-5 h-5 text-amber-400" />
-                  <h3 className="font-semibold text-sm">Scientific Calculator</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveModal(null)}
-                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Calculator Screen */}
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 mb-4 text-right">
-                <div className="text-xs text-slate-400 font-mono h-4 overflow-hidden">
-                  {calcHistory}
-                </div>
-                <div className="text-2xl font-mono font-bold text-white tracking-wider overflow-x-auto whitespace-nowrap">
-                  {calcDisplay}
-                </div>
-              </div>
-
-              {/* Scientific Keypad */}
-              <div className="grid grid-cols-5 gap-2 text-xs font-semibold">
-                {["sin(", "cos(", "tan(", "log(", "ln("].map((op) => (
-                  <button
-                    key={op}
-                    type="button"
-                    onClick={() => handleCalcButton(op)}
-                    className="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 transition-colors"
-                  >
-                    {op.replace("(", "")}
-                  </button>
-                ))}
-                {["sqrt(", "^", "(", ")", "CE"].map((op) => (
-                  <button
-                    key={op}
-                    type="button"
-                    onClick={() => handleCalcButton(op)}
-                    className="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 transition-colors"
-                  >
-                    {op === "sqrt(" ? "√" : op}
-                  </button>
-                ))}
-                {["7", "8", "9", "÷", "C"].map((op) => (
-                  <button
-                    key={op}
-                    type="button"
-                    onClick={() => handleCalcButton(op)}
-                    className={`p-2.5 rounded-lg transition-colors ${
-                      op === "C"
-                        ? "bg-rose-500/20 text-rose-300 hover:bg-rose-500/30"
-                        : op === "÷"
-                        ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
-                        : "bg-slate-800 hover:bg-slate-700 text-slate-200"
-                    }`}
-                  >
-                    {op}
-                  </button>
-                ))}
-                {["4", "5", "6", "×", "π"].map((op) => (
-                  <button
-                    key={op}
-                    type="button"
-                    onClick={() => handleCalcButton(op)}
-                    className={`p-2.5 rounded-lg transition-colors ${
-                      op === "×"
-                        ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
-                        : "bg-slate-800 hover:bg-slate-700 text-slate-200"
-                    }`}
-                  >
-                    {op}
-                  </button>
-                ))}
-                {["1", "2", "3", "-", "e"].map((op) => (
-                  <button
-                    key={op}
-                    type="button"
-                    onClick={() => handleCalcButton(op)}
-                    className={`p-2.5 rounded-lg transition-colors ${
-                      op === "-"
-                        ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
-                        : "bg-slate-800 hover:bg-slate-700 text-slate-200"
-                    }`}
-                  >
-                    {op}
-                  </button>
-                ))}
-                {["0", ".", "=", "+"].map((op) => (
-                  <button
-                    key={op}
-                    type="button"
-                    onClick={() => handleCalcButton(op)}
-                    className={`p-2.5 rounded-lg transition-colors ${
-                      op === "="
-                        ? "col-span-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
-                        : op === "+"
-                        ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
-                        : "bg-slate-800 hover:bg-slate-700 text-slate-200"
-                    }`}
-                  >
-                    {op}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <ScientificCalculatorModal
+        isOpen={activeModal === "calculator"}
+        onClose={() => setActiveModal(null)}
+      />
 
       {/* =========================================================================
           Modal 2: In-App Rough Scratchpad (z-[70])
@@ -1170,42 +1079,13 @@ export default function LockdownUtilityDock({
       </AnimatePresence>
 
       {/* =========================================================================
-          Modal 3: Approved Reference Material PDF Viewer (z-[70])
+          Modal 3: Approved Reference Material PDF Viewer (Dynamically Loaded)
       ========================================================================= */}
-      <AnimatePresence>
-        {activeModal === "pdf" && referencePdfUrl && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-slate-900 border border-slate-700 rounded-2xl p-5 shadow-2xl w-full max-w-4xl text-slate-100 flex flex-col h-[650px]"
-            >
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-emerald-400" />
-                  <h3 className="font-semibold text-sm">Approved Reference Material</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveModal(null)}
-                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex-1 w-full rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
-                <iframe
-                  src={referencePdfUrl}
-                  title="Approved Exam Reference Material"
-                  className="w-full h-full border-0"
-                />
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <PdfReferenceViewerModal
+        isOpen={activeModal === "pdf"}
+        onClose={() => setActiveModal(null)}
+        referencePdfUrl={referencePdfUrl}
+      />
 
       {/* =========================================================================
           Modal 4: Wi-Fi Scanner & In-Dock Reconnection Popover (z-[70])

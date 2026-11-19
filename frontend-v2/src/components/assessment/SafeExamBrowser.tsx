@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, Maximize, AlertTriangle, VideoOff, MicOff, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '@/config/api';
+import { pacingTelemetry } from '@/lib/pacing-telemetry';
 
 interface SafeExamBrowserProps {
   children: React.ReactNode;
@@ -353,8 +354,36 @@ export default function SafeExamBrowser({
     document.addEventListener('dragstart', handleDrag, { capture: true });
     document.addEventListener('drop', handleDrag, { capture: true });
 
+    // Suppress window.print
+    const origPrint = typeof window !== 'undefined' ? window.print : undefined;
+    if (typeof window !== 'undefined') {
+      window.print = () => {
+        toast.error('Printing is disabled during the assessment.');
+      };
+    }
+
+    // Intercept <input type="file"> clicks unless question explicitly permits
+    const handleFileInputClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.matches?.('input[type="file"]') || target.closest?.('input[type="file"]'))) {
+        const allowUpload =
+          target.getAttribute('data-allow-file-upload') === 'true' ||
+          target.closest?.('[data-allow-file-upload="true"]');
+        if (!allowUpload) {
+          e.preventDefault();
+          e.stopPropagation();
+          toast.error('File uploads are disabled for this question.');
+        }
+      }
+    };
+    document.addEventListener('click', handleFileInputClick, { capture: true });
+
     // Prevent copy, cut, paste outside allowed editor components
     const handleClipboardEvent = (e: ClipboardEvent) => {
+      if (e.type === 'paste') {
+        const pasteText = e.clipboardData?.getData('text') || '';
+        pacingTelemetry.recordPaste(pasteText.length);
+      }
       if (!blockCopyPaste) return;
       const target = e.target as HTMLElement | null;
       const isInsideEditor = target && (
@@ -374,6 +403,7 @@ export default function SafeExamBrowser({
 
     // Prevent specific keyboard shortcuts
     const handleKeyDown = (e: KeyboardEvent) => {
+      pacingTelemetry.recordKeystroke();
       const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
       const keyLower = (e.key || '').toLowerCase();
@@ -492,6 +522,10 @@ export default function SafeExamBrowser({
       document.removeEventListener('paste', handleClipboardEvent, { capture: true } as any);
       document.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
       window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
+      document.removeEventListener('click', handleFileInputClick, { capture: true } as any);
+      if (origPrint && typeof window !== 'undefined') {
+        window.print = origPrint;
+      }
     };
   }, [isEnabled, requireFullscreen, detectTabSwitch, blockCopyPaste, monitorViolations]);
 

@@ -85,6 +85,175 @@ pub struct BlockingAppInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplayTopology {
+    #[serde(rename = "monitorCount")]
+    pub monitor_count: usize,
+    #[serde(rename = "externalDisplaysDetected")]
+    pub external_displays_detected: bool,
+    #[serde(rename = "primaryResolution")]
+    pub primary_resolution: String,
+}
+
+#[cfg(target_os = "macos")]
+pub fn get_native_display_topology() -> (usize, bool, String) {
+    use core_graphics::display::{
+        CGGetActiveDisplayList, CGMainDisplayID, CGDisplayPixelsWide, CGDisplayPixelsHigh,
+    };
+    let mut display_count: u32 = 0;
+    let mut displays = [0u32; 32];
+    let err = unsafe { CGGetActiveDisplayList(32, displays.as_mut_ptr(), &mut display_count) };
+    let count = if err == 0 && display_count > 0 {
+        display_count as usize
+    } else {
+        1
+    };
+    let main_id = unsafe { CGMainDisplayID() };
+    let w = unsafe { CGDisplayPixelsWide(main_id) };
+    let h = unsafe { CGDisplayPixelsHigh(main_id) };
+    let resolution = format!("{}x{}", w, h);
+    (count, count > 1, resolution)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn get_native_display_topology() -> (usize, bool, String) {
+    (1, false, "1920x1080".to_string())
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_windows_monitor_count() -> usize {
+    use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
+    use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
+
+    unsafe extern "system" fn monitor_enum_proc(
+        _hmonitor: HMONITOR,
+        _hdc: HDC,
+        _lprect: *mut RECT,
+        lparam: LPARAM,
+    ) -> BOOL {
+        let count_ptr = lparam.0 as *mut usize;
+        if !count_ptr.is_null() {
+            *count_ptr += 1;
+        }
+        BOOL(1)
+    }
+
+    let mut count: usize = 0;
+    let _ = unsafe {
+        EnumDisplayMonitors(
+            HDC::default(),
+            None,
+            Some(monitor_enum_proc),
+            LPARAM(&mut count as *mut usize as isize),
+        )
+    };
+    if count == 0 { 1 } else { count }
+}
+
+#[tauri::command]
+pub fn get_display_topology(app: tauri::AppHandle) -> Result<DisplayTopology, String> {
+    let mut monitor_count = 1;
+    let mut primary_res = "1920x1080".to_string();
+
+    if let Ok(monitors) = app.available_monitors() {
+        if !monitors.is_empty() {
+            monitor_count = monitors.len();
+        }
+    }
+
+    if let Ok(Some(primary)) = app.primary_monitor() {
+        let size = primary.size();
+        primary_res = format!("{}x{}", size.width, size.height);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let (native_cnt, _, native_res) = get_native_display_topology();
+        if native_cnt > monitor_count {
+            monitor_count = native_cnt;
+        }
+        if (primary_res == "1920x1080" || primary_res.is_empty()) && !native_res.is_empty() {
+            primary_res = native_res;
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let win_cnt = get_windows_monitor_count();
+        if win_cnt > monitor_count {
+            monitor_count = win_cnt;
+        }
+    }
+
+    let external_displays_detected = monitor_count > 1;
+
+    Ok(DisplayTopology {
+        monitor_count,
+        external_displays_detected,
+        primary_resolution: primary_res,
+    })
+}
+
+pub fn detect_system_proxy() -> (bool, Vec<String>) {
+    let mut indicators = Vec::new();
+    let proxy_envs = [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ];
+    for env_var in proxy_envs {
+        if let Ok(val) = std::env::var(env_var) {
+            if !val.trim().is_empty() {
+                indicators.push(format!("Env {}: {}", env_var, val));
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("/usr/sbin/scutil").arg("--proxy").output() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            for line in text.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("HTTPEnable : 1")
+                    || trimmed.starts_with("HTTPSEnable : 1")
+                    || trimmed.starts_with("SOCKSEnable : 1")
+                {
+                    indicators.push(format!("macOS system proxy active: {}", trimmed));
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Registry::{
+            RegOpenKeyExW, RegQueryValueExW, RegCloseKey, HKEY, HKEY_CURRENT_USER, KEY_READ, REG_DWORD,
+        };
+        unsafe {
+            let mut key = HKEY::default();
+            let subkey = windows::core::w!("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings");
+            if RegOpenKeyExW(HKEY_CURRENT_USER, subkey, 0, KEY_READ, &mut key).is_ok() {
+                let mut val: u32 = 0;
+                let mut size: u32 = std::mem::size_of::<u32>() as u32;
+                let mut val_type: u32 = REG_DWORD.0;
+                if RegQueryValueExW(key, windows::core::w!("ProxyEnable"), None, Some(&mut val_type), Some(&mut val as *mut u32 as *mut u8), Some(&mut size)).is_ok() {
+                    if val == 1 {
+                        indicators.push("Windows system proxy active (ProxyEnable = 1)".to_string());
+                    }
+                }
+                let _ = RegCloseKey(key);
+            }
+        }
+    }
+
+    let is_detected = !indicators.is_empty();
+    (is_detected, indicators)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiagnosticLogEntry {
     pub timestamp_ms: u64,
     pub level: String,
@@ -337,31 +506,48 @@ pub fn is_forbidden_process(name: &str, exe_path: Option<&str>) -> Option<&'stat
     None
 }
 
+static WATCHDOG_SYSTEM: Mutex<Option<System>> = Mutex::new(None);
+
 pub fn check_forbidden_processes() -> Vec<String> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+
     let mut detected = Vec::new();
-    let mut sys = System::new_all();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    let mut lock = WATCHDOG_SYSTEM.lock().unwrap_or_else(|e| e.into_inner());
 
-    for (_pid, process) in sys.processes() {
-        let name = process.name().to_string_lossy();
-        let exe = process.exe().map(|p| p.to_string_lossy().to_string());
-        let cmd = process
-            .cmd()
-            .iter()
-            .map(|s| s.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(" ");
+    let refresh_kind = ProcessRefreshKind::new()
+        .with_cmd(UpdateKind::OnlyIfNotSet)
+        .with_exe(UpdateKind::OnlyIfNotSet);
 
-        let full_exe_cmd = match (exe, cmd.is_empty()) {
-            (Some(e), false) => Some(format!("{} {}", e, cmd)),
-            (Some(e), true) => Some(e),
-            (None, false) => Some(cmd),
-            (None, true) => None,
-        };
+    if lock.is_none() {
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(ProcessesToUpdate::All, refresh_kind);
+        *lock = Some(sys);
+    } else if let Some(sys) = lock.as_mut() {
+        sys.refresh_processes_specifics(ProcessesToUpdate::All, refresh_kind);
+    }
 
-        if let Some(forbidden) = is_forbidden_process(&name, full_exe_cmd.as_deref()) {
-            if !detected.contains(&forbidden.to_string()) {
-                detected.push(forbidden.to_string());
+    if let Some(sys) = lock.as_ref() {
+        for (_pid, process) in sys.processes() {
+            let name = process.name().to_string_lossy();
+            let exe = process.exe().map(|p| p.to_string_lossy().to_string());
+            let cmd = process
+                .cmd()
+                .iter()
+                .map(|s| s.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let full_exe_cmd = match (exe, cmd.is_empty()) {
+                (Some(e), false) => Some(format!("{} {}", e, cmd)),
+                (Some(e), true) => Some(e),
+                (None, false) => Some(cmd),
+                (None, true) => None,
+            };
+
+            if let Some(forbidden) = is_forbidden_process(&name, full_exe_cmd.as_deref()) {
+                if !detected.contains(&forbidden.to_string()) {
+                    detected.push(forbidden.to_string());
+                }
             }
         }
     }
@@ -664,6 +850,16 @@ pub fn run_preflight_checks(window: tauri::Window) -> PreflightResult {
         ));
     }
 
+    // 1.1 Proxy / MITM inspection
+    let (proxy_detected, proxy_indicators) = detect_system_proxy();
+    if proxy_detected {
+        violations.push(format!(
+            "MITM_PROXY_DETECTED: Active system HTTP/SOCKS proxy detected ({}). Proxies and MITM packet interception tools are prohibited during exams.",
+            proxy_indicators.join("; ")
+        ));
+        log_diagnostic_entry("WARN", "MITM_PROXY_DETECTED", &format!("Proxy detected: {}", proxy_indicators.join("; ")));
+    }
+
     // 2. VM / Hypervisor detection (CPUID + DMI + RDTSC timing anomaly)
     let (is_vm, vm_indicators) = check_virtual_machine_detailed();
     if is_vm {
@@ -746,7 +942,6 @@ pub fn run_preflight_checks(window: tauri::Window) -> PreflightResult {
 
 pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
     std::thread::spawn(move || {
-        let mut sys = System::new();
         loop {
             std::thread::sleep(std::time::Duration::from_secs(2));
 
@@ -759,10 +954,16 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
                             .unwrap_or_default()
                             .as_millis() as u64;
 
+                        log_diagnostic_entry(
+                            "WARN",
+                            "SECONDARY_DISPLAY_CONNECTED",
+                            &format!("Secondary display connected mid-exam: {} monitors active.", monitors.len()),
+                        );
+
                         let _ = app_handle.emit(
                             "exam:environment-violation",
                             EnvironmentViolationEvent {
-                                violation_type: "MULTIPLE_MONITORS_CONNECTED".to_string(),
+                                violation_type: "SECONDARY_DISPLAY_CONNECTED".to_string(),
                                 message: format!(
                                     "Secondary display connected mid-exam: {} monitors active.",
                                     monitors.len()
@@ -770,6 +971,9 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
                                 timestamp: now,
                             },
                         );
+                        crate::kiosk_os::spawn_secondary_monitor_shields(&app_handle);
+                    } else {
+                        crate::kiosk_os::close_secondary_monitor_shields(&app_handle);
                     }
                 }
             }
@@ -792,40 +996,22 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
                 );
             }
 
-            // Check processes
-            sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
-            for (_pid, process) in sys.processes() {
-                let name = process.name().to_string_lossy();
-                let exe = process.exe().map(|p| p.to_string_lossy().to_string());
-                let cmd = process
-                    .cmd()
-                    .iter()
-                    .map(|s| s.to_string_lossy())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let full_path = match (exe, cmd.is_empty()) {
-                    (Some(e), false) => Some(format!("{} {}", e, cmd)),
-                    (Some(e), true) => Some(e),
-                    (None, false) => Some(cmd),
-                    (None, true) => None,
-                };
+            // Check processes via zero-allocation persistent system
+            let forbidden_list = check_forbidden_processes();
+            if let Some(forbidden) = forbidden_list.first() {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
 
-                if let Some(forbidden) = is_forbidden_process(&name, full_path.as_deref()) {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-
-                    let _ = app_handle.emit(
-                        "exam:environment-violation",
-                        EnvironmentViolationEvent {
-                            violation_type: "FORBIDDEN_PROCESS_SPAWNED".to_string(),
-                            message: format!("Forbidden process detected: {}", forbidden),
-                            timestamp: now,
-                        },
-                    );
-                    break;
-                }
+                let _ = app_handle.emit(
+                    "exam:environment-violation",
+                    EnvironmentViolationEvent {
+                        violation_type: "FORBIDDEN_PROCESS_SPAWNED".to_string(),
+                        message: format!("Forbidden process detected: {}", forbidden),
+                        timestamp: now,
+                    },
+                );
             }
         }
     });

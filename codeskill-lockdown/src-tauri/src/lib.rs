@@ -148,7 +148,23 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     // 4. Suppress window.print
     window.print = function() {
         console.warn('[CodeSkill LockDown] Printing is disabled during examination');
+        return false;
     };
+
+    // 4.1 Intercept native file picker dialogs unless explicitly allowed by question
+    document.addEventListener('click', function(e) {
+        var target = e.target;
+        if (target && (target.matches('input[type="file"]') || (target.closest && target.closest('input[type="file"]')))) {
+            var allowUpload = target.getAttribute('data-allow-file-upload') === 'true' ||
+                              (target.closest && target.closest('[data-allow-file-upload="true"]'));
+            if (!allowUpload) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.warn('[CodeSkill LockDown] File chooser dialog blocked: file upload not permitted for this question.');
+                return false;
+            }
+        }
+    }, true);
 
     // 5. Suppress default spellcheck / autocorrect / predictive text on DOM elements
     function enforceInputHygiene() {
@@ -379,6 +395,9 @@ pub fn run() {
                 orig_hook(info);
             }));
 
+            // Startup crash-recovery cleaner: recover dirty kiosk state if abnormal power loss/crash occurred
+            kiosk_os::recover_dirty_kiosk_state(app.handle());
+
             // Initialize offline vault from local app data dir
             app.state::<OfflineVaultState>().init_from_app(app.handle());
 
@@ -437,6 +456,7 @@ pub fn run() {
             security::kill_blocking_app,
             security::kill_all_blocking_apps,
             security::get_lockdown_diagnostic_logs,
+            security::get_display_topology,
             kiosk_os::enable_kiosk_mode,
             kiosk_os::engage_os_kiosk,
             kiosk_os::disable_kiosk_mode,
