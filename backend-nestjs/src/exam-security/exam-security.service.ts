@@ -248,11 +248,11 @@ export class ExamSecurityService {
       where: [{ id: session.assessmentId }, { mongoId: session.assessmentId }],
     });
 
-    const severity = ['TAB_HIDDEN', 'FULLSCREEN_EXIT', 'COPY_ATTEMPT'].includes(
-      eventType,
-    )
-      ? 'WARNING'
-      : 'CRITICAL';
+    const severity = eventType === 'CANDIDATE_POST_EXAM_FEEDBACK'
+      ? 'INFO'
+      : ['TAB_HIDDEN', 'FULLSCREEN_EXIT', 'COPY_ATTEMPT', 'CAMERA_OR_MIC_RESTORED'].includes(eventType)
+        ? 'WARNING'
+        : 'CRITICAL';
 
     const event = this.eventRepo.create({
       session: { id: session.id } as any,
@@ -267,15 +267,17 @@ export class ExamSecurityService {
     });
     await this.eventRepo.save(event);
 
-    session.violationCount = (session.violationCount || 0) + 1;
-    const threshold = (assessment as any)?.securityPolicy?.violationThreshold || 3;
+    if (eventType !== 'CAMERA_OR_MIC_RESTORED' && eventType !== 'CANDIDATE_POST_EXAM_FEEDBACK') {
+      session.violationCount = (session.violationCount || 0) + 1;
+      const threshold = (assessment as any)?.securityPolicy?.violationThreshold || 3;
 
-    if (session.violationCount >= threshold) {
-      session.status = 'SUSPENDED';
-      session.securityState = 'VIOLATED';
+      if (session.violationCount >= threshold) {
+        session.status = 'SUSPENDED';
+        session.securityState = 'VIOLATED';
+      }
+
+      await this.sessionRepo.save(session);
     }
-
-    await this.sessionRepo.save(session);
 
     // Evaluate Cheating Radar for violation bursts
     void this.cheatingRadarService?.recordProctoringViolation({
@@ -283,6 +285,16 @@ export class ExamSecurityService {
       assessmentId: session.assessmentId,
       eventType,
     });
+
+    if (eventType === 'CAMERA_OR_MIC_RESTORED' || eventType === 'CAMERA_OR_MIC_DISCONNECTED') {
+      void this.cheatingRadarService?.recordMediaDisconnectOutage({
+        studentId: candidateId,
+        assessmentId: session.assessmentId,
+        deviceKind: metadata?.deviceKind || 'camera_or_mic',
+        outageDurationMs: metadata?.outageDurationMs,
+        reason: metadata?.reason,
+      });
+    }
 
     if (session.status === 'SUSPENDED') {
       void this.alertWebhookService?.sendAlert({
@@ -358,16 +370,32 @@ export class ExamSecurityService {
     const safeSessionId = nilUuid;
 
     try {
+      const severity = eventType === 'CANDIDATE_POST_EXAM_FEEDBACK'
+        ? 'INFO'
+        : ['TAB_HIDDEN', 'FULLSCREEN_EXIT', 'COPY_ATTEMPT', 'CAMERA_OR_MIC_RESTORED'].includes(eventType)
+          ? 'WARNING'
+          : 'CRITICAL';
+
       const event = this.eventRepo.create({
         candidate: { id: candidateId } as any,
         candidateId,
         assessmentId: safeAssessmentId,
         sessionId: safeSessionId,
         eventType,
-        severity: 'CRITICAL',
+        severity,
         metadata,
       });
       await this.eventRepo.save(event);
+
+      if (eventType === 'CAMERA_OR_MIC_RESTORED' || eventType === 'CAMERA_OR_MIC_DISCONNECTED') {
+        void this.cheatingRadarService?.recordMediaDisconnectOutage({
+          studentId: candidateId,
+          assessmentId: safeAssessmentId,
+          deviceKind: metadata?.deviceKind || 'camera_or_mic',
+          outageDurationMs: metadata?.outageDurationMs,
+          reason: metadata?.reason,
+        });
+      }
 
       return {
         success: true,
@@ -393,6 +421,9 @@ export class ExamSecurityService {
       preflightPassed: boolean;
       violations?: string[];
       assessmentId?: string;
+      attestationTier?: string;
+      kioskMode?: string;
+      clientBinaryHash?: string;
     },
     ip?: string,
   ) {
@@ -455,12 +486,19 @@ export class ExamSecurityService {
 
     const attestedSessionId = crypto.randomUUID();
     const serverTime = Date.now();
+    const attestationTier = body.attestationTier || 'software_binary_bound';
+    const kioskMode = body.kioskMode || 'standard';
+    const clientBinaryHash = body.clientBinaryHash || 'unknown';
+
     const attestationRecord: Record<string, any> = {
       userId,
       publicKeyPem: body.publicKeyPem.trim(),
       os: body.os || 'unknown',
       clientVersion: body.clientVersion,
       ip: ip || 'unknown',
+      attestationTier,
+      kioskMode,
+      clientBinaryHash,
       createdAt: new Date().toISOString(),
     };
 
@@ -498,9 +536,36 @@ export class ExamSecurityService {
       }
     }
 
+    if (body.assessmentId) {
+      try {
+        const event = this.eventRepo.create({
+          candidate: { id: userId } as any,
+          candidateId: userId,
+          assessmentId: body.assessmentId,
+          sessionId: attestedSessionId,
+          eventType: 'CLIENT_ATTESTED',
+          severity: 'INFO',
+          metadata: {
+            kioskMode,
+            attestationTier,
+            clientBinaryHash,
+            os: body.os,
+            clientVersion: body.clientVersion,
+          },
+        });
+        await this.eventRepo.save(event);
+      } catch {
+        // Non-blocking attestation event logging
+      }
+    }
+
     return {
       success: true,
+      verified: true,
       attestedSessionId,
+      sessionToken: attestedSessionId,
+      attestationTier,
+      clientBinaryHash,
       serverTime,
       ...(vdiOverride ? { vdiOverride: true } : {}),
     };
@@ -593,5 +658,55 @@ export class ExamSecurityService {
       success: true,
       message: 'Proctor force-quit signal registered successfully',
     };
+  }
+
+  async getAssessmentCandidateSecuritySummary(assessmentId: string): Promise<
+    Record<
+      string,
+      {
+        kioskMode?: string;
+        attestationTier?: string;
+        clientBinaryHash?: string;
+        feedback?: { rating: number; technicalIssues?: string[]; comments?: string; kioskMode?: string };
+      }
+    >
+  > {
+    const summary: Record<string, any> = {};
+    if (!this.eventRepo) return summary;
+
+    try {
+      const events = await this.eventRepo.find({
+        where: [{ assessmentId }],
+        order: { createdAt: 'ASC' },
+      });
+
+      for (const ev of events) {
+        const cid = ev.candidateId || (ev.candidate as any)?.id;
+        if (!cid) continue;
+        if (!summary[cid]) {
+          summary[cid] = {};
+        }
+
+        if (ev.eventType === 'CLIENT_ATTESTED') {
+          if (ev.metadata?.kioskMode) summary[cid].kioskMode = ev.metadata.kioskMode;
+          if (ev.metadata?.attestationTier) summary[cid].attestationTier = ev.metadata.attestationTier;
+          if (ev.metadata?.clientBinaryHash) summary[cid].clientBinaryHash = ev.metadata.clientBinaryHash;
+        } else if (ev.eventType === 'CANDIDATE_POST_EXAM_FEEDBACK') {
+          summary[cid].feedback = {
+            rating: ev.metadata?.rating,
+            technicalIssues: ev.metadata?.technicalIssues,
+            comments: ev.metadata?.comments,
+            kioskMode: ev.metadata?.kioskMode,
+          };
+          if (ev.metadata?.kioskMode && !summary[cid].kioskMode) {
+            summary[cid].kioskMode = ev.metadata.kioskMode;
+          }
+        }
+      }
+    } catch {
+      // non-blocking
+    }
+
+    return summary;
   }
 }

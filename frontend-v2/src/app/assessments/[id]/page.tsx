@@ -61,6 +61,7 @@ import {
 } from "@/lib/assessment-face-verification";
 import { formatAssessmentDateTime, getAssessmentScheduleState } from "@/lib/assessment-schedule";
 import LockdownLaunchGate from "@/components/assessment/LockdownLaunchGate";
+import LockdownAppBlockerGate from "@/components/assessment/LockdownAppBlockerGate";
 import { isLockdownClient, initializeLockdownAttestation } from "@/lib/lockdown-bridge";
 
 export default function AssessmentBriefingPage({
@@ -93,6 +94,7 @@ export default function AssessmentBriefingPage({
   const [isCapturingSelfie, setIsCapturingSelfie] = useState(false);
   const [selfieError, setSelfieError] = useState<string | null>(null);
   const [selfieCaptured, setSelfieCaptured] = useState(false);
+  const [isAppsGatePassed, setIsAppsGatePassed] = useState<boolean>(!isLockdownClient());
   const cameraPreviewRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const streamHandedOffRef = useRef(false);
@@ -689,6 +691,13 @@ export default function AssessmentBriefingPage({
           )}
         </div>
       </div>
+
+      {isLockdownClient() && !isAppsGatePassed && (
+        <LockdownAppBlockerGate
+          requireCloseOtherApps={assessment?.requireCloseOtherApps !== false}
+          onReady={() => setIsAppsGatePassed(true)}
+        />
+      )}
     </div>
   );
 }

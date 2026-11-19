@@ -50,6 +50,9 @@ export class ExamSecurityController {
       preflightPassed: boolean;
       violations?: string[];
       assessmentId?: string;
+      attestationTier?: string;
+      kioskMode?: string;
+      clientBinaryHash?: string;
     },
     @Req() req?: any,
   ) {

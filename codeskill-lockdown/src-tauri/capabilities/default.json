@@ -19,6 +19,7 @@
     "core:event:default",
     "allow-get-frontend-origin",
     "allow-get-attestation-public-key",
+    "allow-get-attestation-info",
     "allow-set-attested-session-id",
     "allow-sync-server-time",
     "allow-sign-api-request",
@@ -42,6 +43,13 @@
     "allow-set-locked-assessment",
     "allow-list-non-essential-apps",
     "allow-close-non-essential-apps",
-    "allow-get-lockdown-diagnostic-logs"
+    "allow-get-lockdown-diagnostic-logs",
+    "allow-get-persisted-exam-session",
+    "allow-save-persisted-exam-session",
+    "allow-clear-persisted-exam-session",
+    "allow-check-and-request-media-permissions",
+    "allow-list-blocking-apps",
+    "allow-kill-blocking-app",
+    "allow-kill-all-blocking-apps"
   ]
 }

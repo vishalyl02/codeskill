@@ -158,4 +158,20 @@ export class AssessmentsStudentController {
   async getResult(@Param('id') id: string, @CurrentUser() studentUser: any) {
     return this.assessmentsService.getStudentResult(id, studentUser);
   }
+
+  @Get(':id/resume-state')
+  @ApiOperation({ summary: 'Get candidate server-persisted answers, timer, and submission status' })
+  async getResumeState(@Param('id') id: string, @CurrentUser() studentUser: any) {
+    return this.assessmentsService.getStudentResumeState(id, studentUser);
+  }
+
+  @Post(':id/lockdown-feedback')
+  @ApiOperation({ summary: 'Submit post-assessment candidate technical and experience feedback' })
+  async submitLockdownFeedback(
+    @Param('id') id: string,
+    @Body() dto: { rating: number; technicalIssues?: string[]; comments?: string; kioskMode?: string },
+    @CurrentUser() studentUser: any,
+  ) {
+    return this.assessmentsService.saveLockdownFeedback(id, dto, studentUser);
+  }
 }

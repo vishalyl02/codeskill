@@ -34,6 +34,11 @@ pub const FORBIDDEN_PROCESSES: &[&str] = &[
     "rectangle",
     "hammerspoon",
     "warp",
+    "discord",
+    "slack",
+    "zoom",
+    "chatgpt",
+    "claude",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +48,8 @@ pub struct PreflightResult {
     pub monitor_count: usize,
     pub is_vm: bool,
     pub forbidden_processes: Vec<String>,
+    #[serde(default)]
+    pub vm_indicators: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +64,24 @@ pub struct RunningUserApp {
     pub pid: u32,
     pub name: String,
     pub bundle_or_exe: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaPermissionStatus {
+    pub camera: String,
+    pub microphone: String,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockingAppInfo {
+    pub pid: u32,
+    pub name: String,
+    pub category: String, // "forbidden" | "non_essential"
+    #[serde(rename = "bundleOrPath")]
+    pub bundle_or_path: String,
+    #[serde(rename = "canForceKill")]
+    pub can_force_kill: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,8 +128,34 @@ pub fn get_lockdown_diagnostic_logs() -> Result<Vec<DiagnosticLogEntry>, String>
     Ok(buf.iter().cloned().collect())
 }
 
-pub fn check_virtual_machine() -> bool {
-    // 1. macOS detection via sysctl kern.hv_vmm_present
+pub fn check_instruction_timing_anomaly() -> bool {
+    let mut latencies = Vec::with_capacity(1000);
+    for _ in 0..1000 {
+        let t0 = std::time::Instant::now();
+        let mut x: u64 = 1;
+        for i in 1..=50 {
+            x = x.wrapping_mul(i).wrapping_add(3);
+        }
+        std::hint::black_box(x);
+        let elapsed = t0.elapsed().as_nanos();
+        latencies.push(elapsed);
+    }
+
+    latencies.sort_unstable();
+    let p50 = latencies[500];
+    let p99 = latencies[990];
+
+    // Bare metal typical p50 is < 500ns, p99 is < 2500ns.
+    // In heavily trapped hypervisors with timer virtualization, p99 spikes > 20x median and > 250,000ns
+    p50 > 0 && p99 > 250_000 && p99 > (p50 * 20)
+}
+
+pub fn check_virtual_machine_detailed() -> (bool, Vec<String>) {
+    let mut indicators = Vec::new();
+
+    // -------------------------------------------------------------
+    // Layer 1: CPUID Hypervisor & Synthetic Signature (or sysctl on macOS)
+    // -------------------------------------------------------------
     #[cfg(target_os = "macos")]
     {
         if let Ok(output) = std::process::Command::new("sysctl")
@@ -113,48 +164,20 @@ pub fn check_virtual_machine() -> bool {
         {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if text == "1" {
-                return true;
+                indicators.push("macOS hypervisor present (kern.hv_vmm_present=1)".to_string());
             }
         }
-        // Fallback check for known hypervisor features
         if let Ok(output) = std::process::Command::new("sysctl")
             .args(["-n", "machdep.cpu.features"])
             .output()
         {
             let text = String::from_utf8_lossy(&output.stdout).to_uppercase();
             if text.contains("VMM") || text.contains("HYPERVISOR") {
-                return true;
+                indicators.push("macOS CPU feature indicates VMM/hypervisor".to_string());
             }
         }
     }
 
-    // 2. Linux DMI / sysfs detection
-    #[cfg(target_os = "linux")]
-    {
-        let dmi_paths = [
-            "/sys/class/dmi/id/product_name",
-            "/sys/class/dmi/id/sys_vendor",
-            "/sys/class/dmi/id/board_vendor",
-            "/sys/class/dmi/id/bios_vendor",
-        ];
-        for path in dmi_paths {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                let lower = content.to_lowercase();
-                if lower.contains("virtualbox")
-                    || lower.contains("vmware")
-                    || lower.contains("kvm")
-                    || lower.contains("qemu")
-                    || lower.contains("bhyve")
-                    || lower.contains("xen")
-                    || lower.contains("hyper-v")
-                {
-                    return true;
-                }
-            }
-        }
-    }
-
-    // 3. x86 / x86_64 CPUID bit 31 check (Windows & Linux x86_64)
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         #[cfg(target_arch = "x86")]
@@ -167,12 +190,86 @@ pub fn check_virtual_machine() -> bool {
             // CPUID leaf 1: ecx bit 31 indicates hypervisor presence (Standard hypervisor CPUID feature bit)
             let res = __cpuid(1);
             if (res.ecx & (1 << 31)) != 0 {
-                return true;
+                let hv_sig = __cpuid(0x40000000);
+                let mut sig_bytes = Vec::with_capacity(12);
+                sig_bytes.extend_from_slice(&hv_sig.ebx.to_le_bytes());
+                sig_bytes.extend_from_slice(&hv_sig.ecx.to_le_bytes());
+                sig_bytes.extend_from_slice(&hv_sig.edx.to_le_bytes());
+                let vendor = String::from_utf8_lossy(&sig_bytes).trim().to_string();
+                indicators.push(format!("CPUID hypervisor bit set (vendor='{}')", vendor));
             }
         }
     }
 
-    false
+    // -------------------------------------------------------------
+    // Layer 2: DMI / SMBIOS / Registry / ioreg Hardware Strings
+    // -------------------------------------------------------------
+    #[cfg(target_os = "linux")]
+    {
+        let dmi_paths = [
+            "/sys/class/dmi/id/product_name",
+            "/sys/class/dmi/id/sys_vendor",
+            "/sys/class/dmi/id/board_vendor",
+            "/sys/class/dmi/id/bios_vendor",
+        ];
+        for path in dmi_paths {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                let lower = content.to_lowercase();
+                for kw in &["virtualbox", "vmware", "kvm", "qemu", "bhyve", "xen", "hyper-v", "bochs", "parallels"] {
+                    if lower.contains(kw) {
+                        indicators.push(format!("Linux DMI in {} matched '{}'", path, kw));
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let bios_vals = ["SystemManufacturer", "SystemProductName", "BIOSVendor"];
+        for val_name in bios_vals {
+            if let Ok(output) = std::process::Command::new("reg")
+                .args(["query", "HKLM\\HARDWARE\\Description\\System\\BIOS", "/v", val_name])
+                .output()
+            {
+                let text = String::from_utf8_lossy(&output.stdout).to_lowercase();
+                for kw in &["virtualbox", "vmware", "qemu", "kvm", "virtual machine", "hyper-v", "parallels"] {
+                    if text.contains(kw) {
+                        indicators.push(format!("Windows registry {} matched '{}'", val_name, kw));
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("ioreg")
+            .args(["-l"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            for kw in &["virtualbox", "vmware", "parallels", "qemu"] {
+                if text.contains(kw) {
+                    indicators.push(format!("macOS ioreg matched VM keyword '{}'", kw));
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Layer 3: Instruction Timing Skew
+    // -------------------------------------------------------------
+    if check_instruction_timing_anomaly() {
+        indicators.push("VM_TIMING_ANOMALY: High instruction latency jitter detected".to_string());
+    }
+
+    let is_vm = !indicators.is_empty();
+    (is_vm, indicators)
+}
+
+pub fn check_virtual_machine() -> bool {
+    check_virtual_machine_detailed().0
 }
 
 pub fn is_forbidden_process(name: &str, exe_path: Option<&str>) -> Option<&'static str> {
@@ -407,6 +504,55 @@ pub fn check_stealth_overlay_windows() -> Vec<String> {
     detected
 }
 
+#[cfg(target_os = "macos")]
+pub fn check_macos_active_screen_capture() -> bool {
+    use core_graphics::display::*;
+    use core_foundation::array::CFArray;
+    use core_foundation::string::CFString;
+    use core_foundation::base::TCFType;
+
+    extern "C" {
+        fn CFDictionaryGetValue(dict: *const std::ffi::c_void, key: *const std::ffi::c_void) -> *const std::ffi::c_void;
+        fn CFStringGetCString(cf: *const std::ffi::c_void, buffer: *mut std::os::raw::c_char, buf_size: isize, encoding: u32) -> bool;
+    }
+
+    const K_CG_WINDOW_LIST_OPTION_ALL: u32 = 0;
+    const K_CG_NULL_WINDOW_ID: u32 = 0;
+
+    unsafe {
+        let window_list = CGWindowListCopyWindowInfo(K_CG_WINDOW_LIST_OPTION_ALL, K_CG_NULL_WINDOW_ID);
+        if window_list.is_null() {
+            return false;
+        }
+
+        let array: CFArray = CFArray::wrap_under_create_rule(window_list as _);
+        let name_key = CFString::new("kCGWindowOwnerName");
+
+        for item in array.iter() {
+            let dict_ptr = *item as *const std::ffi::c_void;
+            let name_val = CFDictionaryGetValue(dict_ptr, name_key.as_CFTypeRef() as _);
+            if !name_val.is_null() {
+                let mut buf = [0u8; 256];
+                if CFStringGetCString(name_val, buf.as_mut_ptr() as _, 256, 0x08000100) {
+                    let owner_name = std::ffi::CStr::from_ptr(buf.as_ptr() as _)
+                        .to_string_lossy()
+                        .to_lowercase();
+                    if owner_name == "screencapture"
+                        || owner_name == "screensharing"
+                        || owner_name == "screencaptured"
+                        || owner_name == "screencaptureui"
+                        || owner_name == "replayd"
+                        || owner_name.contains("screencapturekit")
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 #[cfg(target_os = "linux")]
 pub fn check_stealth_overlay_windows() -> Vec<String> {
     let mut detected = Vec::new();
@@ -518,10 +664,13 @@ pub fn run_preflight_checks(window: tauri::Window) -> PreflightResult {
         ));
     }
 
-    // 2. VM / Hypervisor detection
-    let is_vm = check_virtual_machine();
+    // 2. VM / Hypervisor detection (CPUID + DMI + RDTSC timing anomaly)
+    let (is_vm, vm_indicators) = check_virtual_machine_detailed();
     if is_vm {
-        violations.push("Virtual Machine or Hypervisor environment detected. Exams must be taken on bare-metal physical hardware.".to_string());
+        violations.push(format!(
+            "Virtual Machine or Hypervisor environment detected ({}). Exams must be taken on bare-metal physical hardware.",
+            vm_indicators.join("; ")
+        ));
     }
 
     // 3. Forbidden background processes
@@ -548,6 +697,39 @@ pub fn run_preflight_checks(window: tauri::Window) -> PreflightResult {
         if !check_macos_accessibility_permission(true) {
             violations.push("Enable Accessibility permission for CodeSkill LockDown in System Settings -> Privacy & Security -> Accessibility to lock Cmd+Tab.".to_string());
         }
+        if check_macos_active_screen_capture() {
+            violations.push("ACTIVE_SCREEN_SHARING_DETECTED: Active screen recording or sharing stream is in progress. Please stop all screen recording or sharing before taking the exam.".to_string());
+        }
+    }
+
+    // 6. Windows Display Affinity & Screen Capture Cloaking check
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowDisplayAffinity, WINDOW_DISPLAY_AFFINITY};
+        const WDA_EXCLUDEFROMCAPTURE: u32 = 0x00000011;
+
+        if let Ok(hwnd_raw) = window.hwnd() {
+            let hwnd = HWND(hwnd_raw.0 as _);
+            let mut affinity = WINDOW_DISPLAY_AFFINITY(0);
+            unsafe {
+                if GetWindowDisplayAffinity(hwnd, &mut affinity).is_ok() {
+                    if affinity.0 == WDA_EXCLUDEFROMCAPTURE {
+                        violations.push("DISPLAY_AFFINITY_VIOLATION: Window display affinity is set to WDA_EXCLUDEFROMCAPTURE. Screen capture cloaking tools are strictly forbidden.".to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Linux Wayland / Cage check
+    #[cfg(target_os = "linux")]
+    {
+        let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default().to_lowercase();
+        let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+        if session_type == "x11" && wayland_display.is_empty() {
+            violations.push("LINUX_X11_UNENFORCED_SESSION: Session is running on unhardened X11. Please launch via codeskill-lockdown-cage.sh for hardened Wayland containment.".to_string());
+        }
     }
 
     let passed = violations.is_empty();
@@ -558,6 +740,7 @@ pub fn run_preflight_checks(window: tauri::Window) -> PreflightResult {
         monitor_count,
         is_vm,
         forbidden_processes,
+        vm_indicators,
     }
 }
 
@@ -913,6 +1096,254 @@ pub fn close_non_essential_apps(force: bool) -> Result<Vec<RunningUserApp>, Stri
         log_diagnostic_entry("INFO", "SECURITY", "All non-essential apps successfully closed");
     }
     Ok(remaining)
+}
+
+#[cfg(target_os = "macos")]
+fn get_macos_media_auth_status(media_type: &str) -> String {
+    use objc2_foundation::NSString;
+    use objc2::runtime::AnyClass;
+
+    unsafe {
+        if let Some(cls) = AnyClass::get("AVCaptureDevice") {
+            let ns_media_type = NSString::from_str(media_type);
+            let status: isize = objc2::msg_send![cls, authorizationStatusForMediaType: &*ns_media_type];
+            match status {
+                3 => "granted".to_string(),
+                2 => "denied".to_string(),
+                1 => "denied".to_string(),
+                0 => "not_determined".to_string(),
+                _ => "not_determined".to_string(),
+            }
+        } else {
+            "granted".to_string()
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn request_macos_media_access(media_type: &str) {
+    use objc2_foundation::NSString;
+    use objc2::runtime::AnyClass;
+    use std::sync::mpsc::channel;
+
+    unsafe {
+        if let Some(cls) = AnyClass::get("AVCaptureDevice") {
+            let ns_media_type = NSString::from_str(media_type);
+            let (tx, rx) = channel();
+            let block = block2::RcBlock::new(move |granted: objc2::runtime::Bool| {
+                let _ = tx.send(granted.as_bool());
+            });
+
+            let _: () = objc2::msg_send![cls, requestAccessForMediaType: &*ns_media_type, completionHandler: &*block];
+            let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_windows_consent_status(device: &str) -> String {
+    use windows::Win32::System::Registry::{RegOpenKeyExW, RegQueryValueExW, RegCloseKey, HKEY, HKEY_CURRENT_USER, KEY_READ};
+    unsafe {
+        let subkey = format!("Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\{}", device);
+        let wide: Vec<u16> = subkey.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut key = HKEY::default();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, windows::core::PCWSTR(wide.as_ptr()), 0, KEY_READ, &mut key).is_ok() {
+            let val_name = windows::core::w!("Value");
+            let mut buf = [0u16; 64];
+            let mut size = (buf.len() * 2) as u32;
+            if RegQueryValueExW(key, val_name, None, None, Some(buf.as_mut_ptr() as *mut u8), Some(&mut size)).is_ok() {
+                let s = String::from_utf16_lossy(&buf);
+                let _ = RegCloseKey(key);
+                if s.to_lowercase().starts_with("allow") {
+                    return "granted".to_string();
+                } else if s.to_lowercase().starts_with("deny") {
+                    return "denied".to_string();
+                }
+            }
+            let _ = RegCloseKey(key);
+        }
+    }
+    "granted".to_string()
+}
+
+#[tauri::command]
+pub fn check_and_request_media_permissions(
+    require_camera: bool,
+    require_mic: bool,
+) -> Result<MediaPermissionStatus, String> {
+    let mut camera = "granted".to_string();
+    let mut microphone = "granted".to_string();
+
+    #[cfg(target_os = "macos")]
+    {
+        if require_camera {
+            camera = get_macos_media_auth_status("vide");
+            if camera == "not_determined" {
+                request_macos_media_access("vide");
+                camera = get_macos_media_auth_status("vide");
+            }
+        }
+        if require_mic {
+            microphone = get_macos_media_auth_status("soun");
+            if microphone == "not_determined" {
+                request_macos_media_access("soun");
+                microphone = get_macos_media_auth_status("soun");
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if require_camera {
+            camera = get_windows_consent_status("webcam");
+        }
+        if require_mic {
+            microphone = get_windows_consent_status("microphone");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if require_camera {
+            let has_video = std::fs::read_dir("/dev")
+                .map(|entries| {
+                    entries.filter_map(|e| e.ok()).any(|e| {
+                        e.file_name().to_string_lossy().starts_with("video")
+                    })
+                })
+                .unwrap_or(false);
+            camera = if has_video { "granted".to_string() } else { "denied".to_string() };
+        }
+        if require_mic {
+            let has_audio = std::path::Path::new("/dev/snd").exists();
+            microphone = if has_audio { "granted".to_string() } else { "denied".to_string() };
+        }
+    }
+
+    let ready = (!require_camera || camera == "granted") && (!require_mic || microphone == "granted");
+    Ok(MediaPermissionStatus {
+        camera,
+        microphone,
+        ready,
+    })
+}
+
+#[tauri::command]
+pub fn list_blocking_apps() -> Result<Vec<BlockingAppInfo>, String> {
+    let mut apps = Vec::new();
+    let current_pid = std::process::id();
+
+    // 1. Check for forbidden background processes first
+    let mut sys = System::new_all();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+
+    for (pid, process) in sys.processes() {
+        let p_id = pid.as_u32();
+        if p_id == current_pid || p_id == 0 {
+            continue;
+        }
+        let name = process.name().to_string_lossy().to_string();
+        let exe = process.exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+
+        if let Some(forbidden_name) = is_forbidden_process(&name, Some(&exe)) {
+            apps.push(BlockingAppInfo {
+                pid: p_id,
+                name: format!("{} ({})", name, forbidden_name),
+                category: "forbidden".to_string(),
+                bundle_or_path: exe,
+                can_force_kill: true,
+            });
+        }
+    }
+
+    // 2. Check for non-essential GUI user apps
+    let user_apps = list_non_essential_apps().unwrap_or_default();
+    for uapp in user_apps {
+        if !apps.iter().any(|a| a.pid == uapp.pid) {
+            apps.push(BlockingAppInfo {
+                pid: uapp.pid,
+                name: uapp.name,
+                category: "non_essential".to_string(),
+                bundle_or_path: uapp.bundle_or_exe,
+                can_force_kill: true,
+            });
+        }
+    }
+
+    Ok(apps)
+}
+
+#[tauri::command]
+pub fn kill_blocking_app(pid: u32, force: bool) -> Result<bool, String> {
+    let blocking = list_blocking_apps()?;
+    if !blocking.iter().any(|a| a.pid == pid) {
+        return Err(format!("PID {} is not in the list of recognized blocking applications", pid));
+    }
+
+    log_diagnostic_entry("INFO", "SECURITY", &format!("Terminating blocking application PID {} (force={})", pid, force));
+
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSWorkspace;
+        unsafe {
+            let workspace = NSWorkspace::sharedWorkspace();
+            let running = workspace.runningApplications();
+            let mut found = false;
+            for i in 0..running.count() {
+                let app = running.objectAtIndex(i);
+                if app.processIdentifier() as u32 == pid {
+                    found = true;
+                    if force {
+                        let _ = app.forceTerminate();
+                    } else {
+                        let _ = app.terminate();
+                    }
+                    break;
+                }
+            }
+            if !found {
+                let sig = if force { "-9" } else { "-15" };
+                let _ = std::process::Command::new("kill")
+                    .args([sig, &pid.to_string()])
+                    .status();
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let force_flag = if force { "/F" } else { "" };
+        let _ = std::process::Command::new("taskkill")
+            .args([force_flag, "/PID", &pid.to_string()])
+            .output();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let signal = if force { "-9" } else { "-15" };
+        let _ = std::process::Command::new("kill")
+            .args([signal, &pid.to_string()])
+            .output();
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(600));
+
+    let still_running = list_blocking_apps()?
+        .iter()
+        .any(|a| a.pid == pid);
+
+    Ok(!still_running)
+}
+
+#[tauri::command]
+pub fn kill_all_blocking_apps(force: bool) -> Result<Vec<BlockingAppInfo>, String> {
+    log_diagnostic_entry("INFO", "SECURITY", &format!("Closing all blocking applications (force={})", force));
+    let apps = list_blocking_apps()?;
+    for app in &apps {
+        let _ = kill_blocking_app(app.pid, force);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    list_blocking_apps()
 }
 
 #[cfg(test)]

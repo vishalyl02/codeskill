@@ -25,6 +25,7 @@ hex = "0.4"
 uuid = { version = "1.10", features = ["v4"] }
 url = "2.5"
 aes-gcm = "0.10"
+hmac = "0.12"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
@@ -36,6 +37,8 @@ windows = { version = "0.58", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_System_Threading",
     "Win32_System_DataExchange",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_Registry",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

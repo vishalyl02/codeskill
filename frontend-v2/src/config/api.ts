@@ -766,6 +766,9 @@ export const studentAssessmentsAPI = {
   saveProgress: (id: string, data: any) => api.post(`/assessments/${id}/save-progress`, data),
   submitAttempt: (id: string, data: any) => api.post(`/assessments/${id}/submit`, data),
   getResult: (id: string) => api.get(`/assessments/${id}/result`),
+  getResumeState: (id: string) => api.get(`/assessments/${id}/resume-state`),
+  submitLockdownFeedback: (id: string, data: { rating: number; technicalIssues?: string[]; comments?: string; kioskMode?: string }) =>
+    api.post(`/assessments/${id}/lockdown-feedback`, data),
   retakeAttempt: (id: string) => api.post(`/assessments/${id}/retake`),
   recordProctorCapture: (id: string, data: { type: string; image: string; filename: string; timestamp: string }) =>
     api.post(`/assessments/${id}/proctor-capture`, data),

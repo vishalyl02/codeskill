@@ -30,6 +30,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EvaluateAssessmentCodeDto } from './dto/evaluate-code.dto';
 import { normalizeSectionIdentifier } from '../common/constants/sections.constant';
+import { ExamSecurityService } from '../exam-security/exam-security.service';
 
 function codingTestCases(question: Question): Array<{ id: string | number; input: string; expected: string; isHidden: boolean }> {
   const cases = question.testCases?.length ? question.testCases : (question.metadata as any)?.testCases || [];
@@ -115,6 +116,8 @@ export class AssessmentsService {
     @Optional()
     @InjectRepository(User)
     private readonly userRepo?: Repository<User>,
+    @Optional()
+    private readonly examSecurityService?: ExamSecurityService,
   ) {}
 
   private attemptExpiresAt(assessment: Assessment, attempt: AssessmentAttempt): Date {
@@ -1540,6 +1543,10 @@ export class AssessmentsService {
       studentAttemptsMap.set(studentKey, list);
     }
 
+    const securitySummary = this.examSecurityService
+      ? await this.examSecurityService.getAssessmentCandidateSecuritySummary(assessment.id)
+      : {};
+
     const uniqueCandidates = Array.from(studentAttemptsMap.entries()).map(
       ([key, studentAttempts]) => {
         const submitted = studentAttempts.filter(
@@ -1564,10 +1571,17 @@ export class AssessmentsService {
             ? submitted.some((s) => s.passed)
             : best?.passed || false;
 
+        const studentId = best?.studentId || key;
+        const secInfo = securitySummary[studentId] || {};
+
         return {
           ...best,
           _id: best?.id,
           candidateVerification: (best as any)?.candidateVerification || null,
+          kioskMode: secInfo.kioskMode || (best as any)?.kioskMode,
+          attestationTier: secInfo.attestationTier || (best as any)?.attestationTier,
+          clientBinaryHash: secInfo.clientBinaryHash || (best as any)?.clientBinaryHash,
+          feedback: secInfo.feedback || (best as any)?.feedback,
           attemptNumber: studentAttempts.length,
           totalAttempts: studentAttempts.length,
           score: maxScore,
@@ -1644,33 +1658,37 @@ export class AssessmentsService {
         ).length,
       },
       attempts: uniqueCandidates,
-      rawAttempts: attempts.map((a, idx) => ({
-        _id: a.id,
-        id: a.id,
-        studentId: a.studentId,
-        studentUid: a.studentUid,
-        studentName: a.studentName,
-        studentEmail: a.studentEmail,
-        attemptNumber: a.attemptNumber || idx + 1,
-        rawScore: a.rawScore,
-        proctoringPenalty: a.proctoringPenalty,
-        totalAttempted: a.totalAttempted,
-        totalCorrect: a.totalCorrect,
-        totalWrong: a.totalWrong,
-        totalSkipped: a.totalSkipped,
-        accuracy: a.accuracy,
-        startedAt: a.startedAt,
-        score: a.score ?? 0,
-        maxScore: a.maxScore || assessment.totalMarks || 100,
-        percentage: a.percentage ?? 0,
-        passed: a.passed,
-        status: a.status,
-        submittedAt: a.submittedAt || null,
-        timeSpentSeconds: a.timeSpentSeconds || 0,
-        tabSwitchCount: a.tabSwitchCount || 0,
-        violations: a.violations || [],
-        responses: a.responses || [],
-      })),
+      rawAttempts: attempts.map((a, idx) => {
+        const secInfo = securitySummary[a.studentId] || {};
+        return {
+          _id: a.id,
+          id: a.id,
+          studentId: a.studentId,
+          studentUid: a.studentUid,
+          studentName: a.studentName,
+          studentEmail: a.studentEmail,
+          kioskMode: secInfo.kioskMode,
+          attestationTier: secInfo.attestationTier,
+          clientBinaryHash: secInfo.clientBinaryHash,
+          feedback: secInfo.feedback,
+          attemptNumber: a.attemptNumber || idx + 1,
+          rawScore: a.rawScore,
+          proctoringPenalty: a.proctoringPenalty,
+          totalAttempted: a.totalAttempted,
+          totalCorrect: a.totalCorrect,
+          totalWrong: a.totalWrong,
+          totalSkipped: a.totalSkipped,
+          accuracy: a.accuracy,
+          startedAt: a.startedAt,
+          score: a.score ?? 0,
+          maxScore: a.maxScore || assessment.totalMarks || 100,
+          percentage: a.percentage ?? 0,
+          passed: a.passed,
+          status: a.status,
+          timeSpentSeconds: a.timeSpentSeconds,
+          violations: a.violations || [],
+        };
+      }),
     };
   }
 
@@ -3753,5 +3771,94 @@ export class AssessmentsService {
       objectKey,
       timestamp: capturedAt.toISOString(),
     };
+  }
+
+  async getStudentResumeState(id: string, studentUser: any) {
+    const studentId = String(studentUser.id || studentUser._id);
+    const assessment = await this.findAssessmentByIdOrCode(id);
+    if (!assessment) {
+      throw new NotFoundException('Assessment not found');
+    }
+    if (!this.isStudentTargeted(assessment, studentUser)) {
+      throw new ForbiddenException('This assessment is not assigned to your student account.');
+    }
+
+    const latestAttempt = await this.attemptRepo.findOne({
+      where: { assessmentId: assessment.id, studentId },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!latestAttempt) {
+      return {
+        success: true,
+        hasAttempt: false,
+        alreadySubmitted: false,
+        remainingSeconds: Number(assessment.durationMinutes || 45) * 60,
+        responses: {},
+      };
+    }
+
+    const isSubmitted = ['completed', 'evaluated', 'timed_out', 'auto_submitted'].includes(
+      latestAttempt.status,
+    );
+
+    const expiresAt = this.attemptExpiresAt(assessment, latestAttempt);
+    const remainingSeconds = isSubmitted
+      ? 0
+      : Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+
+    const responses: Record<string, any> = {};
+    (latestAttempt.responses || []).forEach((r: any) => {
+      if (r.questionId) {
+        responses[r.questionId.toString()] = {
+          selectedAnswer: r.selectedAnswer ?? -1,
+          selectedAnswers: r.selectedAnswers,
+          code: r.code || '',
+          language: r.language,
+          status: r.status,
+        };
+      }
+    });
+
+    return {
+      success: true,
+      hasAttempt: true,
+      attemptId: latestAttempt.id,
+      alreadySubmitted: isSubmitted,
+      remainingSeconds,
+      responses,
+      resumeDetails: this.resumeDetails(assessment, latestAttempt),
+    };
+  }
+
+  async saveLockdownFeedback(
+    id: string,
+    dto: { rating: number; technicalIssues?: string[]; comments?: string; kioskMode?: string },
+    studentUser: any,
+  ) {
+    const studentId = String(studentUser.id || studentUser._id);
+    const assessment = await this.findAssessmentByIdOrCode(id);
+    if (!assessment) {
+      throw new NotFoundException('Assessment not found');
+    }
+
+    const metadata = {
+      rating: Math.min(5, Math.max(1, Number(dto.rating) || 5)),
+      technicalIssues: dto.technicalIssues || [],
+      comments: dto.comments || '',
+      kioskMode: dto.kioskMode || 'unknown',
+      submittedAt: new Date().toISOString(),
+    };
+
+    if (this.examSecurityService) {
+      await this.examSecurityService.reportDirectViolation(
+        studentId,
+        assessment.id,
+        'CANDIDATE_POST_EXAM_FEEDBACK',
+        metadata,
+      );
+    }
+
+    return { success: true };
   }
 }

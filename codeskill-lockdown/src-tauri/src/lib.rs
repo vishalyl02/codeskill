@@ -2,6 +2,7 @@ pub mod attestation;
 pub mod kiosk_os;
 pub mod offline_vault;
 pub mod security;
+pub mod state_persistence;
 pub mod system_dock;
 
 use attestation::AttestationState;
@@ -59,6 +60,17 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
                 if let Ok(mut locked) = att_state.locked_assessment_id.lock() {
                     *locked = Some(id.clone());
                 }
+
+                // Persist locked assessment id into state persistence journal
+                let _ = state_persistence::save_persisted_exam_session(
+                    app.clone(),
+                    state_persistence::PersistedExamSessionPatch {
+                        assessment_id: Some(id.clone()),
+                        auth_token: token.clone(),
+                        ..Default::default()
+                    },
+                );
+
                 security::log_diagnostic_entry(
                     "INFO",
                     "DEEP_LINK",
@@ -101,13 +113,19 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let hardening_js = r#"
 (function() {
     'use strict';
-    // 1. Suppress context menu
+    // 1. Suppress context menu globally in capture phase
     window.addEventListener('contextmenu', function(e) {
         e.preventDefault();
+        e.stopPropagation();
         return false;
     }, true);
 
     // 2. Suppress drag-and-drop file navigation
+    window.addEventListener('dragstart', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    }, true);
     window.addEventListener('dragover', function(e) {
         e.preventDefault();
         if (e.dataTransfer) {
@@ -117,6 +135,7 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     }, true);
     window.addEventListener('drop', function(e) {
         e.preventDefault();
+        e.stopPropagation();
         return false;
     }, true);
 
@@ -156,6 +175,84 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         enforceInputHygiene();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    // 6. Capture-phase Keyboard and Clipboard Lock
+    window.addEventListener('keydown', function(e) {
+        var key = e.key;
+        var code = e.keyCode || e.which;
+        var isCtrl = e.ctrlKey;
+        var isMeta = e.metaKey;
+        var isAlt = e.altKey;
+
+        // Block Escape
+        if (key === 'Escape' || code === 27) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+
+        // Block PrintScreen
+        if (key === 'PrintScreen' || code === 44) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+
+        // Block Function keys F1 - F12
+        if ((code >= 112 && code <= 123) || /^F(1[0-2]|[1-9])$/.test(key)) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+
+        // Check target element for editor allowlist
+        var target = e.target;
+        var isInsideEditor = target && (
+            target.closest('.monaco-editor') ||
+            target.closest('.scratchpad-editor') ||
+            target.getAttribute('data-allow-local-clipboard') === 'true'
+        );
+
+        // Block Ctrl/Cmd combinations
+        if (isCtrl || isMeta) {
+            var lowerKey = key.toLowerCase();
+            if (['u', 's', 'p', 'r', 'w', 't', 'n', 'i', 'j'].indexOf(lowerKey) !== -1) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+            // Outside Monaco editor or scratchpad, block C, V, X
+            if (!isInsideEditor && (lowerKey === 'c' || lowerKey === 'v' || lowerKey === 'x' || code === 67 || code === 86 || code === 88)) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        }
+
+        // Block Alt+Tab, Alt+Esc, Alt+F4
+        if (isAlt && (key === 'Tab' || key === 'Escape' || key === 'F4' || code === 9 || code === 27 || code === 115)) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+    }, true);
+
+    // Block copy, cut, paste outside allowed editor components
+    ['copy', 'cut', 'paste'].forEach(function(eventName) {
+        window.addEventListener(eventName, function(e) {
+            var target = e.target;
+            var isInsideEditor = target && (
+                target.closest('.monaco-editor') ||
+                target.closest('.scratchpad-editor') ||
+                target.getAttribute('data-allow-local-clipboard') === 'true'
+            );
+            if (!isInsideEditor) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        }, true);
+    });
 })();
 "#;
 
@@ -285,6 +382,17 @@ pub fn run() {
             // Initialize offline vault from local app data dir
             app.state::<OfflineVaultState>().init_from_app(app.handle());
 
+            // Hydrate AttestationState and active exam session from persistent disk journal
+            state_persistence::hydrate_attestation_state_from_disk(app.handle());
+
+            // In production release builds, close devtools
+            #[cfg(not(debug_assertions))]
+            {
+                if let Some(window) = app.get_webview_window("exam-kiosk") {
+                    let _ = window.close_devtools();
+                }
+            }
+
             // Start background watchdog for multi-monitor, stealth overlays, and forbidden processes
             security::start_security_watchdog(app.handle().clone());
 
@@ -316,6 +424,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             config::get_frontend_origin,
             attestation::get_attestation_public_key,
+            attestation::get_attestation_info,
             attestation::set_attested_session_id,
             attestation::sync_server_time,
             attestation::sign_api_request,
@@ -323,6 +432,10 @@ pub fn run() {
             security::run_preflight_checks,
             security::list_non_essential_apps,
             security::close_non_essential_apps,
+            security::check_and_request_media_permissions,
+            security::list_blocking_apps,
+            security::kill_blocking_app,
+            security::kill_all_blocking_apps,
             security::get_lockdown_diagnostic_logs,
             kiosk_os::enable_kiosk_mode,
             kiosk_os::engage_os_kiosk,
@@ -339,6 +452,9 @@ pub fn run() {
             system_dock::get_synced_timestamp_ms,
             system_dock::scan_wifi_networks,
             system_dock::connect_wifi_network,
+            state_persistence::get_persisted_exam_session,
+            state_persistence::save_persisted_exam_session,
+            state_persistence::clear_persisted_exam_session,
             kiosk_os::exit_lockdown_app,
         ])
         .build(tauri::generate_context!())

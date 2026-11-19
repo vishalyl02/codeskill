@@ -6,6 +6,14 @@ export interface PreflightResult {
   monitor_count: number;
   is_vm: boolean;
   forbidden_processes: string[];
+  vm_indicators?: string[];
+}
+
+export interface AttestationInfo {
+  public_key_pem: string;
+  attestation_tier: string;
+  kiosk_mode: string;
+  client_binary_hash: string;
 }
 
 export interface BatteryInfo {
@@ -42,6 +50,37 @@ export interface LockdownSignedHeaders {
   'X-CodeSkill-Signature': string;
   'X-CodeSkill-Client': string;
 }
+
+export interface MediaPermissionStatus {
+  camera: 'granted' | 'denied' | 'not_determined';
+  microphone: 'granted' | 'denied' | 'not_determined';
+  ready: boolean;
+}
+
+export interface BlockingAppInfo {
+  pid: number;
+  name: string;
+  category: 'forbidden' | 'non_essential';
+  bundleOrPath: string;
+  canForceKill: boolean;
+}
+
+export interface PersistedExamSession {
+  assessmentId?: string;
+  candidateId?: string;
+  authToken?: string;
+  attestationToken?: string;
+  kioskActive: boolean;
+  kioskMode?: string;
+  faceVerified: boolean;
+  mediaPermissionsVerified: boolean;
+  isSubmitted: boolean;
+  submittedAtMs?: number;
+  submissionReceiptId?: string;
+  updatedAtMs: number;
+}
+
+export type PersistedExamSessionPatch = Partial<Omit<PersistedExamSession, 'updatedAtMs'>>;
 
 /**
  * Checks if the current browser execution context is inside the CodeSkill LockDown desktop client.
@@ -99,6 +138,35 @@ export async function tauriInvoke<T>(cmd: string, args: Record<string, any> = {}
  */
 export async function getAttestationPublicKey(): Promise<string> {
   return tauriInvoke<string>('get_attestation_public_key');
+}
+
+/**
+ * Retrieves the hardware/software attestation info (keys, tier, binary hash, kiosk mode).
+ */
+export async function getAttestationInfo(): Promise<AttestationInfo> {
+  if (!isLockdownClient()) {
+    return {
+      public_key_pem: '',
+      attestation_tier: 'software_binary_bound',
+      kiosk_mode: 'web_fallback',
+      client_binary_hash: '',
+    };
+  }
+  try {
+    const res = await tauriInvoke<AttestationInfo>('get_attestation_info');
+    if (res && typeof res.public_key_pem === 'string' && res.public_key_pem.length > 0) {
+      return res;
+    }
+  } catch {
+    // ignore
+  }
+  const pem = await getAttestationPublicKey().catch(() => '');
+  return {
+    public_key_pem: pem,
+    attestation_tier: 'software_binary_bound',
+    kiosk_mode: 'standard',
+    client_binary_hash: '',
+  };
 }
 
 /**
@@ -433,8 +501,9 @@ export async function initializeLockdownAttestation(
       };
     }
 
-    // 2. Obtain LockDown's ephemeral public key
-    const publicKeyPem = await getAttestationPublicKey();
+    // 2. Obtain LockDown's attestation info (keys, tier, binary hash, kiosk mode)
+    const attestationInfo = await getAttestationInfo();
+    const publicKeyPem = attestationInfo.public_key_pem || (await getAttestationPublicKey());
 
     // 3. Determine host OS name
     const platform = typeof navigator !== 'undefined' ? (navigator.platform || navigator.userAgent) : 'unknown';
@@ -453,6 +522,9 @@ export async function initializeLockdownAttestation(
       os,
       preflightPassed: preflight.passed,
       violations: normalizedViolations,
+      attestationTier: attestationInfo.attestation_tier,
+      kioskMode: attestationInfo.kiosk_mode,
+      clientBinaryHash: attestationInfo.client_binary_hash,
     };
     if (assessmentId) {
       payload.assessmentId = assessmentId;
@@ -688,5 +760,103 @@ export async function setLockedAssessment(
     });
   } catch (err) {
     console.warn('Failed to set locked assessment in LockDown:', err);
+  }
+}
+
+/**
+ * Retrieves the persisted exam session journal snapshot from Rust disk storage.
+ */
+export async function getPersistedExamSession(): Promise<PersistedExamSession | null> {
+  if (!isLockdownClient()) return null;
+  try {
+    return await tauriInvoke<PersistedExamSession | null>('get_persisted_exam_session');
+  } catch (err) {
+    console.warn('Failed to get persisted exam session:', err);
+    return null;
+  }
+}
+
+/**
+ * Updates the persisted exam session journal snapshot in Rust disk storage.
+ */
+export async function savePersistedExamSession(patch: PersistedExamSessionPatch): Promise<PersistedExamSession | null> {
+  if (!isLockdownClient()) return null;
+  try {
+    return await tauriInvoke<PersistedExamSession>('save_persisted_exam_session', { patch });
+  } catch (err) {
+    console.warn('Failed to save persisted exam session:', err);
+    return null;
+  }
+}
+
+/**
+ * Clears the persisted exam session journal file upon successful submission exit or reset.
+ */
+export async function clearPersistedExamSession(): Promise<void> {
+  if (!isLockdownClient()) return;
+  try {
+    await tauriInvoke<void>('clear_persisted_exam_session');
+  } catch (err) {
+    console.warn('Failed to clear persisted exam session:', err);
+  }
+}
+
+/**
+ * Checks and requests OS-level and hardware media permissions for camera and microphone.
+ */
+export async function checkAndRequestMediaPermissions(
+  requireCamera = true,
+  requireMic = true,
+): Promise<MediaPermissionStatus> {
+  if (!isLockdownClient()) {
+    return { camera: 'granted', microphone: 'granted', ready: true };
+  }
+  try {
+    return await tauriInvoke<MediaPermissionStatus>('check_and_request_media_permissions', {
+      requireCamera,
+      requireMic,
+    });
+  } catch (err) {
+    console.warn('Failed to check/request media permissions in LockDown:', err);
+    return { camera: 'not_determined', microphone: 'not_determined', ready: false };
+  }
+}
+
+/**
+ * Lists all blocking applications (forbidden utilities + non-essential apps).
+ */
+export async function listBlockingApps(): Promise<BlockingAppInfo[]> {
+  if (!isLockdownClient()) return [];
+  try {
+    return await tauriInvoke<BlockingAppInfo[]>('list_blocking_apps');
+  } catch (err) {
+    console.warn('Failed to list blocking apps:', err);
+    return [];
+  }
+}
+
+/**
+ * Terminates a single blocking application by PID.
+ */
+export async function killBlockingApp(pid: number, force = false): Promise<boolean> {
+  if (!isLockdownClient()) return true;
+  try {
+    return await tauriInvoke<boolean>('kill_blocking_app', { pid, force });
+  } catch (err) {
+    console.warn(`Failed to kill blocking app PID ${pid}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Terminates all running blocking applications.
+ */
+export async function killAllBlockingApps(force = false): Promise<BlockingAppInfo[]> {
+  if (!isLockdownClient()) return [];
+  try {
+    return await tauriInvoke<BlockingAppInfo[]>('kill_all_blocking_apps', { force });
+  } catch (err) {
+    console.warn('Failed to kill all blocking apps:', err);
+    return [];
   }
 }

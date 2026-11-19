@@ -2,6 +2,7 @@ import {
   isLockdownClient,
   runPreflightChecks,
   getAttestationPublicKey,
+  getAttestationInfo,
   setAttestedSessionId,
   syncServerTime,
   signLockdownRequest,
@@ -599,6 +600,21 @@ describe('LockDown Desktop Bridge (frontend-v2)', () => {
         assessmentId: 'exam-uuid',
         allowedUrls: ['docs.python.org'],
       });
+    });
+
+    it('getAttestationInfo invokes get_attestation_info and returns attestation tier and binary hash', async () => {
+      mockInvoke.mockResolvedValue({
+        public_key_pem: '-----BEGIN PUBLIC KEY-----\nMIIB...\n-----END PUBLIC KEY-----',
+        attestation_tier: 'hardware_tpm_enclave',
+        kiosk_mode: 'macos_cocoa_kiosk',
+        client_binary_hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      });
+
+      const info = await getAttestationInfo();
+      expect(mockInvoke).toHaveBeenCalledWith('get_attestation_info', {});
+      expect(info.attestation_tier).toBe('hardware_tpm_enclave');
+      expect(info.kiosk_mode).toBe('macos_cocoa_kiosk');
+      expect(info.client_binary_hash).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
     });
   });
 });

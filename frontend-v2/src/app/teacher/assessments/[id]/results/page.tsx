@@ -10,6 +10,9 @@ import {
   XCircle,
   Clock,
   ShieldAlert,
+  ShieldCheck,
+  Star,
+  AlertTriangle,
   Download,
   Search,
   RefreshCw,
@@ -541,6 +544,32 @@ export default function FacultyAssessmentResultsPage({
               </div>
             </div>
 
+            {/* Candidate Kiosk & Security Attestation Badge */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-muted/20 border border-border text-xs">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                <span className="font-semibold text-foreground">Client Environment:</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
+                  {selectedCandidate.kioskMode === "macos_aac_enforced"
+                    ? "macOS AAC Hardware Enclave"
+                    : selectedCandidate.kioskMode === "windows_isolated_desktop"
+                    ? "Windows Isolated Desktop (TPM)"
+                    : selectedCandidate.kioskMode === "linux_wayland_cage"
+                    ? "Linux Wayland Cage"
+                    : selectedCandidate.attestationTier === "hardware_tpm_enclave"
+                    ? "Hardware TPM / Secure Enclave"
+                    : selectedCandidate.requireLockdown
+                    ? "CodeSkill LockDown (Standard)"
+                    : "Standard Web Session"}
+                </span>
+              </div>
+              {selectedCandidate.clientBinaryHash && (
+                <div className="text-[10px] font-mono text-muted-foreground">
+                  Binary: {selectedCandidate.clientBinaryHash.slice(0, 12)}...
+                </div>
+              )}
+            </div>
+
             {/* Navigation Tabs */}
             <div className="flex items-center gap-2 border-b border-border pb-2 text-xs">
               <button
@@ -631,6 +660,53 @@ export default function FacultyAssessmentResultsPage({
                       </div>
                     )}
                   </div>
+
+                  {/* Camera & Mic Disconnect Outages Alert Chip */}
+                  {(() => {
+                    const disconnects = (selectedCandidate.violations || []).filter(
+                      (v: any) => v.type === 'CAMERA_OR_MIC_DISCONNECTED' || v.type === 'CAMERA_OR_MIC_RESTORED'
+                    );
+                    if (disconnects.length === 0) return null;
+                    const cameraOutages = disconnects.filter((v: any) => v.metadata?.deviceKind === 'videoinput' || v.type === 'CAMERA_OR_MIC_DISCONNECTED');
+                    const totalDurationMs = disconnects.reduce((acc: number, v: any) => acc + (v.metadata?.outageDurationMs || 0), 0);
+                    const totalSecs = Math.round(totalDurationMs / 1000);
+                    return (
+                      <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-semibold">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>
+                          Hardware Outage Alert: Camera/Mic disconnected ({cameraOutages.length} incidents{totalSecs > 0 ? `, ~${totalSecs}s total outage` : ''})
+                        </span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Post-Exam Candidate Feedback Section */}
+                  {selectedCandidate.feedback && (
+                    <div className="p-3.5 rounded-xl bg-card border border-border space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                          <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> Candidate Post-Exam Feedback
+                        </h4>
+                        <div className="flex items-center gap-1 text-xs font-bold text-amber-400">
+                          {selectedCandidate.feedback.rating} / 5 Stars
+                        </div>
+                      </div>
+                      {Array.isArray(selectedCandidate.feedback.technicalIssues) && selectedCandidate.feedback.technicalIssues.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {selectedCandidate.feedback.technicalIssues.map((tag: string, i: number) => (
+                            <span key={i} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {selectedCandidate.feedback.comments && (
+                        <p className="text-xs text-muted-foreground italic bg-muted/30 p-2 rounded-lg border border-border/50">
+                          &ldquo;{selectedCandidate.feedback.comments}&rdquo;
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Violations Feed */}
                   <div>

@@ -48,6 +48,7 @@ export function useAssessmentMedia(
   });
   const [cameraActive, setCameraActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [faceCount, setFaceCount] = useState(0);
@@ -80,6 +81,7 @@ export function useAssessmentMedia(
     session.analyser?.disconnect();
     session.analyser = null;
     session.stream = null;
+    setMediaStream(null);
     releaseAssessmentStream(session.id);
     const video = videoRef.current;
     if (video) {
@@ -133,6 +135,7 @@ export function useAssessmentMedia(
           return;
         }
         session.stream = stream;
+        setMediaStream(stream);
         trackAssessmentStream(sessionId, stream);
         setCameraActive(true);
         setMicActive(true);
@@ -294,6 +297,7 @@ export function useAssessmentMedia(
     attachVideo,
     cameraActive: enabled && cameraActive,
     micActive: enabled && micActive,
+    mediaStream: enabled ? mediaStream : null,
     audioLevel: enabled ? audioLevel : 0,
     cameraError,
     faceCount: enabled ? faceCount : 0,

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSCameraUsageDescription</key>
+    <string>CodeSkill LockDown requires camera access for identity verification and exam proctoring.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>CodeSkill LockDown requires microphone access for audio proctoring during the assessment.</string>
+</dict>
+</plist>
