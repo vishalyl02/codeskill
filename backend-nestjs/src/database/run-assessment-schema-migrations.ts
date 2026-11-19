@@ -7,6 +7,7 @@ import { applyAssessmentProctoringModesMigration } from './migrations/assessment
 import { applyAssessmentResumeLimitMigration } from './migrations/assessment-resume-limit';
 import { applyLearningModuleMigration } from './migrations/learning-module';
 import { applyFacultyAssignmentsMigration } from './migrations/faculty-assignments';
+import { applyAssessmentVdiOverrideMigration } from './migrations/assessment-vdi-override';
 
 /** Idempotent schema additions applied on every container rollout before starting the API. */
 export async function runAssessmentSchemaMigrations(): Promise<void> {
@@ -27,6 +28,7 @@ export async function runAssessmentSchemaMigrations(): Promise<void> {
         await applyAssessmentResumeLimitMigration(runner);
         await applyLearningModuleMigration(runner);
         await applyFacultyAssignmentsMigration(runner);
+        await applyAssessmentVdiOverrideMigration(runner);
         await runner.commitTransaction();
       } catch (error) {
         await runner.rollbackTransaction();

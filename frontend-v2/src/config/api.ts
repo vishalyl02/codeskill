@@ -6,6 +6,7 @@ import { getBrowserApiBaseURL } from "@/lib/api-base-url";
 import { normalizeProblemQuery } from "@/lib/public-problems";
 import { logger } from "@/lib/logger";
 import { notifyMutationFailure, notifyMutationSuccess } from "@/lib/api-mutation-notifications";
+import { isLockdownClient, signLockdownRequest } from "@/lib/lockdown-bridge";
 
 // Dynamically determine the correct API base URL
 const getDynamicBaseURL = (): string => {
@@ -21,7 +22,7 @@ const api = axios.create({
 });
 
 // Attach JWT token to every request and ensure correct baseURL/URL formatting
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   // Dynamically update baseURL in browser to prevent stale baked build URLs
   if (typeof window !== "undefined") {
     config.baseURL = getDynamicBaseURL();
@@ -44,6 +45,32 @@ api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = authStorage.getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
+
+    if (isLockdownClient()) {
+      try {
+        const method = (config.method || "get").toUpperCase();
+        let pathPart = config.url || "";
+        if (pathPart.startsWith("/api/")) {
+          pathPart = pathPart.slice(5);
+        } else if (pathPart.startsWith("api/")) {
+          pathPart = pathPart.slice(4);
+        } else if (pathPart.startsWith("/")) {
+          pathPart = pathPart.slice(1);
+        }
+        const formattedPath = `/api/${pathPart}`;
+        const bodyStr = config.data
+          ? typeof config.data === "string"
+            ? config.data
+            : JSON.stringify(config.data)
+          : "";
+        const signedHeaders = await signLockdownRequest(method, formattedPath, bodyStr);
+        if (signedHeaders && signedHeaders["X-CodeSkill-Session-Id"]) {
+          Object.assign(config.headers, signedHeaders);
+        }
+      } catch {
+        // Silently proceed if attestation session is not yet established
+      }
+    }
   }
   return config;
 });

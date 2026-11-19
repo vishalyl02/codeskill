@@ -1,3 +1,5 @@
+import { isLockdownClient } from "@/lib/lockdown-bridge";
+
 type FullscreenDocument = Document & {
   webkitFullscreenElement?: Element | null;
   mozFullScreenElement?: Element | null;
@@ -8,7 +10,11 @@ type FullscreenRoot = HTMLElement & {
   msRequestFullscreen?: () => void | Promise<void>;
 };
 export const fullscreenEvents = ["fullscreenchange", "webkitfullscreenchange", "mozfullscreenchange", "MSFullscreenChange"] as const;
+
 export function isDocumentFullscreen(): boolean {
+  if (typeof window !== "undefined" && isLockdownClient()) {
+    return true;
+  }
   const doc = document as FullscreenDocument;
   return Boolean(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
 }

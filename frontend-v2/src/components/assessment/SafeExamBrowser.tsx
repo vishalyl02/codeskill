@@ -103,34 +103,95 @@ export default function SafeExamBrowser({
 
     // Prevent specific keyboard shortcuts
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+      const keyLower = (e.key || '').toLowerCase();
 
-      // Prevent Copy (Ctrl/Cmd + C)
-      if (blockCopyPaste && cmdOrCtrl && e.key.toLowerCase() === 'c') {
+      // 1. Block Application & Tab Switching (Cmd+Tab, Ctrl+Tab, Alt+Tab)
+      if ((e.key === 'Tab' || e.keyCode === 9) && (cmdOrCtrl || e.altKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        toast.error('Application and tab switching is disabled during the exam.');
+        return;
+      }
+
+      // 2. Block Window / Tab / Browser Navigation (Cmd/Ctrl + W, T, N, Q, R, H, M, L, S, O)
+      if (
+        cmdOrCtrl &&
+        (keyLower === 'w' ||
+          keyLower === 't' ||
+          keyLower === 'n' ||
+          keyLower === 'q' ||
+          keyLower === 'r' ||
+          keyLower === 'h' ||
+          keyLower === 'm' ||
+          keyLower === 'l' ||
+          keyLower === 's' ||
+          keyLower === 'o')
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      // 3. Block Tab cycling & window switching (Cmd/Ctrl + [, ], `, ~)
+      if (cmdOrCtrl && (e.key === '[' || e.key === ']' || e.key === '`' || e.key === '~')) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      // 4. Block Mission Control / Spaces switching (Ctrl + Arrow keys)
+      if (
+        e.ctrlKey &&
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown')
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      // 5. Block Function keys (F3 Mission Control, F11 Show Desktop, F12 DevTools)
+      if (e.key === 'F3' || e.key === 'F11' || e.key === 'F12') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      // 6. Prevent Copy (Ctrl/Cmd + C)
+      if (blockCopyPaste && cmdOrCtrl && keyLower === 'c') {
         e.preventDefault();
         toast.error('Copying is disabled.');
+        return;
       }
-      // Prevent Paste (Ctrl/Cmd + V)
-      if (blockCopyPaste && cmdOrCtrl && e.key.toLowerCase() === 'v') {
+
+      // 7. Prevent Paste (Ctrl/Cmd + V)
+      if (blockCopyPaste && cmdOrCtrl && keyLower === 'v') {
         e.preventDefault();
         toast.error('Pasting is disabled.');
+        return;
       }
-      // Prevent Developer Tools (F12, Ctrl+Shift+I, Cmd+Option+I)
-      if (blockCopyPaste && (
-        e.key === 'F12' ||
-        (cmdOrCtrl && e.shiftKey && e.key.toLowerCase() === 'i') ||
-        (cmdOrCtrl && e.altKey && e.key.toLowerCase() === 'i')
-      )) {
+
+      // 8. Prevent Developer Tools (F12, Ctrl+Shift+I, Cmd+Option+I/J/C)
+      if (
+        blockCopyPaste &&
+        (e.key === 'F12' ||
+          (cmdOrCtrl && (e.shiftKey || e.altKey) && (keyLower === 'i' || keyLower === 'j' || keyLower === 'c')))
+      ) {
         e.preventDefault();
         toast.error('Developer tools are disabled.');
+        return;
       }
-      // Prevent Print (Ctrl/Cmd + P)
-      if (blockCopyPaste && cmdOrCtrl && e.key.toLowerCase() === 'p') {
+
+      // 9. Prevent Print (Ctrl/Cmd + P)
+      if (blockCopyPaste && cmdOrCtrl && keyLower === 'p') {
         e.preventDefault();
+        return;
       }
     };
-    document.addEventListener('keydown', handleKeyDown);
+
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
 
     // We don't want to show a warning on initial mount if they are just arriving,
     // but the fullscreenchange will handle actual exits.
@@ -142,7 +203,8 @@ export default function SafeExamBrowser({
       window.removeEventListener('focus', checkReturned);
       window.clearInterval(focusCheck);
       document.removeEventListener('contextmenu', handleContextMenu);
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
     };
   }, [isEnabled, requireFullscreen, detectTabSwitch, blockCopyPaste, monitorViolations]);
 

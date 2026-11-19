@@ -59,6 +59,18 @@ interface AssessmentStore {
   status: 'draft' | 'published';
   targetStudentIds: string[];
   lockSectionsSequentially: boolean;
+  requireLockdown: boolean;
+  allowVirtualMachine: boolean;
+  lockdownQuitPassword: string;
+  allowCalculators: boolean;
+  allowScratchpad: boolean;
+  allowReferenceDoc: boolean;
+  referencePdfUrl: string;
+  requireCloseOtherApps: boolean;
+  allowSpellCheck: boolean;
+  allowFindOnPage: boolean;
+  allowedUrlPatterns: string[];
+  enableScreenCaptureSnapshots: boolean;
   showResultImmediately: boolean;
   allowReview: boolean;
   resultDisplaySettings: ResultDisplaySettings;
@@ -74,6 +86,18 @@ interface AssessmentStore {
   setStatus: (status: 'draft' | 'published') => void;
   setTargetStudentIds: (ids: string[]) => void;
   setLockSectionsSequentially: (lock: boolean) => void;
+  setRequireLockdown: (require: boolean) => void;
+  setAllowVirtualMachine: (allow: boolean) => void;
+  setLockdownQuitPassword: (pwd: string) => void;
+  setAllowCalculators: (allow: boolean) => void;
+  setAllowScratchpad: (allow: boolean) => void;
+  setAllowReferenceDoc: (allow: boolean) => void;
+  setReferencePdfUrl: (url: string) => void;
+  setRequireCloseOtherApps: (require: boolean) => void;
+  setAllowSpellCheck: (allow: boolean) => void;
+  setAllowFindOnPage: (allow: boolean) => void;
+  setAllowedUrlPatterns: (patterns: string[]) => void;
+  setEnableScreenCaptureSnapshots: (enable: boolean) => void;
   setShowResultImmediately: (show: boolean) => void;
   setAllowReview: (allow: boolean) => void;
   setResultDisplaySettings: (settings: Partial<ResultDisplaySettings>) => void;
@@ -130,6 +154,18 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   status: 'draft',
   targetStudentIds: [],
   lockSectionsSequentially: false,
+  requireLockdown: false,
+  allowVirtualMachine: false,
+  lockdownQuitPassword: '',
+  allowCalculators: false,
+  allowScratchpad: true,
+  allowReferenceDoc: false,
+  referencePdfUrl: '',
+  requireCloseOtherApps: true,
+  allowSpellCheck: false,
+  allowFindOnPage: true,
+  allowedUrlPatterns: [],
+  enableScreenCaptureSnapshots: false,
   showResultImmediately: true,
   allowReview: true,
   resultDisplaySettings: defaultResultDisplay,
@@ -145,6 +181,22 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   setStatus: (status) => set({ status }),
   setTargetStudentIds: (targetStudentIds) => set({ targetStudentIds }),
   setLockSectionsSequentially: (lockSectionsSequentially) => set({ lockSectionsSequentially }),
+  setRequireLockdown: (requireLockdown) =>
+    set((state) => ({
+      requireLockdown,
+      allowVirtualMachine: requireLockdown ? state.allowVirtualMachine : false,
+    })),
+  setAllowVirtualMachine: (allowVirtualMachine) => set({ allowVirtualMachine }),
+  setLockdownQuitPassword: (lockdownQuitPassword) => set({ lockdownQuitPassword }),
+  setAllowCalculators: (allowCalculators) => set({ allowCalculators }),
+  setAllowScratchpad: (allowScratchpad) => set({ allowScratchpad }),
+  setAllowReferenceDoc: (allowReferenceDoc) => set({ allowReferenceDoc }),
+  setReferencePdfUrl: (referencePdfUrl) => set({ referencePdfUrl }),
+  setRequireCloseOtherApps: (requireCloseOtherApps) => set({ requireCloseOtherApps }),
+  setAllowSpellCheck: (allowSpellCheck) => set({ allowSpellCheck }),
+  setAllowFindOnPage: (allowFindOnPage) => set({ allowFindOnPage }),
+  setAllowedUrlPatterns: (allowedUrlPatterns) => set({ allowedUrlPatterns }),
+  setEnableScreenCaptureSnapshots: (enableScreenCaptureSnapshots) => set({ enableScreenCaptureSnapshots }),
   setShowResultImmediately: (showResultImmediately) => set({ showResultImmediately }),
   setAllowReview: (allowReview) => set({ allowReview }),
   setResultDisplaySettings: (settings) =>
@@ -165,6 +217,18 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
       ...assessment,
       targetStudentIds: assessment.targetStudentIds || [],
       lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+      requireLockdown: Boolean(assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB),
+      allowVirtualMachine: Boolean(assessment.allowVirtualMachine),
+      lockdownQuitPassword: assessment.lockdownQuitPassword || assessment.securityPolicy?.lockdownQuitPassword || '',
+      allowCalculators: Boolean(assessment.allowCalculators ?? assessment.securityPolicy?.allowCalculators),
+      allowScratchpad: assessment.allowScratchpad ?? assessment.securityPolicy?.allowScratchpad ?? true,
+      allowReferenceDoc: Boolean(assessment.allowReferenceDoc ?? assessment.securityPolicy?.allowReferenceDoc),
+      referencePdfUrl: assessment.referencePdfUrl || assessment.securityPolicy?.referencePdfUrl || '',
+      requireCloseOtherApps: assessment.requireCloseOtherApps ?? assessment.securityPolicy?.requireCloseOtherApps ?? true,
+      allowSpellCheck: assessment.allowSpellCheck ?? assessment.securityPolicy?.allowSpellCheck ?? false,
+      allowFindOnPage: assessment.allowFindOnPage ?? assessment.securityPolicy?.allowFindOnPage ?? true,
+      allowedUrlPatterns: assessment.allowedUrlPatterns ?? assessment.securityPolicy?.allowedUrlPatterns ?? [],
+      enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
       showResultImmediately: assessment.showResultImmediately ?? true,
       allowReview: assessment.allowReview ?? true,
       resultDisplaySettings: {
@@ -203,6 +267,18 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
     status: 'draft',
     targetStudentIds: [],
     lockSectionsSequentially: false,
+    requireLockdown: false,
+    allowVirtualMachine: false,
+    lockdownQuitPassword: '',
+    allowCalculators: false,
+    allowScratchpad: true,
+    allowReferenceDoc: false,
+    referencePdfUrl: '',
+    requireCloseOtherApps: true,
+    allowSpellCheck: false,
+    allowFindOnPage: true,
+    allowedUrlPatterns: [],
+    enableScreenCaptureSnapshots: false,
     showResultImmediately: true,
     allowReview: true,
     resultDisplaySettings: defaultResultDisplay,

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CodeSkill LockDown",
+  "version": "1.0.0",
+  "identifier": "com.codeskill.lockdown",
+  "build": {
+    "frontendDist": "../index.html",
+    "devUrl": "http://localhost:3000"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https: http://localhost:3000 http://127.0.0.1:3000; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss: https://api.codeskill.com https://*.codeskill.com ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:*; media-src 'self' blob: https:;"
+    },
+    "windows": [
+      {
+        "label": "exam-kiosk",
+        "title": "CodeSkill LockDown",
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) CodeSkillLockDown/1.0",
+        "fullscreen": false,
+        "width": 1280,
+        "height": 850,
+        "alwaysOnTop": false,
+        "decorations": true,
+        "resizable": true,
+        "skipTaskbar": false,
+        "contentProtected": false,
+        "center": true,
+        "devtools": true
+      }
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "schemes": [
+        "codeskill-exam"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

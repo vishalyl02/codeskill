@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, use, useCallback, Fragment, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { enterDocumentFullscreen, fullscreenEvents, isDocumentFullscreen } from "@/lib/fullscreen";
 import { useRouter } from "next/navigation";
 import {
@@ -13,6 +14,7 @@ import {
   RotateCcw,
   Send,
   ShieldAlert,
+  ShieldCheck,
   Lock,
   Maximize2,
   Minimize2,
@@ -27,11 +29,31 @@ import {
   VideoOff,
   Volume2,
   Info,
-  X
+  X,
+  Loader2,
+  WifiOff,
+  Play,
 } from "lucide-react";
-import { studentAssessmentsAPI } from "@/config/api";
-import DSAAssessmentEditor from "@/components/assessment/DSAAssessmentEditor";
+import Link from "next/link";
+import api, { studentAssessmentsAPI } from "@/config/api";
+import { authStorage } from "@/lib/auth-storage";
+import DSAAssessmentEditor, { type CodingExecutionControls } from "@/components/assessment/DSAAssessmentEditor";
 import SafeExamBrowser from "@/components/assessment/SafeExamBrowser";
+import LockdownLaunchGate from "@/components/assessment/LockdownLaunchGate";
+import LockdownUtilityDock from "@/components/assessment/LockdownUtilityDock";
+import LockdownRouteGuard from "@/components/assessment/LockdownRouteGuard";
+import {
+  isLockdownClient,
+  consumeLockdownLaunchToken,
+  releaseLockdownKiosk,
+  listenToLockdownViolation,
+  listenToDeepLinkLaunch,
+  logoutAndExitLockdown,
+  listNonEssentialApps,
+  closeNonEssentialApps,
+  RunningUserApp,
+} from "@/lib/lockdown-bridge";
+import { offlineAutosaveQueue, SyncStatus } from "@/lib/offline-autosave-queue";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "react-hot-toast";
 import { useAssessmentMedia } from "@/hooks/useAssessmentMedia";
@@ -141,6 +163,7 @@ export default function TakeAssessmentPage({
   const [totalPenaltyMarks, setTotalPenaltyMarks] = useState(0);
   const [loadedAssessmentId, setLoadedAssessmentId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLockdownActive, setIsLockdownActive] = useState(false);
   const submissionRequestedRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -158,12 +181,86 @@ export default function TakeAssessmentPage({
   const [isAutoSubmitting, setIsAutoSubmitting] = useState(false);
   const [assessmentTitle, setAssessmentTitle] = useState("Proctored Assessment");
   const [assessmentCode, setAssessmentCode] = useState("");
+  const [securityPolicy, setSecurityPolicy] = useState<any>(null);
+  const [requireLockdown, setRequireLockdown] = useState(false);
+  const [allowCalculators, setAllowCalculators] = useState<boolean>(true);
+  const [allowScratchpad, setAllowScratchpad] = useState<boolean>(true);
+  const [allowReferenceDoc, setAllowReferenceDoc] = useState<boolean>(false);
+  const [referencePdfUrl, setReferencePdfUrl] = useState<string | undefined>(undefined);
+  const [requireCloseOtherApps, setRequireCloseOtherApps] = useState<boolean>(true);
+  const [allowSpellCheck, setAllowSpellCheck] = useState<boolean>(false);
+  const [allowFindOnPage, setAllowFindOnPage] = useState<boolean>(true);
+  const [allowedUrlPatterns, setAllowedUrlPatterns] = useState<string[]>([]);
+  const [enableScreenCaptureSnapshots, setEnableScreenCaptureSnapshots] = useState<boolean>(false);
+  const [attestedSessionId, setAttestedSessionId] = useState<string | undefined>(undefined);
+
+  // Pre-Exam Close-Apps Gate state
+  const [runningAppsList, setRunningAppsList] = useState<RunningUserApp[]>([]);
+  const [isCloseAppsGateOpen, setIsCloseAppsGateOpen] = useState<boolean>(false);
+  const [isClosingApps, setIsClosingApps] = useState<boolean>(false);
+  const [codingControls, setCodingControls] = useState<CodingExecutionControls | null>(null);
+  const [lockdownExitCountdown, setLockdownExitCountdown] = useState<number | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [lockSectionsSequentially, setLockSectionsSequentially] = useState(false);
   const [completedSectionIds, setCompletedSectionIds] = useState<string[]>([]);
   const [showSectionSubmitModal, setShowSectionSubmitModal] = useState(false);
   const mediaCleanupRef = useRef<{ assessmentId: string; timer: number } | null>(null);
   const examPageRef = useRef<HTMLDivElement | null>(null);
+
+  // Live offline autosave queue status
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
+
+  useEffect(() => {
+    const unsubscribe = offlineAutosaveQueue.onStatusChange((status, count) => {
+      setSyncStatus(status);
+      setPendingSyncCount(count);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (id) {
+      void offlineAutosaveQueue.hydrate(id);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (!isLockdownClient()) return;
+
+    let unlisten: (() => void) | undefined;
+    void listenToLockdownViolation(async (violation) => {
+      try {
+        await api.post("exam-security/violations", {
+          assessmentId: id,
+          eventType: violation.violation_type,
+          message: violation.message,
+          metadata: { timestamp: violation.timestamp },
+        });
+      } catch (err) {
+        console.warn("Failed to forward environment violation:", err);
+      }
+    }).then((cleanup) => {
+      unlisten = cleanup;
+    });
+
+    let unlistenDeepLink: (() => void) | undefined;
+    void listenToDeepLinkLaunch((payload) => {
+      if (payload.token) {
+        authStorage.setAccessToken(payload.token);
+      }
+      if (payload.examId && payload.examId !== id) {
+        router.push(`/assessments/${payload.examId}/take`);
+      }
+    }).then((cleanup) => {
+      unlistenDeepLink = cleanup;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+      if (unlistenDeepLink) unlistenDeepLink();
+    };
+  }, [id, router]);
 
   // Restore completed sections from storage for reload resilience
   useEffect(() => {
@@ -185,20 +282,116 @@ export default function TakeAssessmentPage({
   useEffect(() => {
     let cancelled = false;
     setIsLoadingSettings(true);
-    studentAssessmentsAPI.getOverview(id).then((res) => {
-      if (!cancelled) {
-        setProctoring(res.data?.assessment?.proctoring || {});
-        if (res.data?.assessment?.lockSectionsSequentially !== undefined) {
-          setLockSectionsSequentially(Boolean(res.data.assessment.lockSectionsSequentially));
+
+    const loadAssessment = async () => {
+      if (isLockdownClient()) {
+        try {
+          const launchRes = await consumeLockdownLaunchToken(api, id);
+          if (!launchRes.success && launchRes.attestation?.error) {
+            if (!cancelled) {
+              setStartError(launchRes.attestation.error);
+              setIsLoadingSettings(false);
+            }
+            return;
+          }
+          if (!cancelled && launchRes.success) {
+            setIsLockdownActive(true);
+            if (launchRes.attestation?.sessionId) {
+              setAttestedSessionId(launchRes.attestation.sessionId);
+            }
+          }
+        } catch (err: any) {
+          console.error("Failed to bootstrap lockdown launch token:", err);
+          if (!cancelled) {
+            setStartError(err?.message || "Failed to initialize secure exam environment");
+            setIsLoadingSettings(false);
+          }
+          return;
         }
       }
-    }).catch((error) => {
-      console.error("Failed to load assessment proctoring settings:", error);
-      if (!cancelled) setProctoring({});
-    }).finally(() => {
-      if (!cancelled) setIsLoadingSettings(false);
-    });
-    return () => { cancelled = true; };
+
+      if (cancelled) return;
+
+      try {
+        const res = await studentAssessmentsAPI.getOverview(id);
+        if (!cancelled) {
+          const asmt = res.data?.assessment;
+          setProctoring(asmt?.proctoring || {});
+          setSecurityPolicy(asmt?.securityPolicy || {});
+          if (asmt?.requireLockdown !== undefined) {
+            setRequireLockdown(Boolean(asmt.requireLockdown));
+          }
+          if (asmt?.allowCalculators !== undefined) {
+            setAllowCalculators(Boolean(asmt.allowCalculators));
+          }
+          if (asmt?.allowScratchpad !== undefined) {
+            setAllowScratchpad(Boolean(asmt.allowScratchpad));
+          } else if (asmt?.securityPolicy?.allowScratchpad !== undefined) {
+            setAllowScratchpad(Boolean(asmt.securityPolicy.allowScratchpad));
+          }
+          if (asmt?.allowReferenceDoc !== undefined) {
+            setAllowReferenceDoc(Boolean(asmt.allowReferenceDoc));
+          } else if (asmt?.securityPolicy?.allowReferenceDoc !== undefined) {
+            setAllowReferenceDoc(Boolean(asmt.securityPolicy.allowReferenceDoc));
+          }
+          if (asmt?.referencePdfUrl) {
+            setReferencePdfUrl(asmt.referencePdfUrl);
+          }
+          if (asmt?.title) setAssessmentTitle(asmt.title);
+          if (asmt?.code) setAssessmentCode(asmt.code);
+          if (asmt?.lockSectionsSequentially !== undefined) {
+            setLockSectionsSequentially(Boolean(asmt.lockSectionsSequentially));
+          }
+          const closeAppsRequired =
+            asmt?.requireCloseOtherApps ??
+            asmt?.securityPolicy?.requireCloseOtherApps ??
+            true;
+          setRequireCloseOtherApps(Boolean(closeAppsRequired));
+          if (asmt?.allowSpellCheck !== undefined) {
+            setAllowSpellCheck(Boolean(asmt.allowSpellCheck));
+          } else if (asmt?.securityPolicy?.allowSpellCheck !== undefined) {
+            setAllowSpellCheck(Boolean(asmt.securityPolicy.allowSpellCheck));
+          }
+          if (asmt?.allowFindOnPage !== undefined) {
+            setAllowFindOnPage(Boolean(asmt.allowFindOnPage));
+          } else if (asmt?.securityPolicy?.allowFindOnPage !== undefined) {
+            setAllowFindOnPage(Boolean(asmt.securityPolicy.allowFindOnPage));
+          }
+          if (Array.isArray(asmt?.allowedUrlPatterns)) {
+            setAllowedUrlPatterns(asmt.allowedUrlPatterns);
+          } else if (Array.isArray(asmt?.securityPolicy?.allowedUrlPatterns)) {
+            setAllowedUrlPatterns(asmt.securityPolicy.allowedUrlPatterns);
+          }
+          if (asmt?.enableScreenCaptureSnapshots !== undefined) {
+            setEnableScreenCaptureSnapshots(Boolean(asmt.enableScreenCaptureSnapshots));
+          }
+
+          // In LockDown client with close-apps policy enabled, scan for running applications
+          if (isLockdownClient() && closeAppsRequired) {
+            try {
+              const apps = await listNonEssentialApps();
+              if (apps.length > 0) {
+                setRunningAppsList(apps);
+                setIsCloseAppsGateOpen(true);
+              }
+            } catch (err) {
+              console.warn("Failed to check running apps:", err);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load assessment proctoring settings:", error);
+        if (!cancelled) setProctoring({});
+      } finally {
+        if (!cancelled) setIsLoadingSettings(false);
+      }
+    };
+
+    void loadAssessment();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   // Stop any handed-off preflight stream when this route is really left. Defer
@@ -246,10 +439,12 @@ export default function TakeAssessmentPage({
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
 
-  const responsesRef = useRef(responses);
-  responsesRef.current = responses;
-
   const draftDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const responsesRef = useRef(responses);
+  if (!draftDebounceRef.current) {
+    responsesRef.current = responses;
+  }
 
   const flushDraftToState = useCallback(() => {
     if (draftDebounceRef.current) {
@@ -357,6 +552,10 @@ export default function TakeAssessmentPage({
     setIsLoading(true);
     try {
       if (proctoring?.useCamera !== false && !getAssessmentFaceReference(id)) {
+        if (isLockdownClient()) {
+          router.replace(`/assessments/${id}`);
+          return;
+        }
         throw new Error("Take your identity selfie on the assessment briefing page before entering the test.");
       }
       const isExplicitRetake = new URLSearchParams(window.location.search).get("retake") === "1";
@@ -365,10 +564,48 @@ export default function TakeAssessmentPage({
       const res = isExplicitRetake
         ? await studentAssessmentsAPI.retakeAttempt(id)
         : await studentAssessmentsAPI.startAttempt(id);
-      const data = res.data;
-      setQuestions(data.questions || []);
+      const data = res.data?.data && res.data.data.questions ? res.data.data : res.data;
+      const questionsList = data?.questions || res.data?.questions || [];
+      setQuestions(questionsList);
       if (data.lockSectionsSequentially !== undefined) {
         setLockSectionsSequentially(Boolean(data.lockSectionsSequentially));
+      }
+      if (data.allowCalculators !== undefined) {
+        setAllowCalculators(Boolean(data.allowCalculators));
+      }
+      if (data.allowScratchpad !== undefined) {
+        setAllowScratchpad(Boolean(data.allowScratchpad));
+      } else if (data.securityPolicy?.allowScratchpad !== undefined) {
+        setAllowScratchpad(Boolean(data.securityPolicy.allowScratchpad));
+      }
+      if (data.allowReferenceDoc !== undefined) {
+        setAllowReferenceDoc(Boolean(data.allowReferenceDoc));
+      } else if (data.securityPolicy?.allowReferenceDoc !== undefined) {
+        setAllowReferenceDoc(Boolean(data.securityPolicy.allowReferenceDoc));
+      }
+      if (data.referencePdfUrl) {
+        setReferencePdfUrl(data.referencePdfUrl);
+      }
+      if (data.requireCloseOtherApps !== undefined) {
+        setRequireCloseOtherApps(Boolean(data.requireCloseOtherApps));
+      }
+      if (data.allowSpellCheck !== undefined) {
+        setAllowSpellCheck(Boolean(data.allowSpellCheck));
+      } else if (data.securityPolicy?.allowSpellCheck !== undefined) {
+        setAllowSpellCheck(Boolean(data.securityPolicy.allowSpellCheck));
+      }
+      if (data.allowFindOnPage !== undefined) {
+        setAllowFindOnPage(Boolean(data.allowFindOnPage));
+      } else if (data.securityPolicy?.allowFindOnPage !== undefined) {
+        setAllowFindOnPage(Boolean(data.securityPolicy.allowFindOnPage));
+      }
+      if (Array.isArray(data.allowedUrlPatterns)) {
+        setAllowedUrlPatterns(data.allowedUrlPatterns);
+      } else if (Array.isArray(data.securityPolicy?.allowedUrlPatterns)) {
+        setAllowedUrlPatterns(data.securityPolicy.allowedUrlPatterns);
+      }
+      if (data.enableScreenCaptureSnapshots !== undefined) {
+        setEnableScreenCaptureSnapshots(Boolean(data.enableScreenCaptureSnapshots));
       }
       const resolvedDurationMinutes = data.durationMinutes !== undefined && data.durationMinutes > 0
         ? data.durationMinutes
@@ -427,6 +664,7 @@ export default function TakeAssessmentPage({
           };
         }
       });
+      responsesRef.current = initialResponses;
       setResponses(initialResponses);
       setLoadedAssessmentId(id);
     } catch (err: any) {
@@ -484,6 +722,16 @@ export default function TakeAssessmentPage({
       });
 
       try {
+        // 1. Flush any pending buffered offline autosaves first
+        try {
+          const flushed = await offlineAutosaveQueue.flush();
+          if (!flushed && offlineAutosaveQueue.getPendingCount() > 0) {
+            toast.error("Wi-Fi is disconnected. Reconnecting to sync pending answers before submission...");
+          }
+        } catch {
+          // Proceed to attempt submission
+        }
+
         const payload = {
           responses: formattedResponses,
           timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
@@ -508,6 +756,9 @@ export default function TakeAssessmentPage({
           }
         }
         if (lastError) throw lastError;
+
+        // Final exam submission confirmed: zero-fill and purge encrypted offline vault
+        await offlineAutosaveQueue.purgeAll(id);
       } catch (err: any) {
         submissionRequestedRef.current = false;
         submitStartedRef.current = false;
@@ -525,6 +776,11 @@ export default function TakeAssessmentPage({
       try {
         localStorage.removeItem(`codeskill_sections_done_${id}`);
       } catch {}
+      await releaseLockdownKiosk();
+      if (isLockdownClient()) {
+        setLockdownExitCountdown(3);
+        return;
+      }
       if (isAuto) {
         await new Promise((resolve) => window.setTimeout(resolve, 2500));
       }
@@ -532,6 +788,18 @@ export default function TakeAssessmentPage({
     },
     [id, isSubmitting, questions, startedAt, router, stopCamera]
   );
+
+  useEffect(() => {
+    if (lockdownExitCountdown === null) return;
+    if (lockdownExitCountdown <= 0) {
+      void logoutAndExitLockdown();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setLockdownExitCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [lockdownExitCountdown]);
 
   useEffect(() => {
     if (!cameraActive || loadedAssessmentId !== id || isSubmitting || timeLeftSeconds <= 0) return;
@@ -780,14 +1048,21 @@ export default function TakeAssessmentPage({
       });
 
       try {
-        await studentAssessmentsAPI.saveProgress(id, {
+        const payload = {
           responses: formattedResponses,
           timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
           violations: violationsRef.current,
+        };
+        await offlineAutosaveQueue.enqueue({
+          attemptId: id,
+          questionId: currentQ?._id || 'all-progress',
+          payload,
+          endpoint: `/api/student/assessments/${id}/progress`,
+          method: 'POST',
         });
         lastSavedFingerprintRef.current = currentFingerprint;
       } catch (e) {
-        // Silent background save
+        // Handled in offline queue
       }
     }, 15000);
 
@@ -856,6 +1131,28 @@ export default function TakeAssessmentPage({
       };
       responsesRef.current = next;
       setResponses(next);
+
+      const updated = next[currentQ._id];
+      void offlineAutosaveQueue.enqueue({
+        attemptId: id,
+        questionId: currentQ._id,
+        payload: {
+          responses: [{
+            questionId: currentQ._id,
+            selectedAnswer: updated.selectedAnswer,
+            selectedAnswers: updated.selectedAnswers || [],
+            code: updated.code || "",
+            language: updated.language || currentQ.language || "python",
+            testCasesPassed: updated.testCasesPassed || 0,
+            totalTestCases: updated.totalTestCases || 0,
+            status: updated.status,
+          }],
+          timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+          violations: violationsRef.current,
+        },
+        endpoint: `/api/student/assessments/${id}/progress`,
+        method: 'POST',
+      });
     } else {
       const next = {
         ...responsesRef.current,
@@ -868,6 +1165,28 @@ export default function TakeAssessmentPage({
       };
       responsesRef.current = next;
       setResponses(next);
+
+      const updated = next[currentQ._id];
+      void offlineAutosaveQueue.enqueue({
+        attemptId: id,
+        questionId: currentQ._id,
+        payload: {
+          responses: [{
+            questionId: currentQ._id,
+            selectedAnswer: updated.selectedAnswer,
+            selectedAnswers: updated.selectedAnswers || [],
+            code: updated.code || "",
+            language: updated.language || currentQ.language || "python",
+            testCasesPassed: updated.testCasesPassed || 0,
+            totalTestCases: updated.totalTestCases || 0,
+            status: updated.status,
+          }],
+          timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+          violations: violationsRef.current,
+        },
+        endpoint: `/api/student/assessments/${id}/progress`,
+        method: 'POST',
+      });
     }
   };
 
@@ -884,6 +1203,28 @@ export default function TakeAssessmentPage({
     };
     responsesRef.current = next;
     setResponses(next);
+
+    const updated = next[currentQ._id];
+    void offlineAutosaveQueue.enqueue({
+      attemptId: id,
+      questionId: currentQ._id,
+      payload: {
+        responses: [{
+          questionId: currentQ._id,
+          selectedAnswer: updated.selectedAnswer,
+          selectedAnswers: updated.selectedAnswers || [],
+          code: updated.code || "",
+          language: updated.language || currentQ.language || "python",
+          testCasesPassed: updated.testCasesPassed || 0,
+          totalTestCases: updated.totalTestCases || 0,
+          status: updated.status,
+        }],
+        timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+        violations: violationsRef.current,
+      },
+      endpoint: `/api/student/assessments/${id}/progress`,
+      method: 'POST',
+    });
   };
 
   const handleMarkForReview = () => {
@@ -930,9 +1271,31 @@ export default function TakeAssessmentPage({
       if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
       draftDebounceRef.current = setTimeout(() => {
         setResponses(responsesRef.current);
+        if (currentQ?._id) {
+          void offlineAutosaveQueue.enqueue({
+            attemptId: id,
+            questionId: currentQ._id,
+            payload: {
+              responses: [{
+                questionId: currentQ._id,
+                selectedAnswer: -1,
+                selectedAnswers: [],
+                code,
+                language,
+                testCasesPassed: 0,
+                totalTestCases: 0,
+                status: previous?.status === "marked_for_review" ? "marked_for_review" : "draft",
+              }],
+              timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+              violations: violationsRef.current,
+            },
+            endpoint: `/api/student/assessments/${id}/progress`,
+            method: 'POST',
+          });
+        }
       }, 400);
     },
-    [currentQ]
+    [currentQ, id, startedAt]
   );
 
   const handleSaveCodingQuestion = async (
@@ -976,11 +1339,26 @@ export default function TakeAssessmentPage({
       };
     });
 
-    await studentAssessmentsAPI.saveProgress(id, {
-      responses: formatted,
-      timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
-      violations: violationsRef.current,
-    });
+    try {
+      await studentAssessmentsAPI.saveProgress(id, {
+        responses: formatted,
+        timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+        violations: violationsRef.current,
+      });
+    } catch (err) {
+      void offlineAutosaveQueue.enqueue({
+        attemptId: id,
+        questionId: currentQ._id,
+        payload: {
+          responses: formatted,
+          timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+          violations: violationsRef.current,
+        },
+        endpoint: `/api/student/assessments/${id}/progress`,
+        method: 'POST',
+      });
+      throw err;
+    }
   };
 
   // Section grouping & sequential locking calculation
@@ -1215,7 +1593,115 @@ export default function TakeAssessmentPage({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const renderCloseAppsGateModal = () => (
+    <AnimatePresence>
+      {isCloseAppsGateOpen && runningAppsList.length > 0 && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-card border border-border rounded-2xl p-6 shadow-2xl w-full max-w-lg space-y-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-foreground">Close Non-Essential Applications</h3>
+                <p className="text-xs text-muted-foreground">
+                  CodeSkill LockDown detected running applications. Please close them before proceeding with the examination.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-muted/40 p-3 max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin">
+              {runningAppsList.map((app) => (
+                <div key={app.pid} className="flex items-center justify-between text-xs py-1.5 px-2.5 rounded-lg bg-background border border-border/50">
+                  <span className="font-semibold text-foreground truncate max-w-[260px]">{app.name}</span>
+                  <span className="font-mono text-[10px] text-muted-foreground">PID: {app.pid}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isClosingApps}
+                onClick={async () => {
+                  setIsClosingApps(true);
+                  const remaining = await listNonEssentialApps();
+                  setRunningAppsList(remaining);
+                  if (remaining.length === 0) {
+                    setIsCloseAppsGateOpen(false);
+                    toast.success("All applications closed. You may proceed.");
+                  } else {
+                    toast.error(`${remaining.length} application(s) still open.`);
+                  }
+                  setIsClosingApps(false);
+                }}
+                className="px-3.5 py-2 rounded-xl border border-border hover:bg-muted text-foreground text-xs font-medium cursor-pointer"
+              >
+                Re-check
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isClosingApps}
+                  onClick={async () => {
+                    setIsClosingApps(true);
+                    const remaining = await closeNonEssentialApps(false);
+                    setRunningAppsList(remaining);
+                    if (remaining.length === 0) {
+                      setIsCloseAppsGateOpen(false);
+                      toast.success("Applications closed successfully.");
+                    }
+                    setIsClosingApps(false);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  {isClosingApps ? <Spinner className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+                  Close All & Continue
+                </button>
+                <button
+                  type="button"
+                  disabled={isClosingApps}
+                  onClick={async () => {
+                    setIsClosingApps(true);
+                    const remaining = await closeNonEssentialApps(true);
+                    setRunningAppsList(remaining);
+                    if (remaining.length === 0) {
+                      setIsCloseAppsGateOpen(false);
+                      toast.success("Applications forcefully terminated.");
+                    }
+                    setIsClosingApps(false);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  Force Close
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+
+  const requiresLockdown = Boolean(
+    requireLockdown ||
+    securityPolicy?.requireSEB ||
+    securityPolicy?.requireLockdown ||
+    securityPolicy?.secureExamMode === "STRICT" ||
+    securityPolicy?.secureExamMode === "STANDARD"
+  );
+
+  if (!isLoadingSettings && requiresLockdown && !isLockdownClient()) {
+    return <LockdownLaunchGate examId={id} examTitle={assessmentTitle} />;
+  }
+
   if (startError) {
+    const isSelfieRequired = startError.toLowerCase().includes("selfie") || startError.toLowerCase().includes("identity");
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-5 py-12">
         <section className="w-full max-w-xl rounded-2xl border border-border bg-card p-7 text-center shadow-sm">
@@ -1225,15 +1711,28 @@ export default function TakeAssessmentPage({
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <button
               type="button"
-              onClick={() => setStartError(null)}
-              className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+              onClick={async () => {
+                setStartError(null);
+                startAttemptRequestedRef.current = false;
+                await beginAssessmentAfterFullscreen();
+              }}
+              className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 cursor-pointer"
             >
               Try again
             </button>
+            <Link
+              href={`/assessments/${id}`}
+              className="rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 px-4 py-2.5 text-sm font-semibold text-primary transition-colors cursor-pointer"
+            >
+              {isSelfieRequired ? "Take Selfie on Briefing Page" : "Back to Assessment Details"}
+            </Link>
             <button
               type="button"
-              onClick={() => router.push(`/assessments/${id}/result`)}
-              className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground"
+              onClick={async () => {
+                await releaseLockdownKiosk();
+                router.push(`/assessments/${id}/result`);
+              }}
+              className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted cursor-pointer"
             >
               View previous result
             </button>
@@ -1259,15 +1758,32 @@ export default function TakeAssessmentPage({
 
   if (isLoading || !currentQ) {
     return (
-      <SafeExamBrowser isEnabled={!isLoadingSettings && !isSubmitting} requireFullscreen={proctoring?.enforceFullscreen !== false} monitorViolations={false} detectTabSwitch={false} blockCopyPaste={false} onFullscreenEntered={beginAssessmentAfterFullscreen}>
-        <div className="flex-1 min-h-screen bg-background flex items-center justify-center font-sans">
-          <div className="text-center space-y-3">
-            <Spinner className="w-9 h-9 animate-spin text-primary mx-auto" />
-            <h2 className="text-sm font-semibold text-foreground">Preparing Secure Assessment Environment</h2>
-            <p className="text-xs text-muted-foreground">{isLoadingSettings ? "Loading assessment settings…" : proctoring?.enforceFullscreen === false ? "Your assessment is starting." : "The test will start after you enter fullscreen."}</p>
+      <LockdownRouteGuard assessmentId={id} allowedUrlPatterns={allowedUrlPatterns} allowFindOnPage={allowFindOnPage}>
+        <SafeExamBrowser isEnabled={!isLoadingSettings && !isSubmitting} requireFullscreen={proctoring?.enforceFullscreen !== false && !isLockdownClient()} monitorViolations={false} detectTabSwitch={false} blockCopyPaste={false} onFullscreenEntered={beginAssessmentAfterFullscreen}>
+          <div className="flex-1 min-h-screen bg-background flex items-center justify-center font-sans">
+            <div className="text-center space-y-3">
+              <Spinner className="w-9 h-9 animate-spin text-primary mx-auto" />
+              <h2 className="text-sm font-semibold text-foreground">Preparing Secure Assessment Environment</h2>
+              <p className="text-xs text-muted-foreground">{isLoadingSettings ? "Loading assessment settings…" : proctoring?.enforceFullscreen === false ? "Your assessment is starting." : "The test will start after you enter fullscreen."}</p>
+            </div>
+            {isLockdownClient() && (
+              <LockdownUtilityDock
+                assessmentId={id}
+                sessionId={attestedSessionId}
+                allowCalculators={allowCalculators}
+                allowScratchpad={allowScratchpad}
+                allowReferenceDoc={allowReferenceDoc}
+                referencePdfUrl={referencePdfUrl}
+                isSubmitted={false}
+                onSafeReload={async () => {
+                  await offlineAutosaveQueue.forceSyncNow(api);
+                }}
+              />
+            )}
+            {renderCloseAppsGateModal()}
           </div>
-        </div>
-      </SafeExamBrowser>
+        </SafeExamBrowser>
+      </LockdownRouteGuard>
     );
   }
 
@@ -1275,9 +1791,14 @@ export default function TakeAssessmentPage({
   const isTimeCritical = timeLeftSeconds < 300; // < 5 mins
 
   return (
+    <LockdownRouteGuard
+      assessmentId={id}
+      allowedUrlPatterns={allowedUrlPatterns}
+      allowFindOnPage={allowFindOnPage}
+    >
     <SafeExamBrowser
       isEnabled={!isSubmitting}
-      requireFullscreen={proctoring?.enforceFullscreen !== false}
+      requireFullscreen={proctoring?.enforceFullscreen !== false && !isLockdownClient()}
       detectTabSwitch={proctoring?.detectTabSwitch !== false}
       blockCopyPaste={proctoring?.blockCopyPaste !== false}
       monitorViolations={loadedAssessmentId === id}
@@ -1331,6 +1852,15 @@ export default function TakeAssessmentPage({
 
         {/* Center: Live Countdown Clock & Penalty Badge */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {isLockdownActive && (
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs font-semibold select-none shadow-xs"
+              title="CodeSkill LockDown active: Attestation verified & OS kiosk engaged"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>LockDown Active</span>
+            </div>
+          )}
           {((proctoring?.mode === 'partial_proctored') || (proctoring?.violationPenaltyMarks && proctoring.violationPenaltyMarks > 0) || totalPenaltyMarks > 0) && (
             <div
               className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md border text-xs font-mono font-bold transition-all shadow-xs ${
@@ -1359,6 +1889,46 @@ export default function TakeAssessmentPage({
           >
             <Clock className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isTimeCritical ? "text-rose-600" : "text-primary"}`} />
             <span>{formatTime(timeLeftSeconds)}</span>
+          </div>
+
+          {/* Offline Autosave Live Sync Indicator */}
+          <div className="flex items-center">
+            {syncStatus === 'synced' && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800 text-[11px] font-medium transition-all shadow-xs"
+                title="All answers saved to server"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span className="hidden sm:inline">Saved</span>
+              </div>
+            )}
+            {syncStatus === 'syncing' && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800 text-[11px] font-medium transition-all shadow-xs"
+                title="Syncing answers with server"
+              >
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600 dark:text-sky-400" />
+                <span className="hidden sm:inline">Syncing...</span>
+              </div>
+            )}
+            {syncStatus === 'offline-buffered' && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-700 text-[11px] font-medium animate-pulse shadow-xs"
+                title="Wi-Fi disconnected. Answers are encrypted and stored locally, will sync automatically once connected."
+              >
+                <WifiOff className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Offline — {pendingSyncCount} {pendingSyncCount === 1 ? 'answer' : 'answers'} saved locally (Encrypted)</span>
+              </div>
+            )}
+            {syncStatus === 'error' && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-300 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800 text-[11px] font-medium shadow-xs"
+                title="Temporary sync error. Retrying automatically..."
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+                <span>Sync Error ({pendingSyncCount})</span>
+              </div>
+            )}
           </div>
 
           {/* Fullscreen Button */}
@@ -1584,49 +2154,10 @@ export default function TakeAssessmentPage({
         </aside>
         {(() => {
           const isCodingQuestion = ["coding", "algorithmic", "dsa"].includes(currentQ.questionType?.toLowerCase()) || (!currentQ.options?.length && Boolean(currentQ.starterCode || currentQ.codeSnippet));
-          return <AssessmentReadingZoom>{readingScale => <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden p-3 gap-3">
-            {isCodingQuestion ? <>
-              <DSAAssessmentEditor assessmentId={id} readingScale={readingScale} key={currentQ._id} question={currentQ} savedResponse={responses[currentQ._id]} onDraftChange={handleCodingDraft} onSave={handleSaveCodingQuestion} blockCopyPaste={proctoring?.blockCopyPaste !== false} />
-              <div className="shrink-0 z-20 flex flex-wrap items-center justify-between gap-3 bg-card/95 backdrop-blur-xl border border-border p-3 sm:p-4 rounded-2xl shadow-lg">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleMarkForReview}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-600 dark:text-amber-400 transition-colors"
-                    title={currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review"}
-                  >
-                    <Bookmark className="w-3.5 h-3.5" /> {currentResponse?.status === "marked_for_review" ? "Unreview" : "Review later"}
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { flushDraftToState(); setCurrentIndex((prev) => Math.max(0, prev - 1)); }}
-                    disabled={currentIndex === 0 || (isSequentialActive && isFirstQuestionOfCurrentSection)}
-                    className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    <ChevronLeft className="w-4 h-4" /> Previous
-                  </button>
-                  {isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1 ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowSectionSubmitModal(true)}
-                      className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-sm shadow-amber-600/20"
-                    >
-                      Complete & Submit Section <ChevronRight className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleSaveAndNext}
-                      className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20"
-                    >
-                      {isLastQuestion ? "Review & finish" : "Next question"} <ChevronRight className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </> : <>
+          return <AssessmentReadingZoom>{readingScale => <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden p-3 pb-24 gap-3 relative">
+            {isCodingQuestion ? (
+              <DSAAssessmentEditor assessmentId={id} readingScale={readingScale} key={currentQ._id} question={currentQ} savedResponse={responses[currentQ._id]} onDraftChange={handleCodingDraft} onSave={handleSaveCodingQuestion} onControlsChange={setCodingControls} blockCopyPaste={proctoring?.blockCopyPaste !== false} />
+            ) : (
               <ResizableAssessmentPanels key={currentQ._id} className="rounded-2xl border border-border bg-card">
                 <section aria-label="Question statement" tabIndex={0} className="assessment-scroll flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain p-5 space-y-6">
                   <div style={{ zoom: readingScale }} className="space-y-6">
@@ -1742,67 +2273,132 @@ export default function TakeAssessmentPage({
                   </div>
                 </section>
               </ResizableAssessmentPanels>
-                {/* Bottom Action Ribbon */}
-                <div className="shrink-0 z-20 flex flex-wrap items-center justify-between gap-3 bg-card/95 backdrop-blur-xl border border-border p-3 sm:p-4 rounded-2xl shadow-lg">
-                  <div className="flex items-center gap-2">
+            )}
+
+            {/* ───────────────────────────────────────────────────────────── */}
+            {/* Fixed Bottom Center Action Controls Bar (Outside Container)   */}
+            {/* ───────────────────────────────────────────────────────────── */}
+            <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-32px)]">
+              <nav
+                aria-label="Assessment navigation and actions"
+                className="flex items-center gap-2 sm:gap-3 bg-card/95 dark:bg-card/90 backdrop-blur-xl border border-border px-3 sm:px-4 py-2 sm:py-2.5 rounded-2xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
+              >
+                {/* Coding execution actions (Run Code, Submit Solution, Saved indicator) */}
+                {isCodingQuestion && codingControls && (
+                  <>
+                    <div className="hidden md:flex items-center gap-1.5 px-2 text-[11px] font-semibold">
+                      {codingControls.isSaved ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" /> Solution Saved
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground flex items-center gap-1">
+                          Draft
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Run Code */}
+                    <button
+                      type="button"
+                      aria-label="Run Code"
+                      onClick={codingControls.runTest}
+                      disabled={codingControls.isRunning || codingControls.isSubmitting || codingControls.runCooldown > 0}
+                      className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl bg-background hover:bg-muted text-foreground text-xs font-bold border border-border shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      {codingControls.isRunning ? (
+                        <Spinner className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 fill-amber-600 dark:fill-amber-400" />
+                      )}
+                      <span>{codingControls.runCooldown > 0 ? `Run Code (${codingControls.runCooldown}s)` : "Run Code"}</span>
+                    </button>
+
+                    {/* Submit Solution */}
+                    <button
+                      type="button"
+                      aria-label="Submit Solution"
+                      onClick={codingControls.submitSolution}
+                      disabled={codingControls.isSubmitting || codingControls.submitCooldown > 0}
+                      className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 disabled:opacity-50 cursor-pointer"
+                    >
+                      {codingControls.isSubmitting ? (
+                        <Spinner className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      )}
+                      <span>{codingControls.submitCooldown > 0 ? `Submit Solution (${codingControls.submitCooldown}s)` : "Submit Solution"}</span>
+                    </button>
+
+                    <div className="h-5 w-px bg-border my-auto" />
+                  </>
+                )}
+
+                {/* MCQ Clear option */}
+                {!isCodingQuestion && (
+                  <>
                     <button
                       type="button"
                       onClick={handleClearSelection}
                       disabled={isMultiChoice ? selectedAnswers.length === 0 : selectedAnswer < 0}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                       title="Clear current answer choice"
                     >
                       <RotateCcw className="w-3.5 h-3.5" /> Clear
                     </button>
+                    <div className="h-5 w-px bg-border my-auto" />
+                  </>
+                )}
 
-                    <button
-                      type="button"
-                      onClick={handleMarkForReview}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-600 dark:text-amber-400 transition-colors"
-                      title={currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review"}
-                    >
-                      <Bookmark className="w-3.5 h-3.5" /> {currentResponse?.status === "marked_for_review" ? "Unreview" : "Review"}
-                    </button>
-                  </div>
+                {/* Review later toggle */}
+                <button
+                  type="button"
+                  onClick={handleMarkForReview}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-600 dark:text-amber-400 transition-colors cursor-pointer"
+                  title={currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review"}
+                >
+                  <Bookmark className="w-3.5 h-3.5" />
+                  <span>{currentResponse?.status === "marked_for_review" ? "Unreview" : isCodingQuestion ? "Review later" : "Review"}</span>
+                </button>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { flushDraftToState(); setCurrentIndex((prev) => Math.max(0, prev - 1)); }}
-                      disabled={currentIndex === 0 || (isSequentialActive && isFirstQuestionOfCurrentSection)}
-                      className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <ChevronLeft className="w-4 h-4" /> Previous
-                    </button>
+                {/* Previous question */}
+                <button
+                  type="button"
+                  onClick={() => { flushDraftToState(); setCurrentIndex((prev) => Math.max(0, prev - 1)); }}
+                  disabled={currentIndex === 0 || (isSequentialActive && isFirstQuestionOfCurrentSection)}
+                  className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" /> <span>Previous</span>
+                </button>
 
-                    {isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowSectionSubmitModal(true)}
-                        className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-md shadow-amber-600/20"
-                      >
-                        Complete & Submit Section <ChevronRight className="w-4 h-4" />
-                      </button>
-                    ) : isLastQuestion ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowSubmitModal(true)}
-                        className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Review answers
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleSaveAndNext}
-                        className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20"
-                      >
-                        Save & Next <ChevronRight className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-            </>}
+                {/* Next Question / Complete Section / Review & Finish */}
+                {isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowSectionSubmitModal(true)}
+                    className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-sm shadow-amber-600/20 cursor-pointer"
+                  >
+                    Complete Section <ChevronRight className="w-4 h-4" />
+                  </button>
+                ) : isLastQuestion ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowSubmitModal(true)}
+                    className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" /> <span>Review answers</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSaveAndNext}
+                    className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20 cursor-pointer"
+                  >
+                    <span>Next question</span> <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+              </nav>
+            </div>
           </main>}</AssessmentReadingZoom>;
         })()}
       </div>
@@ -2057,7 +2653,52 @@ export default function TakeAssessmentPage({
       )}
 
       {/* Proctoring Violation Warning Modal is removed in favor of SafeExamBrowser overlay */}
+
+      {/* SEB-Style Bottom Utility Dock for Native CodeSkill LockDown Client */}
+      {isLockdownClient() && (
+        <LockdownUtilityDock
+          assessmentId={id}
+          sessionId={attestedSessionId}
+          allowCalculators={allowCalculators}
+          allowScratchpad={allowScratchpad}
+          allowReferenceDoc={allowReferenceDoc}
+          referencePdfUrl={referencePdfUrl}
+          isSubmitted={isSubmitting || submissionRequestedRef.current}
+          onSafeReload={async () => {
+            await offlineAutosaveQueue.forceSyncNow(api);
+          }}
+        />
+      )}
+
+      {/* Pre-Exam Close Non-Essential Apps Gate Modal */}
+      {renderCloseAppsGateModal()}
+
+      {/* CodeSkill LockDown 3-Second Auto-Logout & Exit Countdown Modal */}
+      {lockdownExitCountdown !== null && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4 text-center">
+          <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl space-y-6">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold text-white">Assessment Submitted Successfully</h2>
+              <p className="text-sm text-slate-400 leading-relaxed">
+                Your responses have been securely synced to the server. CodeSkill LockDown will log out and close in{" "}
+                <span className="font-bold text-emerald-400 text-base">{lockdownExitCountdown}</span> seconds.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void logoutAndExitLockdown()}
+              className="w-full py-3 px-6 rounded-xl bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-all cursor-pointer shadow-lg shadow-primary/20"
+            >
+              Exit Now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
     </SafeExamBrowser>
+    </LockdownRouteGuard>
   );
 }

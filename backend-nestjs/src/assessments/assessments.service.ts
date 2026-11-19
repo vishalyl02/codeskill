@@ -987,6 +987,32 @@ export class AssessmentsService {
       showResultImmediately: dto.showResultImmediately ?? true,
       allowReview: dto.allowReview ?? true,
       lockSectionsSequentially: dto.lockSectionsSequentially ?? false,
+      allowVirtualMachine: dto.allowVirtualMachine ?? false,
+      requireLockdown: dto.requireLockdown ?? (dto as any).securityPolicy?.requireSEB ?? false,
+      lockdownQuitPassword: dto.lockdownQuitPassword ?? (dto as any).securityPolicy?.lockdownQuitPassword,
+      allowCalculators: dto.allowCalculators ?? (dto as any).securityPolicy?.allowCalculators ?? false,
+      allowScratchpad: dto.allowScratchpad ?? (dto as any).securityPolicy?.allowScratchpad ?? true,
+      allowReferenceDoc: dto.allowReferenceDoc ?? (dto as any).securityPolicy?.allowReferenceDoc ?? false,
+      referencePdfUrl: dto.referencePdfUrl ?? (dto as any).securityPolicy?.referencePdfUrl,
+      requireCloseOtherApps: dto.requireCloseOtherApps ?? (dto as any).securityPolicy?.requireCloseOtherApps ?? true,
+      allowSpellCheck: dto.allowSpellCheck ?? (dto as any).securityPolicy?.allowSpellCheck ?? false,
+      allowFindOnPage: dto.allowFindOnPage ?? (dto as any).securityPolicy?.allowFindOnPage ?? true,
+      allowedUrlPatterns: dto.allowedUrlPatterns ?? (dto as any).securityPolicy?.allowedUrlPatterns ?? [],
+      enableScreenCaptureSnapshots: dto.enableScreenCaptureSnapshots ?? (dto as any).securityPolicy?.enableScreenCaptureSnapshots ?? false,
+      securityPolicy: {
+        ...((dto as any).securityPolicy || {}),
+        requireSEB: dto.requireLockdown ?? (dto as any).securityPolicy?.requireSEB ?? false,
+        lockdownQuitPassword: dto.lockdownQuitPassword ?? (dto as any).securityPolicy?.lockdownQuitPassword,
+        allowCalculators: dto.allowCalculators ?? (dto as any).securityPolicy?.allowCalculators ?? false,
+        allowScratchpad: dto.allowScratchpad ?? (dto as any).securityPolicy?.allowScratchpad ?? true,
+        allowReferenceDoc: dto.allowReferenceDoc ?? (dto as any).securityPolicy?.allowReferenceDoc ?? false,
+        referencePdfUrl: dto.referencePdfUrl ?? (dto as any).securityPolicy?.referencePdfUrl,
+        requireCloseOtherApps: dto.requireCloseOtherApps ?? (dto as any).securityPolicy?.requireCloseOtherApps ?? true,
+        allowSpellCheck: dto.allowSpellCheck ?? (dto as any).securityPolicy?.allowSpellCheck ?? false,
+        allowFindOnPage: dto.allowFindOnPage ?? (dto as any).securityPolicy?.allowFindOnPage ?? true,
+        allowedUrlPatterns: dto.allowedUrlPatterns ?? (dto as any).securityPolicy?.allowedUrlPatterns ?? [],
+        enableScreenCaptureSnapshots: dto.enableScreenCaptureSnapshots ?? (dto as any).securityPolicy?.enableScreenCaptureSnapshots ?? false,
+      },
       resultDisplaySettings: dto.resultDisplaySettings || {},
       allowedAttempts:
         dto.allowedAttempts !== undefined ? Number(dto.allowedAttempts) : 1,
@@ -1220,6 +1246,85 @@ export class AssessmentsService {
     if (dto.allowReview !== undefined) assessment.allowReview = dto.allowReview;
     if (dto.lockSectionsSequentially !== undefined)
       assessment.lockSectionsSequentially = dto.lockSectionsSequentially;
+    if (dto.allowVirtualMachine !== undefined)
+      assessment.allowVirtualMachine = dto.allowVirtualMachine;
+    if (dto.requireLockdown !== undefined) {
+      assessment.requireLockdown = dto.requireLockdown;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        requireSEB: dto.requireLockdown,
+      };
+    }
+    if (dto.lockdownQuitPassword !== undefined) {
+      assessment.lockdownQuitPassword = dto.lockdownQuitPassword;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        lockdownQuitPassword: dto.lockdownQuitPassword,
+      };
+    }
+    if (dto.allowCalculators !== undefined) {
+      assessment.allowCalculators = dto.allowCalculators;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        allowCalculators: dto.allowCalculators,
+      };
+    }
+    if (dto.allowScratchpad !== undefined) {
+      assessment.allowScratchpad = dto.allowScratchpad;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        allowScratchpad: dto.allowScratchpad,
+      };
+    }
+    if (dto.allowReferenceDoc !== undefined) {
+      assessment.allowReferenceDoc = dto.allowReferenceDoc;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        allowReferenceDoc: dto.allowReferenceDoc,
+      };
+    }
+    if (dto.referencePdfUrl !== undefined) {
+      assessment.referencePdfUrl = dto.referencePdfUrl;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        referencePdfUrl: dto.referencePdfUrl,
+      };
+    }
+    if (dto.requireCloseOtherApps !== undefined) {
+      assessment.requireCloseOtherApps = dto.requireCloseOtherApps;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        requireCloseOtherApps: dto.requireCloseOtherApps,
+      };
+    }
+    if (dto.allowSpellCheck !== undefined) {
+      assessment.allowSpellCheck = dto.allowSpellCheck;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        allowSpellCheck: dto.allowSpellCheck,
+      };
+    }
+    if (dto.allowFindOnPage !== undefined) {
+      assessment.allowFindOnPage = dto.allowFindOnPage;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        allowFindOnPage: dto.allowFindOnPage,
+      };
+    }
+    if (dto.allowedUrlPatterns !== undefined) {
+      assessment.allowedUrlPatterns = dto.allowedUrlPatterns;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        allowedUrlPatterns: dto.allowedUrlPatterns,
+      };
+    }
+    if (dto.enableScreenCaptureSnapshots !== undefined) {
+      assessment.enableScreenCaptureSnapshots = dto.enableScreenCaptureSnapshots;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        enableScreenCaptureSnapshots: dto.enableScreenCaptureSnapshots,
+      };
+    }
     if (dto.resultDisplaySettings !== undefined)
       assessment.resultDisplaySettings = dto.resultDisplaySettings;
     if (dto.allowedAttempts !== undefined)
@@ -2161,7 +2266,21 @@ export class AssessmentsService {
         questionCount: assessment.questions.length,
         allowedAttempts,
         lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+        allowVirtualMachine: assessment.allowVirtualMachine ?? false,
+        requireLockdown: assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB ?? false,
+        allowCalculators: assessment.allowCalculators ?? assessment.securityPolicy?.allowCalculators ?? false,
+        allowScratchpad: assessment.allowScratchpad ?? assessment.securityPolicy?.allowScratchpad ?? true,
+        allowReferenceDoc: assessment.allowReferenceDoc ?? assessment.securityPolicy?.allowReferenceDoc ?? false,
+        referencePdfUrl: assessment.referencePdfUrl ?? assessment.securityPolicy?.referencePdfUrl,
+        requireCloseOtherApps: assessment.requireCloseOtherApps ?? assessment.securityPolicy?.requireCloseOtherApps ?? true,
+        allowSpellCheck: assessment.allowSpellCheck ?? assessment.securityPolicy?.allowSpellCheck ?? false,
+        allowFindOnPage: assessment.allowFindOnPage ?? assessment.securityPolicy?.allowFindOnPage ?? true,
+        allowedUrlPatterns: assessment.allowedUrlPatterns ?? assessment.securityPolicy?.allowedUrlPatterns ?? [],
+        enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
         proctoring: assessment.proctoring,
+        securityPolicy: assessment.securityPolicy
+          ? (({ lockdownQuitPassword, ...rest }: any) => rest)(assessment.securityPolicy)
+          : assessment.securityPolicy,
         instructions: assessment.instructions,
       },
       attempt: latestAttempt
@@ -2430,7 +2549,21 @@ export class AssessmentsService {
       durationMinutes: assessment.durationMinutes,
       ...this.resumeDetails(assessment, attempt),
       proctoring: assessment.proctoring,
+      securityPolicy: assessment.securityPolicy
+        ? (({ lockdownQuitPassword, ...rest }: any) => rest)(assessment.securityPolicy)
+        : assessment.securityPolicy,
       lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+      allowVirtualMachine: assessment.allowVirtualMachine ?? false,
+      requireLockdown: assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB ?? false,
+      allowCalculators: assessment.allowCalculators ?? assessment.securityPolicy?.allowCalculators ?? false,
+      allowScratchpad: assessment.allowScratchpad ?? assessment.securityPolicy?.allowScratchpad ?? true,
+      allowReferenceDoc: assessment.allowReferenceDoc ?? assessment.securityPolicy?.allowReferenceDoc ?? false,
+      referencePdfUrl: assessment.referencePdfUrl ?? assessment.securityPolicy?.referencePdfUrl,
+      requireCloseOtherApps: assessment.requireCloseOtherApps ?? assessment.securityPolicy?.requireCloseOtherApps ?? true,
+      allowSpellCheck: assessment.allowSpellCheck ?? assessment.securityPolicy?.allowSpellCheck ?? false,
+      allowFindOnPage: assessment.allowFindOnPage ?? assessment.securityPolicy?.allowFindOnPage ?? true,
+      allowedUrlPatterns: assessment.allowedUrlPatterns ?? assessment.securityPolicy?.allowedUrlPatterns ?? [],
+      enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
       sections: resolvedSections,
       questions: sanitizedQuestions,
       savedResponses: attempt.responses,

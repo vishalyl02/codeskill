@@ -60,6 +60,8 @@ import {
   setAssessmentFaceReference,
 } from "@/lib/assessment-face-verification";
 import { formatAssessmentDateTime, getAssessmentScheduleState } from "@/lib/assessment-schedule";
+import LockdownLaunchGate from "@/components/assessment/LockdownLaunchGate";
+import { isLockdownClient, initializeLockdownAttestation } from "@/lib/lockdown-bridge";
 
 export default function AssessmentBriefingPage({
   params,
@@ -318,6 +320,25 @@ export default function AssessmentBriefingPage({
           </Link>
         </div>
       </div>
+    );
+  }
+
+  const securityPolicy = assessment?.securityPolicy || {};
+  const requiresLockdown = Boolean(
+    assessment?.requireLockdown ||
+    securityPolicy.requireSEB ||
+    securityPolicy.requireLockdown ||
+    securityPolicy.secureExamMode === "STRICT" ||
+    securityPolicy.secureExamMode === "STANDARD"
+  );
+
+  if (requiresLockdown && !isLockdownClient()) {
+    return (
+      <LockdownLaunchGate
+        examId={id}
+        examTitle={assessment.title}
+        onClientDetected={() => router.refresh()}
+      />
     );
   }
 
@@ -637,6 +658,12 @@ export default function AssessmentBriefingPage({
                   ? resumeExpired ? "This attempt has run out of time." : "All three resume opportunities have been used."
                   : !canStartInWindow
                   ? "This assessment is currently not accepting new attempts."
+                  : !agreedToRules
+                  ? "Please check the acknowledgment box above to enable starting the test."
+                  : assessment.proctoring?.useCamera !== false && !cameraStream
+                  ? "Please enable camera & microphone above to proceed."
+                  : assessment.proctoring?.useCamera !== false && !selfieCaptured
+                  ? "Please take your identity selfie above to proceed."
                   : data?.completedAttemptsCount > 0
                     ? "Starting a new attempt will allow you to improve your score. The highest score is permanently saved."
                     : "Review your devices and rules before entering the secure assessment."}

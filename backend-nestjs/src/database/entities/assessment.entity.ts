@@ -127,6 +127,42 @@ export class Assessment {
   @Column({ default: false })
   lockSectionsSequentially: boolean;
 
+  @Column({ default: false })
+  allowVirtualMachine: boolean;
+
+  @Column({ default: false })
+  requireLockdown: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  lockdownQuitPassword?: string;
+
+  @Column({ default: false })
+  allowCalculators: boolean;
+
+  @Column({ default: true })
+  allowScratchpad: boolean;
+
+  @Column({ default: false })
+  allowReferenceDoc: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  referencePdfUrl?: string;
+
+  @Column({ default: true })
+  requireCloseOtherApps: boolean;
+
+  @Column({ default: false })
+  allowSpellCheck: boolean;
+
+  @Column({ default: true })
+  allowFindOnPage: boolean;
+
+  @Column('text', { array: true, default: '{}' })
+  allowedUrlPatterns: string[];
+
+  @Column({ default: false })
+  enableScreenCaptureSnapshots: boolean;
+
   @Column({ type: 'jsonb', default: {} })
   resultDisplaySettings: {
     showScore?: boolean;
@@ -174,6 +210,16 @@ export class Assessment {
     heartbeatGracePeriod?: number;
     violationThreshold?: number;
     proctoringMode?: 'NONE' | 'BASIC' | 'STANDARD' | 'STRICT';
+    lockdownQuitPassword?: string;
+    allowCalculators?: boolean;
+    allowScratchpad?: boolean;
+    allowReferenceDoc?: boolean;
+    referencePdfUrl?: string;
+    requireCloseOtherApps?: boolean;
+    allowSpellCheck?: boolean;
+    allowFindOnPage?: boolean;
+    allowedUrlPatterns?: string[];
+    enableScreenCaptureSnapshots?: boolean;
   };
 
   @Column({

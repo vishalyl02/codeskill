@@ -1,0 +1,64 @@
+name: CodeSkill LockDown Release
+
+on:
+  push:
+    paths:
+      - 'codeskill-lockdown/**'
+      - '.github/workflows/lockdown-release.yml'
+    tags:
+      - 'lockdown-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, macos-latest, ubuntu-22.04]
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
+
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: codeskill-lockdown/src-tauri -> target
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libx11-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install LockDown Node dependencies
+        run: npm install
+        working-directory: codeskill-lockdown
+
+      - name: Build CodeSkill LockDown Desktop Application
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://codeskill.com' }}
+        with:
+          projectPath: codeskill-lockdown
+          tagName: lockdown-v__VERSION__
+          releaseName: 'CodeSkill LockDown v__VERSION__'
+          releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
+          releaseDraft: true
+          prerelease: false

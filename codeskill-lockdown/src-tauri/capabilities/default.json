@@ -1,0 +1,47 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the exam-kiosk window",
+  "windows": ["exam-kiosk", "main", "*"],
+  "remote": {
+    "urls": [
+      "http://localhost:3000/*",
+      "http://127.0.0.1:3000/*",
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*",
+      "https://*.codeskill.com/*",
+      "https://codeskill.com/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "deep-link:default",
+    "core:event:default",
+    "allow-get-frontend-origin",
+    "allow-get-attestation-public-key",
+    "allow-set-attested-session-id",
+    "allow-sync-server-time",
+    "allow-sign-api-request",
+    "allow-run-preflight-checks",
+    "allow-enable-kiosk-mode",
+    "allow-engage-os-kiosk",
+    "allow-disable-kiosk-mode",
+    "allow-release-os-kiosk",
+    "allow-vault-upsert-autosave",
+    "allow-vault-read-all-autosaves",
+    "allow-vault-remove-entry",
+    "allow-vault-purge-attempt",
+    "allow-get-battery-status",
+    "allow-get-system-volume",
+    "allow-set-system-volume",
+    "allow-get-keyboard-layout",
+    "allow-get-synced-timestamp-ms",
+    "allow-scan-wifi-networks",
+    "allow-connect-wifi-network",
+    "allow-exit-lockdown-app",
+    "allow-set-locked-assessment",
+    "allow-list-non-essential-apps",
+    "allow-close-non-essential-apps",
+    "allow-get-lockdown-diagnostic-logs"
+  ]
+}

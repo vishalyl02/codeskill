@@ -13,6 +13,19 @@ import { ExamSession } from '../database/entities/exam-session.entity';
 import { ExamSecurityEvent } from '../database/entities/exam-security-event.entity';
 import { CheatingRadarService } from '../audit/cheating-radar.service';
 import { AlertWebhookService } from '../audit/alert-webhook.service';
+import { RedisService } from '../redis/redis.service';
+
+function compareVersions(v1: string, v2: string): number {
+  const p1 = (v1 || '').replace(/^[^0-9]*/, '').split('.').map((x) => parseInt(x, 10) || 0);
+  const p2 = (v2 || '').replace(/^[^0-9]*/, '').split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(p1.length, p2.length, 3); i++) {
+    const num1 = p1[i] || 0;
+    const num2 = p2[i] || 0;
+    if (num1 > num2) return 1;
+    if (num1 < num2) return -1;
+  }
+  return 0;
+}
 
 @Injectable()
 export class ExamSecurityService {
@@ -25,6 +38,7 @@ export class ExamSecurityService {
     private readonly eventRepo: Repository<ExamSecurityEvent>,
     @Optional() private readonly cheatingRadarService?: CheatingRadarService,
     @Optional() private readonly alertWebhookService?: AlertWebhookService,
+    @Optional() private readonly redisService?: RedisService,
   ) {}
 
   async initSecureSession(
@@ -191,6 +205,23 @@ export class ExamSecurityService {
       throw new ForbiddenException('Session ended');
     }
 
+    // Check remote proctor force-quit signal in Redis
+    if (this.redisService) {
+      const forceQuitReason = await this.redisService.get<string>(
+        `exam:force-quit:${session.assessmentId}:${candidateId}`,
+      );
+      if (forceQuitReason) {
+        session.status = 'TERMINATED';
+        session.securityState = 'VIOLATED';
+        await this.sessionRepo.save(session);
+        return {
+          success: true,
+          status: 'TERMINATED',
+          forceQuitReason,
+        };
+      }
+    }
+
     session.lastHeartbeatAt = new Date();
     if (session.status === 'SUSPENDED') {
       session.status = 'ACTIVE';
@@ -273,6 +304,294 @@ export class ExamSecurityService {
       success: true,
       status: session.status,
       violations: session.violationCount,
+    };
+  }
+
+  async reportDirectViolation(
+    candidateId: string,
+    assessmentId?: string,
+    eventType: string = 'ENVIRONMENT_VIOLATION',
+    metadata: any = {},
+  ) {
+    let session: ExamSession | null = null;
+    let resolvedAssessmentId = assessmentId;
+    if (assessmentId) {
+      try {
+        const assessment = await this.assessmentRepo.findOne({
+          where: [{ id: assessmentId }, { mongoId: assessmentId }],
+        });
+        if (assessment) {
+          resolvedAssessmentId = assessment.id;
+          session = await this.sessionRepo.findOne({
+            where: [
+              { assessment: { id: assessment.id } as any, candidate: { id: candidateId } as any },
+              { assessmentId: assessment.id, candidateId },
+            ],
+            order: { createdAt: 'DESC' },
+          });
+        }
+      } catch {
+        // Safe fallback if assessment query fails
+      }
+    }
+    if (!session) {
+      session = await this.sessionRepo.findOne({
+        where: [
+          { candidate: { id: candidateId } as any },
+          { candidateId },
+        ],
+        order: { createdAt: 'DESC' },
+      });
+    }
+
+    if (session) {
+      return this.reportViolation(session.id, candidateId, eventType, metadata);
+    }
+
+    const validUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const nilUuid = '00000000-0000-0000-0000-000000000000';
+
+    const safeAssessmentId =
+      resolvedAssessmentId && validUuidRegex.test(resolvedAssessmentId)
+        ? resolvedAssessmentId
+        : nilUuid;
+    const safeSessionId = nilUuid;
+
+    try {
+      const event = this.eventRepo.create({
+        candidate: { id: candidateId } as any,
+        candidateId,
+        assessmentId: safeAssessmentId,
+        sessionId: safeSessionId,
+        eventType,
+        severity: 'CRITICAL',
+        metadata,
+      });
+      await this.eventRepo.save(event);
+
+      return {
+        success: true,
+        status: 'LOGGED',
+        violations: 1,
+      };
+    } catch {
+      // Safe fallback if foreign key constraint on session_id or assessment_id is enforced in DB
+      return {
+        success: true,
+        status: 'LOGGED',
+        violations: 1,
+      };
+    }
+  }
+
+  async attestClient(
+    userId: string,
+    body: {
+      publicKeyPem: string;
+      clientVersion: string;
+      os: string;
+      preflightPassed: boolean;
+      violations?: string[];
+      assessmentId?: string;
+    },
+    ip?: string,
+  ) {
+    if (!body?.publicKeyPem || typeof body.publicKeyPem !== 'string') {
+      throw new BadRequestException('Invalid or missing publicKeyPem');
+    }
+
+    let vdiOverride = false;
+
+    if (!body.preflightPassed) {
+      const rawViolations = Array.isArray(body.violations) ? body.violations : [];
+      const isVmViolation = (v: string) =>
+        v === 'VIRTUAL_MACHINE_DETECTED' ||
+        v.toLowerCase().includes('virtual machine') ||
+        v.toLowerCase().includes('hypervisor');
+
+      const onlyVmDetected =
+        rawViolations.length > 0 &&
+        rawViolations.every(isVmViolation);
+
+      if (onlyVmDetected && body.assessmentId) {
+        try {
+          const assessment = await this.assessmentRepo.findOne({
+            where: [{ id: body.assessmentId }, { mongoId: body.assessmentId }],
+          });
+          if (assessment?.allowVirtualMachine) {
+            vdiOverride = true;
+          }
+        } catch {
+          // Safe fallback if schema sync is disabled and allowVirtualMachine column is missing
+          try {
+            const raw = await this.assessmentRepo.query(
+              `SELECT "allowVirtualMachine" FROM "assessments" WHERE id::text = $1 OR "mongoId" = $1 LIMIT 1`,
+              [body.assessmentId],
+            );
+            if (raw && raw[0] && raw[0].allowVirtualMachine) {
+              vdiOverride = true;
+            }
+          } catch {
+            // Column does not exist in DB yet; safe fallback defaults allowVirtualMachine to false
+            vdiOverride = false;
+          }
+        }
+      }
+
+      if (!vdiOverride) {
+        const reasons = rawViolations.length
+          ? rawViolations.join('; ')
+          : 'Environment check failed';
+        throw new ForbiddenException(`Preflight security checks failed: ${reasons}`);
+      }
+    }
+
+    const minVersion = process.env.LOCKDOWN_MIN_VERSION || '1.0.0';
+    if (!body.clientVersion || compareVersions(body.clientVersion, minVersion) < 0) {
+      throw new ForbiddenException(
+        `LockDown client version (${body.clientVersion || 'unknown'}) is below minimum required version (${minVersion}). Please update your application.`,
+      );
+    }
+
+    const attestedSessionId = crypto.randomUUID();
+    const serverTime = Date.now();
+    const attestationRecord: Record<string, any> = {
+      userId,
+      publicKeyPem: body.publicKeyPem.trim(),
+      os: body.os || 'unknown',
+      clientVersion: body.clientVersion,
+      ip: ip || 'unknown',
+      createdAt: new Date().toISOString(),
+    };
+
+    if (vdiOverride) {
+      attestationRecord.vdiOverride = true;
+    }
+
+    if (this.redisService) {
+      await this.redisService.set(
+        `exam:attestation:${attestedSessionId}`,
+        attestationRecord,
+        14400,
+      );
+
+      // Support Crash/Network Relaunch Re-Attestation with Abuse Tracking
+      if (body.assessmentId) {
+        const activeAttestationKey = `exam:active-attestation:${userId}:${body.assessmentId}`;
+        const relaunchCountKey = `exam:relaunch-count:${userId}:${body.assessmentId}`;
+        const existingSessionId = await this.redisService.get<string>(activeAttestationKey);
+
+        if (existingSessionId) {
+          const prevCount = (await this.redisService.get<number>(relaunchCountKey)) || 0;
+          const relaunchCount = Number(prevCount) + 1;
+          await this.redisService.set(relaunchCountKey, relaunchCount, 14400);
+
+          void this.cheatingRadarService?.recordClientRelaunch({
+            studentId: userId,
+            assessmentId: body.assessmentId,
+            relaunchCount,
+            ipAddress: ip,
+          });
+        }
+
+        await this.redisService.set(activeAttestationKey, attestedSessionId, 14400);
+      }
+    }
+
+    return {
+      success: true,
+      attestedSessionId,
+      serverTime,
+      ...(vdiOverride ? { vdiOverride: true } : {}),
+    };
+  }
+
+  async verifyQuitPassword(
+    assessmentId: string,
+    candidateId: string,
+    password?: string,
+  ): Promise<{ authorized: boolean }> {
+    if (!assessmentId) {
+      throw new BadRequestException('Assessment ID is required');
+    }
+    const assessment = await this.assessmentRepo.findOne({
+      where: [{ id: assessmentId }, { mongoId: assessmentId }],
+    });
+    if (!assessment) {
+      throw new NotFoundException('Assessment not found');
+    }
+
+    const expectedPassword =
+      assessment.lockdownQuitPassword ||
+      (assessment.securityPolicy as any)?.lockdownQuitPassword;
+
+    const isMatch = expectedPassword
+      ? String(password || '').trim() === String(expectedPassword).trim()
+      : true;
+
+    if (!isMatch) {
+      throw new ForbiddenException('Invalid proctor quit password');
+    }
+
+    try {
+      await this.reportDirectViolation(
+        candidateId,
+        assessment.id,
+        'PROCTOR_QUIT_AUTHORIZED',
+        { authorizedAt: new Date().toISOString() },
+      );
+    } catch {
+      // Safe fallback if logging encounters non-fatal DB constraint
+    }
+
+    return { authorized: true };
+  }
+
+  async proctorForceQuit(
+    assessmentId: string,
+    candidateId: string,
+    reason?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const forceQuitReason =
+      reason || 'Proctor remotely terminated this examination attempt.';
+
+    if (this.redisService) {
+      const key = `exam:force-quit:${assessmentId}:${candidateId}`;
+      await this.redisService.set(key, forceQuitReason, 86400);
+    }
+
+    const session = await this.sessionRepo.findOne({
+      where: [
+        { assessmentId, candidateId },
+        { assessment: { id: assessmentId } as any, candidate: { id: candidateId } as any },
+      ],
+      order: { createdAt: 'DESC' },
+    });
+
+    if (session && !['SUBMITTED', 'EXPIRED'].includes(session.status)) {
+      session.status = 'TERMINATED';
+      session.securityState = 'VIOLATED';
+      await this.sessionRepo.save(session);
+    }
+
+    try {
+      const event = this.eventRepo.create({
+        candidate: { id: candidateId } as any,
+        candidateId,
+        assessmentId,
+        sessionId: session?.id || '00000000-0000-0000-0000-000000000000',
+        eventType: 'PROCTOR_REMOTE_TERMINATED',
+        severity: 'CRITICAL',
+        metadata: { reason: forceQuitReason },
+      });
+      await this.eventRepo.save(event);
+    } catch {
+      // Non-blocking fallback
+    }
+
+    return {
+      success: true,
+      message: 'Proctor force-quit signal registered successfully',
     };
   }
 }

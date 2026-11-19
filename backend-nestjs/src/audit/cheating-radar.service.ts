@@ -408,4 +408,70 @@ export class CheatingRadarService implements OnModuleDestroy {
 
     return false;
   }
+
+  // --- HEURISTIC 4: DESKTOP CLIENT RELAUNCH / CRASH RECOVERY ---
+
+  /**
+   * Records desktop client relaunch events during an active assessment.
+   * Relaunching more than twice flags HIGH risk in Cheating Radar.
+   */
+  async recordClientRelaunch(params: {
+    studentId: string;
+    assessmentId: string;
+    relaunchCount: number;
+    actorName?: string;
+    actorEmail?: string;
+    actorUid?: string;
+    ipAddress?: string;
+  }): Promise<boolean> {
+    const { studentId, assessmentId, relaunchCount, ipAddress } = params;
+    if (!studentId || !assessmentId) return false;
+
+    const isHighRisk = relaunchCount > 2;
+    const severity = isHighRisk ? 'HIGH' : 'LOW';
+    const riskWeight = isHighRisk ? 3 : 1;
+
+    const details = {
+      anomaly: 'CLIENT_RELAUNCHED',
+      relaunchCount,
+      riskLevel: severity,
+      assessmentId,
+    };
+
+    this.logger.warn(
+      `[CHEATING_RADAR] Client relaunch #${relaunchCount} for student ${studentId} in assessment ${assessmentId} (Risk: ${severity})`,
+    );
+
+    this.activityLogService.log({
+      action: 'CHEATING_RADAR_CLIENT_RELAUNCHED',
+      actorId: studentId,
+      actorName: params.actorName,
+      actorEmail: params.actorEmail,
+      actorUid: params.actorUid,
+      studentId,
+      assessmentId,
+      target: `Assessment ${assessmentId}`,
+      targetType: 'Assessment',
+      riskWeight,
+      ipAddress,
+      metadata: details,
+    });
+
+    if (isHighRisk) {
+      void this.alertWebhookService.sendAlert({
+        action: 'CHEATING_RADAR_CLIENT_RELAUNCHED',
+        severity: 'CRITICAL',
+        riskWeight: 3,
+        actorName: params.actorName,
+        actorEmail: params.actorEmail,
+        actorUid: params.actorUid,
+        target: `Assessment ${assessmentId}`,
+        targetType: 'Assessment',
+        ipAddress,
+        details,
+      });
+    }
+
+    return true;
+  }
 }

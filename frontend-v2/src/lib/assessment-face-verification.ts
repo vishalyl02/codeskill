@@ -123,10 +123,31 @@ export async function createAssessmentFaceReference(
 
 export function setAssessmentFaceReference(assessmentId: string, reference: AssessmentFaceReference) {
   references.set(assessmentId, reference);
+  try {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      window.sessionStorage.setItem(`codeskill_face_ref_${assessmentId}`, JSON.stringify(reference));
+    }
+  } catch {
+    // Ignore storage errors
+  }
 }
 
-export function getAssessmentFaceReference(assessmentId: string) {
-  return references.get(assessmentId) || null;
+export function getAssessmentFaceReference(assessmentId: string): AssessmentFaceReference | null {
+  const mem = references.get(assessmentId);
+  if (mem) return mem;
+  try {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      const stored = window.sessionStorage.getItem(`codeskill_face_ref_${assessmentId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored) as AssessmentFaceReference;
+        references.set(assessmentId, parsed);
+        return parsed;
+      }
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return null;
 }
 
 export async function disposeFaceLandmarker(): Promise<void> {
@@ -146,6 +167,13 @@ export async function disposeFaceLandmarker(): Promise<void> {
 
 export function clearAssessmentFaceReference(assessmentId: string) {
   references.delete(assessmentId);
+  try {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      window.sessionStorage.removeItem(`codeskill_face_ref_${assessmentId}`);
+    }
+  } catch {
+    // Ignore storage errors
+  }
   if (references.size === 0) {
     void disposeFaceLandmarker();
   }

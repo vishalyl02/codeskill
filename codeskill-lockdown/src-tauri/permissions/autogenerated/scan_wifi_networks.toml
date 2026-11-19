@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-wifi-networks"
+description = "Enables the scan_wifi_networks command without any pre-configured scope."
+commands.allow = ["scan_wifi_networks"]
+
+[[permission]]
+identifier = "deny-scan-wifi-networks"
+description = "Denies the scan_wifi_networks command without any pre-configured scope."
+commands.deny = ["scan_wifi_networks"]

@@ -26,6 +26,7 @@ import { ContestReportDownloadButton } from "@/components/reports/ContestReportD
 import { buildContestReport } from "@/lib/contest-report-builder";
 import { useAuth } from "@/context/AuthContext";
 import { releaseAssessmentStream } from "@/lib/assessment-media-session";
+import { releaseLockdownKiosk } from "@/lib/lockdown-bridge";
 
 export default function AssessmentResultPage({
   params,
@@ -45,6 +46,7 @@ export default function AssessmentResultPage({
 
   useEffect(() => {
     releaseAssessmentStream(id);
+    void releaseLockdownKiosk();
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
   }, [id]);
 
