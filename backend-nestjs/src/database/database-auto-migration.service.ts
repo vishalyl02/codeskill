@@ -19,6 +19,7 @@ import { applyAssessmentLockdownEnforcementMigration } from './migrations/assess
 import { applyAssessmentDockToolsMigration } from './migrations/assessment-dock-tools';
 import { applyAssessmentEnterpriseHardeningMigration } from './migrations/assessment-enterprise-hardening';
 import { applyExamSecurityCompositeIndexesMigration } from './migrations/exam-security-composite-indexes';
+import { applyAssessmentForensicWatermarkMigration } from './migrations/assessment-forensic-watermark';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -166,6 +167,11 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       // 21. Exam security composite indexes
       await this.executeStep('exam-security-composite-indexes', () =>
         applyExamSecurityCompositeIndexesMigration(queryRunner),
+      );
+
+      // 22. Assessment forensic screen watermark
+      await this.executeStep('assessment-forensic-watermark', () =>
+        applyAssessmentForensicWatermarkMigration(queryRunner),
       );
     } finally {
       await queryRunner.release();

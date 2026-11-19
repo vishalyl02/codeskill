@@ -545,4 +545,64 @@ export class CheatingRadarService implements OnModuleDestroy {
 
     return true;
   }
+
+  // --- HEURISTIC 6: FRONTIER SECURITY HARDENING VIOLATIONS ---
+
+  /**
+   * Records critical frontier security anomalies:
+   * HID_MACRO_INJECTION_SUSPECTED, WATERMARK_TAMPER_ATTEMPT, RUNTIME_TAMPER_DETECTED, INVALID_REQUEST_SIGNATURE
+   */
+  async recordSecurityViolationAnomaly(params: {
+    studentId: string;
+    assessmentId: string;
+    eventType: string;
+    metadata?: any;
+    actorName?: string;
+    actorEmail?: string;
+    actorUid?: string;
+    ipAddress?: string;
+  }): Promise<boolean> {
+    const { studentId, assessmentId, eventType, metadata, ipAddress } = params;
+    if (!studentId || !assessmentId) return false;
+
+    const details = {
+      anomaly: eventType,
+      assessmentId,
+      metadata: metadata || {},
+    };
+
+    this.logger.warn(
+      `[CHEATING_RADAR] Critical security event ${eventType} for student ${studentId} in assessment ${assessmentId}`,
+    );
+
+    this.activityLogService.log({
+      action: `CHEATING_RADAR_${eventType}`,
+      actorId: studentId,
+      actorName: params.actorName,
+      actorEmail: params.actorEmail,
+      actorUid: params.actorUid,
+      studentId,
+      assessmentId,
+      target: `Assessment ${assessmentId}`,
+      targetType: 'Assessment',
+      riskWeight: 4, // Critical
+      ipAddress,
+      metadata: details,
+    });
+
+    void this.alertWebhookService.sendAlert({
+      action: `CHEATING_RADAR_${eventType}`,
+      severity: 'CRITICAL',
+      riskWeight: 4,
+      actorName: params.actorName,
+      actorEmail: params.actorEmail,
+      actorUid: params.actorUid,
+      target: `Assessment ${assessmentId}`,
+      targetType: 'Assessment',
+      ipAddress,
+      details,
+    });
+
+    return true;
+  }
 }

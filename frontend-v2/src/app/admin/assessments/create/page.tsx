@@ -11,7 +11,7 @@ import {
   ArrowLeft, CheckCircle2, Clock, Plus, Trash2, Shield, ShieldAlert,
   ShieldOff, AlertTriangle, GripVertical, Settings, Save, Sparkles, X, GraduationCap,
   Lock, Search, UserCheck, Eye, EyeOff, Laptop, Monitor, KeyRound, Calculator, BookOpen, FileText,
-  ShieldCheck, Globe, Camera
+  ShieldCheck, Globe, Camera, Fingerprint
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { ToastProvider, useToast } from "../../questions/create/_components/Toast"; // Reuse toast
@@ -73,6 +73,7 @@ type AssessmentApiData = {
   allowFindOnPage?: boolean;
   allowedUrlPatterns?: string[];
   enableScreenCaptureSnapshots?: boolean;
+  enableForensicWatermark?: boolean;
   securityPolicy?: any;
   showResultImmediately?: boolean;
   allowReview?: boolean;
@@ -221,6 +222,7 @@ function AssessmentBuilder() {
           allowFindOnPage: assessment.allowFindOnPage ?? assessment.securityPolicy?.allowFindOnPage ?? true,
           allowedUrlPatterns: assessment.allowedUrlPatterns ?? assessment.securityPolicy?.allowedUrlPatterns ?? [],
           enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
+          enableForensicWatermark: Boolean(assessment.enableForensicWatermark ?? assessment.securityPolicy?.enableForensicWatermark),
           showResultImmediately: assessment.showResultImmediately !== false,
           allowReview: assessment.allowReview !== false,
           resultDisplaySettings: assessment.resultDisplaySettings || {},
@@ -459,6 +461,7 @@ function AssessmentBuilder() {
         allowFindOnPage: store.allowFindOnPage,
         allowedUrlPatterns: store.allowedUrlPatterns,
         enableScreenCaptureSnapshots: store.enableScreenCaptureSnapshots,
+        enableForensicWatermark: store.enableForensicWatermark,
         showResultImmediately: store.showResultImmediately,
         allowReview: store.resultDisplaySettings.showQuestionReview,
         resultDisplaySettings: store.resultDisplaySettings,
@@ -1151,6 +1154,31 @@ function AssessmentBuilder() {
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
+                  </label>
+                </div>
+
+                {/* Subtle Forensic Screen Watermark */}
+                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <Fingerprint className="w-4 h-4 text-emerald-500" />
+                      Enable Subtle Forensic Screen Watermark
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                        Anti-Leak
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Renders a high-DPI, low-opacity forensic canvas pattern encoding candidate and session identifiers to deter and trace smartphone screen photography.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={store.enableForensicWatermark}
+                      onChange={(e) => store.setEnableForensicWatermark(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
                   </label>
                 </div>
               </>

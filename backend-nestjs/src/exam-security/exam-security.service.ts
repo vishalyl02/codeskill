@@ -343,6 +343,15 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    if (['HID_MACRO_INJECTION_SUSPECTED', 'WATERMARK_TAMPER_ATTEMPT', 'RUNTIME_TAMPER_DETECTED', 'INVALID_REQUEST_SIGNATURE'].includes(eventType)) {
+      void this.cheatingRadarService?.recordSecurityViolationAnomaly({
+        studentId: candidateId,
+        assessmentId: session.assessmentId,
+        eventType,
+        metadata,
+      });
+    }
+
     if (session.status === 'SUSPENDED') {
       void this.alertWebhookService?.sendAlert({
         action: 'ASSESSMENT_SESSION_SUSPENDED',
@@ -444,6 +453,15 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
+      if (['HID_MACRO_INJECTION_SUSPECTED', 'WATERMARK_TAMPER_ATTEMPT', 'RUNTIME_TAMPER_DETECTED', 'INVALID_REQUEST_SIGNATURE'].includes(eventType)) {
+        void this.cheatingRadarService?.recordSecurityViolationAnomaly({
+          studentId: candidateId,
+          assessmentId: safeAssessmentId,
+          eventType,
+          metadata,
+        });
+      }
+
       return {
         success: true,
         status: 'LOGGED',
@@ -471,6 +489,7 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
       attestationTier?: string;
       kioskMode?: string;
       clientBinaryHash?: string;
+      sessionHmacKey?: string;
     },
     ip?: string,
   ) {
@@ -551,6 +570,10 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
     const attestationTier = body.attestationTier || 'software_binary_bound';
     const kioskMode = body.kioskMode || 'standard';
     const clientBinaryHash = body.clientBinaryHash || 'unknown';
+    const sessionHmacKey =
+      body.sessionHmacKey ||
+      (body as any).session_hmac_key ||
+      crypto.randomBytes(32).toString('hex');
 
     if (this.redisService && body.assessmentId) {
       const activeDeviceKey = `exam:active-device:${body.assessmentId}:${userId}`;
@@ -599,6 +622,7 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
       attestationTier,
       kioskMode,
       clientBinaryHash,
+      sessionHmacKey,
       createdAt: new Date().toISOString(),
     };
 
@@ -664,6 +688,7 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
       verified: true,
       attestedSessionId,
       sessionToken: attestedSessionId,
+      sessionHmacKey,
       attestationTier,
       clientBinaryHash,
       serverTime,

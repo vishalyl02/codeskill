@@ -6,7 +6,7 @@ import { getBrowserApiBaseURL } from "@/lib/api-base-url";
 import { normalizeProblemQuery } from "@/lib/public-problems";
 import { logger } from "@/lib/logger";
 import { notifyMutationFailure, notifyMutationSuccess } from "@/lib/api-mutation-notifications";
-import { isLockdownClient, signLockdownRequest } from "@/lib/lockdown-bridge";
+import { isLockdownClient, signLockdownRequest, signExamRequest, computeSha256 } from "@/lib/lockdown-bridge";
 
 // Dynamically determine the correct API base URL
 const getDynamicBaseURL = (): string => {
@@ -49,7 +49,7 @@ api.interceptors.request.use(async (config) => {
     if (isLockdownClient()) {
       try {
         const method = (config.method || "get").toUpperCase();
-        let pathPart = config.url || "";
+        let pathPart = (config.url || "").split("?")[0];
         if (pathPart.startsWith("/api/")) {
           pathPart = pathPart.slice(5);
         } else if (pathPart.startsWith("api/")) {
@@ -63,6 +63,15 @@ api.interceptors.request.use(async (config) => {
             ? config.data
             : JSON.stringify(config.data)
           : "";
+
+        // 1. Continuous per-request hardware HMAC signature (X-Lockdown-*)
+        const bodySha256 = await computeSha256(bodyStr);
+        const signedExamHeaders = await signExamRequest(method, formattedPath, bodySha256);
+        if (signedExamHeaders && signedExamHeaders["X-Lockdown-Session-Id"]) {
+          Object.assign(config.headers, signedExamHeaders);
+        }
+
+        // 2. Legacy ECDSA attestation headers (X-CodeSkill-*) for backward compatibility
         const signedHeaders = await signLockdownRequest(method, formattedPath, bodyStr);
         if (signedHeaders && signedHeaders["X-CodeSkill-Session-Id"]) {
           Object.assign(config.headers, signedHeaders);

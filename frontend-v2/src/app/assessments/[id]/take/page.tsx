@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, use, useCallback, Fragment, useMemo } from "react";
+import { useEffect, useState, useRef, use, useCallback, Fragment, useMemo, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { enterDocumentFullscreen, fullscreenEvents, isDocumentFullscreen } from "@/lib/fullscreen";
 import { useRouter } from "next/navigation";
@@ -37,6 +37,7 @@ import {
 import Link from "next/link";
 import api, { studentAssessmentsAPI } from "@/config/api";
 import { authStorage } from "@/lib/auth-storage";
+import AuthContext from "@/context/AuthContext";
 import DSAAssessmentEditor, { type CodingExecutionControls } from "@/components/assessment/DSAAssessmentEditor";
 import SafeExamBrowser from "@/components/assessment/SafeExamBrowser";
 import LockdownLaunchGate from "@/components/assessment/LockdownLaunchGate";
@@ -144,6 +145,34 @@ export default function TakeAssessmentPage({
   const resolvedParams = use(params);
   const id = resolvedParams.id;
   const router = useRouter();
+  const authContext = useContext(AuthContext);
+  const user = authContext?.user;
+
+  const fallbackUser = useMemo(() => {
+    if (user) return user;
+    try {
+      const token = authStorage.getAccessToken();
+      if (token) {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1]));
+          return {
+            _id: payload.sub || payload.id || payload.userId,
+            id: payload.sub || payload.id || payload.userId,
+            email: payload.email,
+            rollNumber: payload.rollNumber,
+            name: payload.name,
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }, [user]);
+
+  const resolvedCandidateId = user?._id || user?.id || fallbackUser?._id || fallbackUser?.id || 'ANON-CANDIDATE';
+  const resolvedCandidateIdentifier = user?.email || user?.rollNumber || user?.uid || user?.name || fallbackUser?.email || fallbackUser?.rollNumber || fallbackUser?.name || '';
 
   // Test Session State
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -202,6 +231,7 @@ export default function TakeAssessmentPage({
   const [allowFindOnPage, setAllowFindOnPage] = useState<boolean>(true);
   const [allowedUrlPatterns, setAllowedUrlPatterns] = useState<string[]>([]);
   const [enableScreenCaptureSnapshots, setEnableScreenCaptureSnapshots] = useState<boolean>(false);
+  const [enableForensicWatermark, setEnableForensicWatermark] = useState<boolean>(false);
   const [attestedSessionId, setAttestedSessionId] = useState<string | undefined>(undefined);
 
   // Pre-Exam Close-Apps Gate state
@@ -278,6 +308,21 @@ export default function TakeAssessmentPage({
           message: violation.message,
           metadata: { timestamp: violation.timestamp },
         });
+
+        if (violation.violation_type === "RUNTIME_TAMPER_DETECTED") {
+          await api.post("exam-security/telemetry-batch", {
+            assessmentId: id,
+            events: [
+              {
+                eventType: "RUNTIME_TAMPER_DETECTED",
+                severity: "CRITICAL",
+                message: violation.message,
+                metadata: { message: violation.message, timestamp: violation.timestamp },
+                timestamp: violation.timestamp,
+              },
+            ],
+          }).catch(() => {});
+        }
       } catch (err) {
         console.warn("Failed to forward environment violation:", err);
       }
@@ -405,6 +450,11 @@ export default function TakeAssessmentPage({
           }
           if (asmt?.enableScreenCaptureSnapshots !== undefined) {
             setEnableScreenCaptureSnapshots(Boolean(asmt.enableScreenCaptureSnapshots));
+          }
+          if (asmt?.enableForensicWatermark !== undefined) {
+            setEnableForensicWatermark(Boolean(asmt.enableForensicWatermark));
+          } else if (asmt?.securityPolicy?.enableForensicWatermark !== undefined) {
+            setEnableForensicWatermark(Boolean(asmt.securityPolicy.enableForensicWatermark));
           }
 
           // Check authoritative server resume state
@@ -686,6 +736,11 @@ export default function TakeAssessmentPage({
       }
       if (data.enableScreenCaptureSnapshots !== undefined) {
         setEnableScreenCaptureSnapshots(Boolean(data.enableScreenCaptureSnapshots));
+      }
+      if (data.enableForensicWatermark !== undefined) {
+        setEnableForensicWatermark(Boolean(data.enableForensicWatermark));
+      } else if (data.securityPolicy?.enableForensicWatermark !== undefined) {
+        setEnableForensicWatermark(Boolean(data.securityPolicy.enableForensicWatermark));
       }
       const resolvedDurationMinutes = data.durationMinutes !== undefined && data.durationMinutes > 0
         ? data.durationMinutes
@@ -1974,6 +2029,10 @@ export default function TakeAssessmentPage({
       requireMicrophone={proctoring?.requireMicrophone ?? proctoring?.enableMicrophone ?? (proctoring?.useMicrophone !== false)}
       isExamSubmitted={isExamSubmitted}
       assessmentId={id}
+      candidateId={resolvedCandidateId}
+      candidateIdentifier={resolvedCandidateIdentifier}
+      attestationSessionId={attestedSessionId}
+      enableForensicWatermark={enableForensicWatermark}
       onMediaReconnected={(_newStream) => {
         attachVideo(videoRef.current);
       }}

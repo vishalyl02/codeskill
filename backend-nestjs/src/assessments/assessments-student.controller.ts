@@ -5,6 +5,7 @@ import { AssessmentsService } from './assessments.service';
 import { EvaluateAssessmentCodeDto } from './dto/evaluate-code.dto';
 import { SubmissionRateLimitGuard } from '../common/guards/submission-rate-limit.guard';
 import { SebGuard } from '../exam-security/guards/seb.guard';
+import { LockdownSignatureGuard } from '../exam-security/lockdown-signature.guard';
 import {
   SubmitAssessmentDto,
   RecordViolationDto,
@@ -39,7 +40,7 @@ export class AssessmentsStudentController {
   }
 
   @Post(':id/start')
-  @UseGuards(SebGuard)
+  @UseGuards(SebGuard, LockdownSignatureGuard)
   @ApiOperation({ summary: 'Begin or resume assessment attempt session' })
   @Throttle({
     short: { limit: 10, ttl: 1000 },
@@ -105,7 +106,7 @@ export class AssessmentsStudentController {
   }
 
   @Post(':id/save-progress')
-  @UseGuards(SebGuard)
+  @UseGuards(SebGuard, LockdownSignatureGuard)
   @ApiOperation({ summary: 'Autosave candidate responses during test' })
   @Throttle({
     short: { limit: 20, ttl: 1000 },
@@ -121,7 +122,7 @@ export class AssessmentsStudentController {
   }
 
   @Post(':id/submit')
-  @UseGuards(SebGuard)
+  @UseGuards(SebGuard, LockdownSignatureGuard)
   @ApiOperation({
     summary: 'Submit completed assessment for server evaluation',
   })
@@ -139,7 +140,7 @@ export class AssessmentsStudentController {
   }
 
   @Post(':id/evaluate-code')
-  @UseGuards(SebGuard, SubmissionRateLimitGuard)
+  @UseGuards(SebGuard, SubmissionRateLimitGuard, LockdownSignatureGuard)
   @Throttle({
     short: { limit: 1, ttl: 4000 },
     medium: { limit: 6, ttl: 30000 },

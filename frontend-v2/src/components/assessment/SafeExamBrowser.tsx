@@ -7,6 +7,7 @@ import { ShieldAlert, Maximize, AlertTriangle, VideoOff, MicOff, RefreshCw, Load
 import { toast } from 'react-hot-toast';
 import api from '@/config/api';
 import { pacingTelemetry } from '@/lib/pacing-telemetry';
+import ForensicWatermarkOverlay from './ForensicWatermarkOverlay';
 
 interface SafeExamBrowserProps {
   children: React.ReactNode;
@@ -25,6 +26,10 @@ interface SafeExamBrowserProps {
   requireMicrophone?: boolean;
   isExamSubmitted?: boolean;
   assessmentId?: string;
+  candidateId?: string;
+  candidateIdentifier?: string;
+  attestationSessionId?: string;
+  enableForensicWatermark?: boolean;
   onMediaReconnected?: (newStream: MediaStream) => void;
 }
 
@@ -45,6 +50,10 @@ export default function SafeExamBrowser({
   requireMicrophone = false,
   isExamSubmitted = false,
   assessmentId,
+  candidateId,
+  candidateIdentifier,
+  attestationSessionId,
+  enableForensicWatermark = false,
   onMediaReconnected,
 }: SafeExamBrowserProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -80,6 +89,15 @@ export default function SafeExamBrowser({
     videoinput: 0,
     audioinput: 0,
   });
+
+  // Keystroke cadence tracking refs (Section 6.5)
+  const lastKeyUpTimeRef = useRef<number | null>(null);
+  const keyDownTimestampsRef = useRef<Map<string, number>>(new Map());
+  const flightIntervalsRef = useRef<number[]>([]);
+  const dwellIntervalsRef = useRef<number[]>([]);
+  const consecutivePrintableCountRef = useRef<number>(0);
+  const lastMacroReportTimeRef = useRef<number>(0);
+  const processedKeyEventsRef = useRef(new WeakSet<KeyboardEvent>());
 
   const triggerDisconnect = useCallback(
     (deviceKind: 'videoinput' | 'audioinput', reason: string, label?: string) => {
@@ -403,6 +421,9 @@ export default function SafeExamBrowser({
 
     // Prevent specific keyboard shortcuts
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (processedKeyEventsRef.current.has(e)) return;
+      processedKeyEventsRef.current.add(e);
+
       pacingTelemetry.recordKeystroke();
       const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
@@ -500,10 +521,107 @@ export default function SafeExamBrowser({
           return;
         }
       }
+
+      // 7. Track Keystroke Cadence for HID Macro / Keystroke Injection Detection (Section 6.5)
+      const isPrintable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      const isTypingField = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        (target as HTMLElement).isContentEditable ||
+        target.closest('.monaco-editor') ||
+        target.closest('.scratchpad-editor') ||
+        target.getAttribute('data-allow-local-clipboard') === 'true'
+      );
+
+      if (isPrintable && isTypingField && monitorViolations && !isExamSubmitted) {
+        const now = performance.now();
+        keyDownTimestampsRef.current.set(e.code, now);
+
+        const lastKeyUp = lastKeyUpTimeRef.current;
+        if (lastKeyUp !== null) {
+          const flight = now - lastKeyUp;
+          // Valid flight time between consecutive keystrokes (< 2000ms)
+          if (flight >= 0 && flight < 2000) {
+            consecutivePrintableCountRef.current += 1;
+            const flights = flightIntervalsRef.current;
+            flights.push(flight);
+            if (flights.length > 50) {
+              flights.shift();
+            }
+
+            // Trigger detection if candidate typed >= 60 characters with sufficient sample size
+            if (consecutivePrintableCountRef.current >= 60 && flights.length >= 30) {
+              const sum = flights.reduce((a, b) => a + b, 0);
+              const meanFlightMs = sum / flights.length;
+              const variance = flights.reduce((a, b) => a + Math.pow(b - meanFlightMs, 2), 0) / flights.length;
+              const stdDevMs = Math.sqrt(variance);
+
+              // Superhuman robotic cadence criteria: mean flight < 18ms and stdDev < 3.5ms
+              if (meanFlightMs < 18 && stdDevMs < 3.5) {
+                const nowWallMs = Date.now();
+                if (nowWallMs - lastMacroReportTimeRef.current > 10000) {
+                  lastMacroReportTimeRef.current = nowWallMs;
+                  const charsPerMinute = Math.round(60000 / Math.max(meanFlightMs, 1));
+                  callbacksRef.current.onViolation?.(
+                    'HID_MACRO_INJECTION_SUSPECTED',
+                    'Superhuman keystroke injection cadence detected from input device',
+                    {
+                      sampleSize: flights.length,
+                      consecutiveCharacters: consecutivePrintableCountRef.current,
+                      meanFlightMs: Math.round(meanFlightMs * 100) / 100,
+                      stdDevMs: Math.round(stdDevMs * 100) / 100,
+                      charsPerMinute,
+                    }
+                  );
+                }
+              }
+            }
+          } else {
+            // Typing pause exceeded 2000ms: reset burst counter
+            consecutivePrintableCountRef.current = 1;
+            flightIntervalsRef.current = [];
+          }
+        } else {
+          consecutivePrintableCountRef.current = 1;
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (processedKeyEventsRef.current.has(e)) return;
+      processedKeyEventsRef.current.add(e);
+
+      const target = e.target as HTMLElement | null;
+      const isPrintable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      const isTypingField = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        (target as HTMLElement).isContentEditable ||
+        target.closest('.monaco-editor') ||
+        target.closest('.scratchpad-editor') ||
+        target.getAttribute('data-allow-local-clipboard') === 'true'
+      );
+
+      if (isPrintable && isTypingField && monitorViolations && !isExamSubmitted) {
+        const now = performance.now();
+        const start = keyDownTimestampsRef.current.get(e.code);
+        if (start !== undefined) {
+          const dwell = now - start;
+          const dwells = dwellIntervalsRef.current;
+          dwells.push(dwell);
+          if (dwells.length > 50) {
+            dwells.shift();
+          }
+          keyDownTimestampsRef.current.delete(e.code);
+        }
+        lastKeyUpTimeRef.current = now;
+      }
     };
 
     document.addEventListener('keydown', handleKeyDown, { capture: true });
     window.addEventListener('keydown', handleKeyDown, { capture: true });
+    document.addEventListener('keyup', handleKeyUp, { capture: true });
+    window.addEventListener('keyup', handleKeyUp, { capture: true });
 
     // We don't want to show a warning on initial mount if they are just arriving,
     // but the fullscreenchange will handle actual exits.
@@ -522,6 +640,8 @@ export default function SafeExamBrowser({
       document.removeEventListener('paste', handleClipboardEvent, { capture: true } as any);
       document.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
       window.removeEventListener('keydown', handleKeyDown, { capture: true } as any);
+      document.removeEventListener('keyup', handleKeyUp, { capture: true } as any);
+      window.removeEventListener('keyup', handleKeyUp, { capture: true } as any);
       document.removeEventListener('click', handleFileInputClick, { capture: true } as any);
       if (origPrint && typeof window !== 'undefined') {
         window.print = origPrint;
@@ -564,6 +684,23 @@ export default function SafeExamBrowser({
 
   return (
     <div ref={containerRef} className="relative w-full h-screen overflow-hidden bg-background">
+      {/* Forensic Screen Watermarking Overlay (conditional, default false) */}
+      <ForensicWatermarkOverlay
+        enabled={enableForensicWatermark && !isExamSubmitted}
+        isSubmitted={isExamSubmitted}
+        candidateId={candidateId}
+        candidateIdentifier={candidateIdentifier}
+        assessmentId={assessmentId}
+        attestationSessionId={attestationSessionId}
+        onTamper={(reason, details) => {
+          callbacksRef.current.onViolation?.(
+            'WATERMARK_TAMPER_ATTEMPT',
+            'Forensic screen watermark tampering attempt detected',
+            details
+          );
+        }}
+      />
+
       {/* The actual content */}
       <div inert={requireFullscreen && !isFullscreen} aria-hidden={requireFullscreen && !isFullscreen} className={`w-full h-full overflow-hidden transition-opacity duration-300 ${requireFullscreen && !isFullscreen ? 'opacity-0 pointer-events-none blur-sm' : 'opacity-100'}`}>
         {children}

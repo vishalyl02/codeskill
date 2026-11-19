@@ -20,6 +20,7 @@ export interface AttestationInfo {
   attestation_tier: string;
   kiosk_mode: string;
   client_binary_hash: string;
+  session_hmac_key?: string;
 }
 
 export interface BatteryInfo {
@@ -55,6 +56,36 @@ export interface LockdownSignedHeaders {
   'X-CodeSkill-Nonce': string;
   'X-CodeSkill-Signature': string;
   'X-CodeSkill-Client': string;
+}
+
+export interface SignedRequestHeaders {
+  'X-Lockdown-Session-Id': string;
+  'X-Lockdown-Timestamp': string;
+  'X-Lockdown-Nonce': string;
+  'X-Lockdown-Binary-Hash': string;
+  'X-Lockdown-Signature': string;
+}
+
+export interface RuntimeIntegrityReport {
+  passed: boolean;
+  debuggerPresent: boolean;
+  injectionDetected: boolean;
+  violations: string[];
+}
+
+export interface MediaDeviceDescriptor {
+  name: string;
+  deviceType: 'camera' | 'microphone';
+  isVirtual: boolean;
+  modelId?: string;
+  manufacturer?: string;
+  transportType?: string;
+}
+
+export interface MediaHardwareAudit {
+  passed: boolean;
+  devices: MediaDeviceDescriptor[];
+  virtualDevicesDetected: string[];
 }
 
 export interface MediaPermissionStatus {
@@ -176,10 +207,16 @@ export async function getAttestationInfo(): Promise<AttestationInfo> {
 }
 
 /**
- * Registers the server-issued attested session ID inside LockDown state.
+ * Registers the server-issued attested session ID and optional HMAC key inside LockDown state.
  */
-export async function setAttestedSessionId(sessionId: string): Promise<void> {
-  return tauriInvoke<void>('set_attested_session_id', { sessionId });
+export async function setAttestedSessionId(
+  sessionId: string,
+  sessionHmacKey?: string,
+): Promise<void> {
+  return tauriInvoke<void>('set_attested_session_id', {
+    sessionId,
+    sessionHmacKey: sessionHmacKey || null,
+  });
 }
 
 /**
@@ -482,6 +519,82 @@ export async function signLockdownRequest(
 }
 
 /**
+ * Computes hexadecimal SHA-256 hash of a string using Web Crypto API.
+ */
+export async function computeSha256(text: string): Promise<string> {
+  const subtle =
+    (typeof window !== 'undefined' && window.crypto?.subtle) ||
+    (typeof globalThis !== 'undefined' && (globalThis as any).crypto?.subtle);
+
+  if (subtle) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    const hashBuffer = await subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // Fallback for Node / Jest runtime environments
+  try {
+    const nodeCrypto = await import('crypto');
+    return nodeCrypto.createHash('sha256').update(text).digest('hex');
+  } catch {
+    return 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  }
+}
+
+/**
+ * Signs an outbound assessment request using LockDown's continuous hardware-bound session HMAC key.
+ */
+export async function signExamRequest(
+  method: string,
+  path: string,
+  bodySha256: string,
+): Promise<SignedRequestHeaders> {
+  const raw = await tauriInvoke<any>('sign_exam_request', {
+    method,
+    path,
+    bodySha256,
+  });
+  return {
+    'X-Lockdown-Session-Id': raw['X-Lockdown-Session-Id'] || raw.session_id || raw.sessionId || '',
+    'X-Lockdown-Timestamp': raw['X-Lockdown-Timestamp'] || raw.timestamp || '',
+    'X-Lockdown-Nonce': raw['X-Lockdown-Nonce'] || raw.nonce || '',
+    'X-Lockdown-Binary-Hash': raw['X-Lockdown-Binary-Hash'] || raw.binary_hash || raw.binaryHash || '',
+    'X-Lockdown-Signature': raw['X-Lockdown-Signature'] || raw.signature || '',
+  };
+}
+
+/**
+ * Performs local anti-debugging and dynamic library injection audits.
+ */
+export async function runRuntimeIntegrityCheck(): Promise<RuntimeIntegrityReport> {
+  if (!isLockdownClient()) {
+    return {
+      passed: true,
+      debuggerPresent: false,
+      injectionDetected: false,
+      violations: [],
+    };
+  }
+  return tauriInvoke<RuntimeIntegrityReport>('run_runtime_integrity_check');
+}
+
+/**
+ * Inspects physical vs virtual camera and audio drivers.
+ */
+export async function inspectMediaHardware(): Promise<MediaHardwareAudit> {
+  if (!isLockdownClient()) {
+    return {
+      passed: true,
+      devices: [],
+      virtualDevicesDetected: [],
+    };
+  }
+  return tauriInvoke<MediaHardwareAudit>('inspect_media_hardware');
+}
+
+/**
  * Initializes client attestation by performing preflight checks, submitting public key
  * to backend-nestjs, and storing the issued session ID.
  */
@@ -546,17 +659,22 @@ export async function initializeLockdownAttestation(
       kioskMode: attestationInfo.kiosk_mode,
       clientBinaryHash: attestationInfo.client_binary_hash,
     };
+    if (attestationInfo.session_hmac_key) {
+      payload.sessionHmacKey = attestationInfo.session_hmac_key;
+    }
     if (assessmentId) {
       payload.assessmentId = assessmentId;
     }
 
     let attestedSessionId: string | undefined;
     let serverTime: number | undefined;
+    let returnedHmacKey: string | undefined;
 
     if (apiClient && typeof apiClient.post === 'function') {
       const res = await apiClient.post('exam-security/attest-client', payload);
       attestedSessionId = res.data?.data?.attestedSessionId || res.data?.attestedSessionId;
       serverTime = res.data?.data?.serverTime || res.data?.serverTime;
+      returnedHmacKey = res.data?.data?.sessionHmacKey || res.data?.sessionHmacKey;
     } else {
       const token =
         typeof window !== 'undefined'
@@ -581,14 +699,16 @@ export async function initializeLockdownAttestation(
       }
       attestedSessionId = data?.data?.attestedSessionId || data?.attestedSessionId;
       serverTime = data?.data?.serverTime || data?.serverTime;
+      returnedHmacKey = data?.data?.sessionHmacKey || data?.sessionHmacKey;
     }
 
     if (!attestedSessionId) {
       return { success: false, error: 'Backend did not return an attestedSessionId' };
     }
 
-    // 5. Store attested session ID in LockDown state
-    await setAttestedSessionId(attestedSessionId);
+    // 5. Store attested session ID and session HMAC key in LockDown state
+    const effectiveHmacKey = returnedHmacKey || attestationInfo.session_hmac_key;
+    await setAttestedSessionId(attestedSessionId, effectiveHmacKey);
 
     // 6. Synchronize authoritative server time offset if provided
     if (serverTime) {

@@ -36,7 +36,11 @@ class TelemetryBufferManager {
       event.eventType === "EXAM_SUBMISSION" ||
       event.eventType === "ABRUPT_SUBMISSION" ||
       event.eventType === "CLIENT_TERMINATED" ||
-      event.eventType === "CONCURRENT_SESSION_DETECTED"
+      event.eventType === "CONCURRENT_SESSION_DETECTED" ||
+      event.eventType === "RUNTIME_TAMPER_DETECTED" ||
+      event.eventType === "HID_MACRO_INJECTION_SUSPECTED" ||
+      event.eventType === "WATERMARK_TAMPER_ATTEMPT" ||
+      event.eventType === "INVALID_REQUEST_SIGNATURE"
     ) {
       void this.flush();
     }

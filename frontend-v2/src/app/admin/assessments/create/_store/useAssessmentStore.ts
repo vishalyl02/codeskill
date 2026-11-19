@@ -71,6 +71,7 @@ interface AssessmentStore {
   allowFindOnPage: boolean;
   allowedUrlPatterns: string[];
   enableScreenCaptureSnapshots: boolean;
+  enableForensicWatermark: boolean;
   showResultImmediately: boolean;
   allowReview: boolean;
   resultDisplaySettings: ResultDisplaySettings;
@@ -98,6 +99,7 @@ interface AssessmentStore {
   setAllowFindOnPage: (allow: boolean) => void;
   setAllowedUrlPatterns: (patterns: string[]) => void;
   setEnableScreenCaptureSnapshots: (enable: boolean) => void;
+  setEnableForensicWatermark: (enable: boolean) => void;
   setShowResultImmediately: (show: boolean) => void;
   setAllowReview: (allow: boolean) => void;
   setResultDisplaySettings: (settings: Partial<ResultDisplaySettings>) => void;
@@ -166,6 +168,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   allowFindOnPage: true,
   allowedUrlPatterns: [],
   enableScreenCaptureSnapshots: false,
+  enableForensicWatermark: false,
   showResultImmediately: true,
   allowReview: true,
   resultDisplaySettings: defaultResultDisplay,
@@ -185,6 +188,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
     set((state) => ({
       requireLockdown,
       allowVirtualMachine: requireLockdown ? state.allowVirtualMachine : false,
+      enableForensicWatermark: requireLockdown ? state.enableForensicWatermark : false,
     })),
   setAllowVirtualMachine: (allowVirtualMachine) => set({ allowVirtualMachine }),
   setLockdownQuitPassword: (lockdownQuitPassword) => set({ lockdownQuitPassword }),
@@ -197,6 +201,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   setAllowFindOnPage: (allowFindOnPage) => set({ allowFindOnPage }),
   setAllowedUrlPatterns: (allowedUrlPatterns) => set({ allowedUrlPatterns }),
   setEnableScreenCaptureSnapshots: (enableScreenCaptureSnapshots) => set({ enableScreenCaptureSnapshots }),
+  setEnableForensicWatermark: (enableForensicWatermark) => set({ enableForensicWatermark }),
   setShowResultImmediately: (showResultImmediately) => set({ showResultImmediately }),
   setAllowReview: (allowReview) => set({ allowReview }),
   setResultDisplaySettings: (settings) =>
@@ -229,6 +234,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
       allowFindOnPage: assessment.allowFindOnPage ?? assessment.securityPolicy?.allowFindOnPage ?? true,
       allowedUrlPatterns: assessment.allowedUrlPatterns ?? assessment.securityPolicy?.allowedUrlPatterns ?? [],
       enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
+      enableForensicWatermark: Boolean(assessment.enableForensicWatermark ?? assessment.securityPolicy?.enableForensicWatermark),
       showResultImmediately: assessment.showResultImmediately ?? true,
       allowReview: assessment.allowReview ?? true,
       resultDisplaySettings: {
@@ -279,6 +285,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
     allowFindOnPage: true,
     allowedUrlPatterns: [],
     enableScreenCaptureSnapshots: false,
+    enableForensicWatermark: false,
     showResultImmediately: true,
     allowReview: true,
     resultDisplaySettings: defaultResultDisplay,

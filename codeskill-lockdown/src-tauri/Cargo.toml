@@ -26,6 +26,7 @@ uuid = { version = "1.10", features = ["v4"] }
 url = "2.5"
 aes-gcm = "0.10"
 hmac = "0.12"
+libc = "0.2"
 tokio = { version = "1", features = ["fs", "sync", "time", "rt", "macros"] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
@@ -41,6 +42,8 @@ windows = { version = "0.58", features = [
     "Win32_System_StationsAndDesktops",
     "Win32_System_Registry",
     "Win32_Graphics_Gdi",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_ProcessStatus",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

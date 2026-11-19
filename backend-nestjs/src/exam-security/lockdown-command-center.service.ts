@@ -202,7 +202,11 @@ export class LockdownCommandCenterService {
         ev.eventType.includes('VIOLATION') ||
         ev.eventType === 'SECONDARY_DISPLAY_CONNECTED' ||
         ev.eventType === 'OVERLAY_WINDOW_DETECTED' ||
-        ev.eventType === 'MITM_PROXY_DETECTED'
+        ev.eventType === 'MITM_PROXY_DETECTED' ||
+        ev.eventType === 'HID_MACRO_INJECTION_SUSPECTED' ||
+        ev.eventType === 'WATERMARK_TAMPER_ATTEMPT' ||
+        ev.eventType === 'RUNTIME_TAMPER_DETECTED' ||
+        ev.eventType === 'INVALID_REQUEST_SIGNATURE'
       ) {
         violationHeatmap[ev.eventType] = (violationHeatmap[ev.eventType] || 0) + 1;
         if (cid && candidateMap.has(cid)) {
@@ -362,6 +366,18 @@ export class LockdownCommandCenterService {
       } else if (ev.eventType === 'ADMIN_EXTEND_TIME') {
         title = 'Authoritative Exam Time Extended';
         description = `+${ev.metadata?.extraMinutes}m added. Reason: ${ev.metadata?.reason}`;
+      } else if (ev.eventType === 'HID_MACRO_INJECTION_SUSPECTED') {
+        title = 'HID Macro / Keystroke Injection Suspected';
+        description = ev.metadata?.message || 'Robotic keystroke cadence detected (sub-18ms flight time with minimal jitter).';
+      } else if (ev.eventType === 'WATERMARK_TAMPER_ATTEMPT') {
+        title = 'Forensic Watermark Tamper Attempt';
+        description = ev.metadata?.message || 'Forensic screen watermark DOM node was modified, hidden, or removed.';
+      } else if (ev.eventType === 'RUNTIME_TAMPER_DETECTED') {
+        title = 'Runtime Tamper / Debugger Detected';
+        description = ev.metadata?.message || 'Runtime debugger attachment or unauthorized dylib/DLL injection detected.';
+      } else if (ev.eventType === 'INVALID_REQUEST_SIGNATURE') {
+        title = 'Invalid Request Signature';
+        description = ev.metadata?.message || 'Per-request hardware HMAC signature verification failed or payload tampered.';
       }
 
       return {

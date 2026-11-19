@@ -32,6 +32,10 @@ import {
   closeNonEssentialApps,
   getLockdownDiagnosticLogs,
   setLockedAssessment,
+  signExamRequest,
+  runRuntimeIntegrityCheck,
+  inspectMediaHardware,
+  computeSha256,
 } from './lockdown-bridge';
 import { authStorage } from '@/lib/auth-storage';
 
@@ -77,6 +81,13 @@ describe('LockDown Desktop Bridge (frontend-v2)', () => {
       await setAttestedSessionId('sess-xyz');
       expect(mockInvoke).toHaveBeenCalledWith('set_attested_session_id', {
         sessionId: 'sess-xyz',
+        sessionHmacKey: null,
+      });
+
+      await setAttestedSessionId('sess-xyz', 'hmac-key-abc');
+      expect(mockInvoke).toHaveBeenCalledWith('set_attested_session_id', {
+        sessionId: 'sess-xyz',
+        sessionHmacKey: 'hmac-key-abc',
       });
     });
 
@@ -248,7 +259,7 @@ describe('LockDown Desktop Bridge (frontend-v2)', () => {
         post: jest.fn().mockResolvedValue({
           data: {
             success: true,
-            data: { attestedSessionId: 'server-issued-session-456' },
+            data: { attestedSessionId: 'server-issued-session-456', sessionHmacKey: 'mock-hmac-key-123' },
           },
         }),
       };
@@ -267,6 +278,7 @@ describe('LockDown Desktop Bridge (frontend-v2)', () => {
       );
       expect(mockInvoke).toHaveBeenCalledWith('set_attested_session_id', {
         sessionId: 'server-issued-session-456',
+        sessionHmacKey: 'mock-hmac-key-123',
       });
       expect(mockInvoke).toHaveBeenCalledWith('engage_os_kiosk', {});
     });
@@ -615,6 +627,69 @@ describe('LockDown Desktop Bridge (frontend-v2)', () => {
       expect(info.attestation_tier).toBe('hardware_tpm_enclave');
       expect(info.kiosk_mode).toBe('macos_cocoa_kiosk');
       expect(info.client_binary_hash).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    });
+
+    it('signExamRequest invokes sign_exam_request and returns 5 headers', async () => {
+      mockInvoke.mockResolvedValue({
+        'X-Lockdown-Session-Id': 'session-xyz',
+        'X-Lockdown-Timestamp': '1700000000000',
+        'X-Lockdown-Nonce': 'nonce-123-uuid',
+        'X-Lockdown-Binary-Hash': 'binary-hash-sha256',
+        'X-Lockdown-Signature': 'signature-hmac-sha256',
+      });
+
+      const headers = await signExamRequest('POST', '/api/assessments/submit', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+      expect(mockInvoke).toHaveBeenCalledWith('sign_exam_request', {
+        method: 'POST',
+        path: '/api/assessments/submit',
+        bodySha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      });
+      expect(headers['X-Lockdown-Session-Id']).toBe('session-xyz');
+      expect(headers['X-Lockdown-Signature']).toBe('signature-hmac-sha256');
+    });
+
+    it('runRuntimeIntegrityCheck invokes run_runtime_integrity_check', async () => {
+      mockInvoke.mockResolvedValue({
+        passed: true,
+        debugger_attached: false,
+        injection_detected: false,
+        violations: [],
+      });
+
+      const report = await runRuntimeIntegrityCheck();
+      expect(mockInvoke).toHaveBeenCalledWith('run_runtime_integrity_check', {});
+      expect(report.passed).toBe(true);
+      expect(report.debugger_attached).toBe(false);
+    });
+
+    it('inspectMediaHardware invokes inspect_media_hardware', async () => {
+      mockInvoke.mockResolvedValue({
+        passed: true,
+        virtual_camera_detected: false,
+        virtual_mic_detected: false,
+        devices: [
+          {
+            name: 'FaceTime HD Camera',
+            device_type: 'video',
+            is_virtual: false,
+            driver_info: 'Apple built-in',
+          },
+        ],
+        violations: [],
+      });
+
+      const audit = await inspectMediaHardware();
+      expect(mockInvoke).toHaveBeenCalledWith('inspect_media_hardware', {});
+      expect(audit.passed).toBe(true);
+      expect(audit.devices).toHaveLength(1);
+    });
+
+    it('computeSha256 computes expected SHA-256 hex digest for empty string and payload', async () => {
+      const emptyHash = await computeSha256('');
+      expect(emptyHash).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+
+      const textHash = await computeSha256('hello world');
+      expect(textHash).toBe('b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
     });
   });
 });

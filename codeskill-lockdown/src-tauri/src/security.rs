@@ -94,6 +94,38 @@ pub struct DisplayTopology {
     pub primary_resolution: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeIntegrityReport {
+    pub passed: bool,
+    #[serde(rename = "debuggerPresent")]
+    pub debugger_present: bool,
+    #[serde(rename = "injectionDetected")]
+    pub injection_detected: bool,
+    pub violations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaDeviceDescriptor {
+    pub name: String,
+    #[serde(rename = "deviceType")]
+    pub device_type: String, // "camera" | "microphone"
+    #[serde(rename = "isVirtual")]
+    pub is_virtual: bool,
+    #[serde(rename = "modelId")]
+    pub model_id: Option<String>,
+    pub manufacturer: Option<String>,
+    #[serde(rename = "transportType")]
+    pub transport_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaHardwareAudit {
+    pub passed: bool,
+    pub devices: Vec<MediaDeviceDescriptor>,
+    #[serde(rename = "virtualDevicesDetected")]
+    pub virtual_devices_detected: Vec<String>,
+}
+
 #[cfg(target_os = "macos")]
 pub fn get_native_display_topology() -> (usize, bool, String) {
     use core_graphics::display::{
@@ -1013,6 +1045,24 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
                     },
                 );
             }
+
+            // Check runtime integrity (anti-debug & injection)
+            let integrity = check_runtime_integrity();
+            if !integrity.passed {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+
+                let _ = app_handle.emit(
+                    "exam:environment-violation",
+                    EnvironmentViolationEvent {
+                        violation_type: "RUNTIME_TAMPER_DETECTED".to_string(),
+                        message: format!("Runtime integrity violation: {}", integrity.violations.join("; ")),
+                        timestamp: now,
+                    },
+                );
+            }
         }
     });
 }
@@ -1530,6 +1580,366 @@ pub fn kill_all_blocking_apps(force: bool) -> Result<Vec<BlockingAppInfo>, Strin
     }
     std::thread::sleep(std::time::Duration::from_millis(600));
     list_blocking_apps()
+}
+
+pub const VIRTUAL_CAMERA_BLOCKLIST: &[&str] = &[
+    "obs",
+    "virtual",
+    "manycam",
+    "camtwist",
+    "snap camera",
+    "mmhmm",
+    "epoccam",
+    "droidcam",
+    "iriun",
+];
+
+pub const VIRTUAL_AUDIO_BLOCKLIST: &[&str] = &[
+    "blackhole",
+    "vb-audio",
+    "vb-cable",
+    "soundflower",
+    "loopback",
+    "virtual",
+];
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn _dyld_image_count() -> u32;
+    fn _dyld_get_image_name(image_index: u32) -> *const std::os::raw::c_char;
+}
+
+#[cfg(target_os = "macos")]
+fn check_macos_runtime_integrity() -> (bool, bool, Vec<String>) {
+    let mut debugger_present = false;
+    let mut injection_detected = false;
+    let mut violations = Vec::new();
+
+    // 1. Check P_TRACED (0x800 at offset 32) via sysctl
+    const P_TRACED: i32 = 0x00000800;
+    let mut mib = [1 /* CTL_KERN */, 14 /* KERN_PROC */, 1 /* KERN_PROC_PID */, unsafe { libc::getpid() }];
+    let mut buf = [0u8; 1024];
+    let mut size = buf.len();
+    let ret = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            4,
+            buf.as_mut_ptr() as *mut libc::c_void,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if ret == 0 && size >= 36 {
+        let p_flag = i32::from_ne_bytes([buf[32], buf[33], buf[34], buf[35]]);
+        if (p_flag & P_TRACED) != 0 {
+            debugger_present = true;
+            violations.push("Active debugger attached (P_TRACED flag detected)".to_string());
+        }
+    }
+
+    // 2. Check DYLD_INSERT_LIBRARIES
+    if std::env::var("DYLD_INSERT_LIBRARIES").is_ok() {
+        injection_detected = true;
+        violations.push("DYLD_INSERT_LIBRARIES environment variable is set".to_string());
+    }
+
+    // 3. Inspect loaded dylib images
+    unsafe {
+        let count = _dyld_image_count();
+        for i in 0..count {
+            let name_ptr = _dyld_get_image_name(i);
+            if !name_ptr.is_null() {
+                if let Ok(c_str) = std::ffi::CStr::from_ptr(name_ptr).to_str() {
+                    let lower = c_str.to_lowercase();
+                    if lower.contains("fridagadget") || lower.contains("substrate") || lower.contains("tweakinject") {
+                        injection_detected = true;
+                        violations.push(format!("Injected hook dylib detected: {}", c_str));
+                    } else if (c_str.starts_with("/tmp/") || c_str.starts_with("/opt/homebrew/") || c_str.starts_with("/Users/"))
+                        && !c_str.contains("/target/")
+                        && !c_str.contains("/codeskill")
+                        && !c_str.contains(".cargo")
+                        && !c_str.contains("/.rustup/")
+                    {
+                        if lower.contains("inject") || lower.contains("hook") || lower.contains("frida") {
+                            injection_detected = true;
+                            violations.push(format!("Suspicious user-space dylib detected: {}", c_str));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (debugger_present, injection_detected, violations)
+}
+
+#[cfg(target_os = "windows")]
+fn check_windows_runtime_integrity() -> (bool, bool, Vec<String>) {
+    use windows::Win32::System::Diagnostics::Debug::{IsDebuggerPresent, CheckRemoteDebuggerPresent};
+    use windows::Win32::System::Threading::GetCurrentProcess;
+    use windows::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleFileNameExW};
+    use windows::Win32::Foundation::HMODULE;
+
+    let mut debugger_present = false;
+    let mut injection_detected = false;
+    let mut violations = Vec::new();
+
+    unsafe {
+        if IsDebuggerPresent().as_bool() {
+            debugger_present = true;
+            violations.push("IsDebuggerPresent() returned true".to_string());
+        }
+
+        let mut remote_present = windows::Win32::Foundation::BOOL(0);
+        if CheckRemoteDebuggerPresent(GetCurrentProcess(), &mut remote_present).is_ok() && remote_present.as_bool() {
+            debugger_present = true;
+            violations.push("CheckRemoteDebuggerPresent() returned true".to_string());
+        }
+
+        let process = GetCurrentProcess();
+        let mut modules: [HMODULE; 1024] = [HMODULE::default(); 1024];
+        let mut cb_needed = 0u32;
+        if EnumProcessModules(
+            process,
+            modules.as_mut_ptr(),
+            std::mem::size_of_val(&modules) as u32,
+            &mut cb_needed,
+        ).is_ok() {
+            let count = (cb_needed as usize) / std::mem::size_of::<HMODULE>();
+            for &module in &modules[..count.min(1024)] {
+                let mut path_buf = [0u16; 1024];
+                let len = GetModuleFileNameExW(process, module, &mut path_buf);
+                if len > 0 {
+                    let path = String::from_utf16_lossy(&path_buf[..len as usize]);
+                    let lower = path.to_lowercase();
+                    if lower.contains("hook")
+                        || lower.contains("inject")
+                        || lower.contains("frida")
+                        || lower.contains("substrate")
+                    {
+                        injection_detected = true;
+                        violations.push(format!("Injected DLL detected: {}", path));
+                    } else if lower.contains("\\temp\\")
+                        || lower.contains("\\appdata\\local\\temp\\")
+                        || lower.contains("\\downloads\\")
+                    {
+                        injection_detected = true;
+                        violations.push(format!("Suspicious DLL loaded from temp/downloads: {}", path));
+                    }
+                }
+            }
+        }
+    }
+
+    (debugger_present, injection_detected, violations)
+}
+
+#[cfg(target_os = "linux")]
+fn check_linux_runtime_integrity() -> (bool, bool, Vec<String>) {
+    let mut debugger_present = false;
+    let mut injection_detected = false;
+    let mut violations = Vec::new();
+
+    if std::env::var("LD_PRELOAD").is_ok() {
+        injection_detected = true;
+        violations.push("LD_PRELOAD environment variable is set".to_string());
+    }
+
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        for line in status.lines() {
+            if line.starts_with("TracerPid:") {
+                let pid_str = line.trim_start_matches("TracerPid:").trim();
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    if pid != 0 {
+                        debugger_present = true;
+                        violations.push(format!("Active TracerPid detected: {}", pid));
+                    }
+                }
+            }
+        }
+    }
+
+    (debugger_present, injection_detected, violations)
+}
+
+pub fn check_runtime_integrity() -> RuntimeIntegrityReport {
+    #[cfg(target_os = "macos")]
+    let (debugger_present, injection_detected, violations) = check_macos_runtime_integrity();
+
+    #[cfg(target_os = "windows")]
+    let (debugger_present, injection_detected, violations) = check_windows_runtime_integrity();
+
+    #[cfg(target_os = "linux")]
+    let (debugger_present, injection_detected, violations) = check_linux_runtime_integrity();
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let (debugger_present, injection_detected, violations) = (false, false, Vec::new());
+
+    let passed = !debugger_present && !injection_detected && violations.is_empty();
+    RuntimeIntegrityReport {
+        passed,
+        debugger_present,
+        injection_detected,
+        violations,
+    }
+}
+
+#[tauri::command]
+pub fn run_runtime_integrity_check() -> Result<RuntimeIntegrityReport, String> {
+    Ok(check_runtime_integrity())
+}
+
+pub fn check_media_hardware_audit() -> MediaHardwareAudit {
+    let mut devices = Vec::new();
+    let mut virtual_detected = Vec::new();
+
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::runtime::AnyClass;
+        use objc2_foundation::NSString;
+
+        // 1. Inspect CoreMediaIO DAL Plug-Ins directory for virtual camera driver plugins
+        let dal_paths = [
+            "/Library/CoreMediaIO/Plug-Ins/DAL",
+            "/System/Library/CoreMediaIO/Plug-Ins/DAL",
+        ];
+        for dal_path in &dal_paths {
+            if let Ok(entries) = std::fs::read_dir(dal_path) {
+                for entry in entries.flatten() {
+                    let file_name = entry.file_name().to_string_lossy().to_string();
+                    let lower = file_name.to_lowercase();
+                    for kw in VIRTUAL_CAMERA_BLOCKLIST {
+                        if lower.contains(kw) {
+                            virtual_detected.push(format!("CoreMediaIO DAL plugin: {}", file_name));
+                            devices.push(MediaDeviceDescriptor {
+                                name: file_name.clone(),
+                                device_type: "camera".to_string(),
+                                is_virtual: true,
+                                model_id: Some(file_name.clone()),
+                                manufacturer: Some("Virtual Camera Plugin".to_string()),
+                                transport_type: Some("CoreMediaIO DAL".to_string()),
+                            });
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Query AVCaptureDevice for video capture devices
+        unsafe {
+            if let Some(cls) = AnyClass::get("AVCaptureDevice") {
+                let ns_video = NSString::from_str("vide");
+                let device_list: *const objc2::runtime::AnyObject =
+                    objc2::msg_send![cls, devicesWithMediaType: &*ns_video];
+                if !device_list.is_null() {
+                    let count: usize = objc2::msg_send![device_list, count];
+                    for i in 0..count {
+                        let dev: *const objc2::runtime::AnyObject =
+                            objc2::msg_send![device_list, objectAtIndex: i];
+                        if !dev.is_null() {
+                            let loc_name: *const NSString = objc2::msg_send![dev, localizedName];
+                            let name = if !loc_name.is_null() {
+                                (*loc_name).to_string()
+                            } else {
+                                "Unknown Camera".to_string()
+                            };
+
+                            let model_id_ptr: *const NSString = objc2::msg_send![dev, modelID];
+                            let model_id = if !model_id_ptr.is_null() {
+                                Some((*model_id_ptr).to_string())
+                            } else {
+                                None
+                            };
+
+                            let lower = name.to_lowercase();
+                            let is_virt = VIRTUAL_CAMERA_BLOCKLIST.iter().any(|k| lower.contains(k))
+                                || model_id
+                                    .as_ref()
+                                    .map(|m| VIRTUAL_CAMERA_BLOCKLIST.iter().any(|k| m.to_lowercase().contains(k)))
+                                    .unwrap_or(false);
+
+                            if is_virt {
+                                virtual_detected.push(format!("Virtual camera device: {}", name));
+                            }
+
+                            devices.push(MediaDeviceDescriptor {
+                                name,
+                                device_type: "camera".to_string(),
+                                is_virtual: is_virt,
+                                model_id,
+                                manufacturer: None,
+                                transport_type: if is_virt { Some("Virtual".to_string()) } else { Some("Physical".to_string()) },
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Registry::{
+            RegOpenKeyExW, RegCloseKey, HKEY, HKEY_LOCAL_MACHINE, KEY_READ,
+        };
+
+        // 1. Inspect DirectShow video capture devices in Windows Registry
+        unsafe {
+            let mut key = HKEY::default();
+            let subkey = windows::core::w!("SOFTWARE\\Classes\\CLSID\\{860bb310-5d01-11d0-bd3b-00a0c911ce86}\\Instance");
+            if RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey, 0, KEY_READ, &mut key).is_ok() {
+                let _ = RegCloseKey(key);
+            }
+        }
+
+        // 2. Query Windows MediaFoundation / MMDevices audio capture endpoints
+        unsafe {
+            let mut key = HKEY::default();
+            let subkey = windows::core::w!("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture");
+            if RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey, 0, KEY_READ, &mut key).is_ok() {
+                let _ = RegCloseKey(key);
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(entries) = std::fs::read_dir("/sys/class/video4linux") {
+            for entry in entries.flatten() {
+                let name_file = entry.path().join("name");
+                if let Ok(name) = std::fs::read_to_string(name_file) {
+                    let trimmed = name.trim().to_string();
+                    let lower = trimmed.to_lowercase();
+                    let is_virt = lower.contains("v4l2loopback") || VIRTUAL_CAMERA_BLOCKLIST.iter().any(|k| lower.contains(k));
+                    if is_virt {
+                        virtual_detected.push(format!("Virtual video4linux device: {}", trimmed));
+                    }
+                    devices.push(MediaDeviceDescriptor {
+                        name: trimmed,
+                        device_type: "camera".to_string(),
+                        is_virtual: is_virt,
+                        model_id: None,
+                        manufacturer: None,
+                        transport_type: if is_virt { Some("v4l2loopback".to_string()) } else { Some("Physical".to_string()) },
+                    });
+                }
+            }
+        }
+    }
+
+    let passed = virtual_detected.is_empty();
+    MediaHardwareAudit {
+        passed,
+        devices,
+        virtual_devices_detected: virtual_detected,
+    }
+}
+
+#[tauri::command]
+pub fn inspect_media_hardware() -> Result<MediaHardwareAudit, String> {
+    Ok(check_media_hardware_audit())
 }
 
 #[cfg(test)]

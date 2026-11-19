@@ -163,6 +163,9 @@ export class Assessment {
   @Column({ default: false })
   enableScreenCaptureSnapshots: boolean;
 
+  @Column({ default: false })
+  enableForensicWatermark: boolean;
+
   @Column({ type: 'jsonb', default: {} })
   resultDisplaySettings: {
     showScore?: boolean;
@@ -220,6 +223,7 @@ export class Assessment {
     allowFindOnPage?: boolean;
     allowedUrlPatterns?: string[];
     enableScreenCaptureSnapshots?: boolean;
+    enableForensicWatermark?: boolean;
   };
 
   @Column({

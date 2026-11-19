@@ -12,6 +12,7 @@ import { User } from '../database/entities/user.entity';
 import { RedisModule } from '../redis/redis.module';
 import { SubmissionShardingModule } from '../database/sharding/sharding.module';
 import { SebGuard } from './guards/seb.guard';
+import { LockdownSignatureGuard } from './lockdown-signature.guard';
 
 @Module({
   imports: [
@@ -26,7 +27,7 @@ import { SebGuard } from './guards/seb.guard';
     SubmissionShardingModule,
   ],
   controllers: [ExamSecurityController, LockdownCommandCenterController],
-  providers: [ExamSecurityService, LockdownCommandCenterService, SebGuard],
-  exports: [ExamSecurityService, LockdownCommandCenterService, SebGuard],
+  providers: [ExamSecurityService, LockdownCommandCenterService, SebGuard, LockdownSignatureGuard],
+  exports: [ExamSecurityService, LockdownCommandCenterService, SebGuard, LockdownSignatureGuard],
 })
 export class ExamSecurityModule {}

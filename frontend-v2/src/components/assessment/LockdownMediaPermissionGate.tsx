@@ -4,10 +4,64 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Camera, Mic, AlertCircle, CheckCircle2, RefreshCw, ShieldCheck } from "lucide-react";
 import {
   checkAndRequestMediaPermissions,
+  inspectMediaHardware,
   savePersistedExamSession,
   MediaPermissionStatus,
   isLockdownClient,
 } from "@/lib/lockdown-bridge";
+
+const VIRTUAL_DEVICE_KEYWORDS = [
+  'obs',
+  'virtual',
+  'manycam',
+  'camtwist',
+  'snap camera',
+  'mmhmm',
+  'epoccam',
+  'droidcam',
+  'iriun',
+  'blackhole',
+  'vb-audio',
+  'vb-cable',
+  'soundflower',
+  'loopback',
+];
+
+function isVirtualDeviceLabel(label: string): boolean {
+  const lower = (label || '').toLowerCase();
+  return VIRTUAL_DEVICE_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+async function verifyCameraLiveness(videoElement: HTMLVideoElement): Promise<boolean> {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 36;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return true;
+
+  const samples: number[] = [];
+  const sampleIntervalMs = 240; // 5 samples across 1200ms
+
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, sampleIntervalMs));
+    ctx.drawImage(videoElement, 0, 0, 64, 36);
+    const frameData = ctx.getImageData(0, 0, 64, 36).data;
+    let totalLuma = 0;
+    for (let p = 0; p < frameData.length; p += 4) {
+      const luma = 0.299 * frameData[p] + 0.587 * frameData[p + 1] + 0.114 * frameData[p + 2];
+      totalLuma += luma;
+    }
+    const avgLuma = totalLuma / (frameData.length / 4);
+    samples.push(avgLuma);
+  }
+
+  const isCompletelyBlank = samples.every((s) => s < 2 || s > 253);
+  if (isCompletelyBlank) return false;
+
+  const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+  const variance = samples.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / samples.length;
+  return variance > 0.0001;
+}
 
 interface LockdownMediaPermissionGateProps {
   assessmentId: string;
@@ -57,6 +111,22 @@ export default function LockdownMediaPermissionGate({
     stopActiveStream();
 
     try {
+      // 0. Native hardware bus & driver audit (if running in LockDown)
+      if (isLockdownClient()) {
+        try {
+          const audit = await inspectMediaHardware();
+          if (!audit.passed && audit.virtualDevicesDetected.length > 0) {
+            setStreamError(
+              `Virtual camera or audio driver detected (${audit.virtualDevicesDetected.join(', ')}). Virtual devices are strictly prohibited during the exam. Please disconnect virtual drivers and use a physical camera/mic.`,
+            );
+            setIsVerifying(false);
+            return;
+          }
+        } catch (auditErr) {
+          console.warn('[LockdownMediaPermissionGate] Media hardware audit check warning:', auditErr);
+        }
+      }
+
       // 1. Check OS-level permissions via Rust bridge
       const status = await checkAndRequestMediaPermissions(requireCamera, requireMic);
       setOsStatus(status);
@@ -88,9 +158,17 @@ export default function LockdownMediaPermissionGate({
         if (!videoTrack || videoTrack.readyState !== "live") {
           throw new Error("Camera track could not be initialized in live state.");
         }
+        if (isVirtualDeviceLabel(videoTrack.label || '')) {
+          throw new Error(`Virtual camera detected: "${videoTrack.label}". Virtual cameras and pre-recorded loops are strictly prohibited. Please switch to a physical hardware webcam.`);
+        }
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play().catch(() => {});
+          // Active liveness verification (5 frames sampled over 1.2s)
+          const isLive = await verifyCameraLiveness(videoRef.current);
+          if (!isLive) {
+            throw new Error("Camera feed is static or frozen. A live physical camera feed with active frame variance is required.");
+          }
         }
         setCameraVerified(true);
       }
@@ -100,6 +178,9 @@ export default function LockdownMediaPermissionGate({
         const audioTrack = stream.getAudioTracks()[0];
         if (!audioTrack || audioTrack.readyState !== "live") {
           throw new Error("Microphone track could not be initialized in live state.");
+        }
+        if (isVirtualDeviceLabel(audioTrack.label || '')) {
+          throw new Error(`Virtual microphone detected: "${audioTrack.label}". Virtual audio routing is strictly prohibited. Please switch to a physical hardware microphone.`);
         }
 
         try {

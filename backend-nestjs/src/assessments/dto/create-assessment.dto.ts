@@ -330,6 +330,10 @@ export class CreateAssessmentDto {
   @IsOptional()
   enableScreenCaptureSnapshots?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  enableForensicWatermark?: boolean;
+
   @IsOptional()
   @ValidateNested()
   @Type(() => AssessmentResultDisplayDto)

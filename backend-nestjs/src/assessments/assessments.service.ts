@@ -1002,6 +1002,7 @@ export class AssessmentsService {
       allowFindOnPage: dto.allowFindOnPage ?? (dto as any).securityPolicy?.allowFindOnPage ?? true,
       allowedUrlPatterns: dto.allowedUrlPatterns ?? (dto as any).securityPolicy?.allowedUrlPatterns ?? [],
       enableScreenCaptureSnapshots: dto.enableScreenCaptureSnapshots ?? (dto as any).securityPolicy?.enableScreenCaptureSnapshots ?? false,
+      enableForensicWatermark: dto.enableForensicWatermark ?? (dto as any).securityPolicy?.enableForensicWatermark ?? false,
       securityPolicy: {
         ...((dto as any).securityPolicy || {}),
         requireSEB: dto.requireLockdown ?? (dto as any).securityPolicy?.requireSEB ?? false,
@@ -1015,6 +1016,7 @@ export class AssessmentsService {
         allowFindOnPage: dto.allowFindOnPage ?? (dto as any).securityPolicy?.allowFindOnPage ?? true,
         allowedUrlPatterns: dto.allowedUrlPatterns ?? (dto as any).securityPolicy?.allowedUrlPatterns ?? [],
         enableScreenCaptureSnapshots: dto.enableScreenCaptureSnapshots ?? (dto as any).securityPolicy?.enableScreenCaptureSnapshots ?? false,
+        enableForensicWatermark: dto.enableForensicWatermark ?? (dto as any).securityPolicy?.enableForensicWatermark ?? false,
       },
       resultDisplaySettings: dto.resultDisplaySettings || {},
       allowedAttempts:
@@ -1326,6 +1328,13 @@ export class AssessmentsService {
       assessment.securityPolicy = {
         ...(assessment.securityPolicy || {}),
         enableScreenCaptureSnapshots: dto.enableScreenCaptureSnapshots,
+      };
+    }
+    if (dto.enableForensicWatermark !== undefined) {
+      assessment.enableForensicWatermark = dto.enableForensicWatermark;
+      assessment.securityPolicy = {
+        ...(assessment.securityPolicy || {}),
+        enableForensicWatermark: dto.enableForensicWatermark,
       };
     }
     if (dto.resultDisplaySettings !== undefined)
@@ -2295,6 +2304,7 @@ export class AssessmentsService {
         allowFindOnPage: assessment.allowFindOnPage ?? assessment.securityPolicy?.allowFindOnPage ?? true,
         allowedUrlPatterns: assessment.allowedUrlPatterns ?? assessment.securityPolicy?.allowedUrlPatterns ?? [],
         enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
+        enableForensicWatermark: assessment.enableForensicWatermark ?? assessment.securityPolicy?.enableForensicWatermark ?? false,
         proctoring: assessment.proctoring,
         securityPolicy: assessment.securityPolicy
           ? (({ lockdownQuitPassword, ...rest }: any) => rest)(assessment.securityPolicy)
@@ -2582,6 +2592,7 @@ export class AssessmentsService {
       allowFindOnPage: assessment.allowFindOnPage ?? assessment.securityPolicy?.allowFindOnPage ?? true,
       allowedUrlPatterns: assessment.allowedUrlPatterns ?? assessment.securityPolicy?.allowedUrlPatterns ?? [],
       enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
+      enableForensicWatermark: assessment.enableForensicWatermark ?? assessment.securityPolicy?.enableForensicWatermark ?? false,
       sections: resolvedSections,
       questions: sanitizedQuestions,
       savedResponses: attempt.responses,

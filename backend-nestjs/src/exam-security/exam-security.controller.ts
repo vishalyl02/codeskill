@@ -11,6 +11,7 @@ import {
 import { ExamSecurityService } from './exam-security.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { LockdownSignatureGuard } from './lockdown-signature.guard';
 
 @Controller('exam-security')
 @UseGuards(JwtAuthGuard)
@@ -99,6 +100,7 @@ export class ExamSecurityController {
   }
 
   @Post('telemetry-batch')
+  @UseGuards(LockdownSignatureGuard)
   @HttpCode(202)
   async ingestTelemetryBatch(
     @CurrentUser('id') userId: string,
