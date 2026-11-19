@@ -3,7 +3,7 @@ jest.mock('@nestjs/typeorm', () => ({
   InjectDataSource: () => () => {},
 }));
 
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { SubmissionsService } from './submissions.service';
 
 const problemId = '00000000-0000-4000-8000-000000000001';
@@ -135,7 +135,7 @@ describe('Practice submission identity', () => {
     );
     const history = await service.getSubmissionsByProblem(userId, problemId);
     expect(submissionRepo.find).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId, problemId } }),
+      expect.objectContaining({ where: expect.objectContaining({ userId, problemId, contestAttemptId: expect.anything() }) }),
     );
     expect(history[0]).toEqual(
       expect.objectContaining({
@@ -144,6 +144,52 @@ describe('Practice submission identity', () => {
         _id: submissionId,
       }),
     );
+  });
+
+  it('binds a contest submission and history to the authenticated active attempt', async () => {
+    const contestId = '00000000-0000-4000-8000-000000000004';
+    const attemptId = '00000000-0000-4000-8000-000000000005';
+    const attempts = { findOne: jest.fn().mockResolvedValue({ id: attemptId }) };
+    const contests = { findOne: jest.fn().mockResolvedValue({
+      id: contestId, problems: [problemId], isPublished: true,
+      startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 60_000),
+    }) };
+    const scoped = new SubmissionsService(
+      submissionRepo as never, userRepo as never, queue as never,
+      gateway as never, redis as never, problems as never, undefined,
+      { reserve: jest.fn().mockResolvedValue(submissionId), release: jest.fn() } as never,
+      attempts as never, contests as never,
+    );
+    await scoped.createSubmission(userId, { ...payload, contestId, sessionId: 'active-session' });
+    expect(stored.contestAttemptId).toBe(attemptId);
+    expect(attempts.findOne).toHaveBeenCalledWith({ where: {
+      contest_id: contestId, user_id: userId, sessionId: 'active-session', status: 'InProgress',
+    } });
+    await scoped.getSubmissionsByProblem(userId, problemId, contestId, 'active-session');
+    expect(submissionRepo.find).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId, problemId, contestAttemptId: attemptId },
+    }));
+    attempts.findOne.mockResolvedValue(null);
+    await expect(scoped.createSubmission(userId, { ...payload, contestId, sessionId: 'other-session' }))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(submissionRepo.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a question that does not belong to the current contest', async () => {
+    const attempts = { findOne: jest.fn().mockResolvedValue({ id: submissionId }) };
+    const contests = { findOne: jest.fn().mockResolvedValue({
+      problems: [], isPublished: true,
+      startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 60_000),
+    }) };
+    const scoped = new SubmissionsService(
+      submissionRepo as never, userRepo as never, queue as never,
+      gateway as never, redis as never, problems as never, undefined, undefined,
+      attempts as never, contests as never,
+    );
+    await expect(scoped.createSubmission(userId, {
+      ...payload, contestId: '00000000-0000-4000-8000-000000000004', sessionId: 'active-session',
+    })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(submissionRepo.save).not.toHaveBeenCalled();
   });
 
   it('stores the canonical ID returned by the resolver rather than a supplied alias', async () => {

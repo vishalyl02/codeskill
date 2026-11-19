@@ -30,6 +30,7 @@ import { hideEntryPoint, updateSourceFromVisibleEditor } from "@/lib/hidden-entr
 import ContestMCQWorkspace, { isContestMcq } from "@/app/contests/[id]/attempt/_components/ContestMCQWorkspace";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
+import { contestCodeDraftKey, contestNoteKey, contestStoragePrefix } from "@/lib/contest-storage";
 
 const LANGUAGES = [
   { id: "c", name: "C", ext: "main.c", defaultCode: "#include <stdio.h>\n\nint main() {\n    // Read input\n    // Write your solution here\n    return 0;\n}" },
@@ -83,9 +84,15 @@ const CONTEST_SIDEBAR_TABS = SIDEBAR_TABS.filter((t) =>
   ["description", "samples", "submissions", "notes"].includes(t.id),
 );
 
-export default function ProblemWorkspace({ params, embedded = false, contestId, onPrevious, onNext, isFirstQuestion = false, isLastQuestion = false }: { params: Promise<{ id: string }>; embedded?: boolean; contestId?: string; onPrevious?: () => void; onNext?: () => void; isFirstQuestion?: boolean; isLastQuestion?: boolean }) {
+export default function ProblemWorkspace({ params, embedded = false, contestId, contestSessionId, contestUserId, onPrevious, onNext, isFirstQuestion = false, isLastQuestion = false }: { params: Promise<{ id: string }>; embedded?: boolean; contestId?: string; contestSessionId?: string; contestUserId?: string; onPrevious?: () => void; onNext?: () => void; isFirstQuestion?: boolean; isLastQuestion?: boolean }) {
   const unwrappedParams = use(params);
   const problemId = unwrappedParams.id;
+  if (embedded && (!contestId || !contestSessionId || !contestUserId)) {
+    throw new Error("Contest workspace requires an active contest session");
+  }
+  const languageStorageKey = embedded
+    ? `${contestStoragePrefix(contestUserId!, contestId!, contestSessionId!)}_lang_${problemId}`
+    : `codeskill_lang_p_${problemId}`;
   const { theme } = useTheme();
   
   const [problem, setProblem] = useState<any>(null);
@@ -114,7 +121,7 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
   const executionRuntimes = useExecutionRuntimes();
   const [language, setLanguage] = useState<string>(() => {
     if (typeof window !== "undefined" && unwrappedParams?.id) {
-      const saved = localStorage.getItem(`codeskill_lang_p_${unwrappedParams.id}`);
+      const saved = localStorage.getItem(languageStorageKey);
       if (saved) return saved;
     }
     return "javascript";
@@ -139,6 +146,13 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
   const [editorInst, setEditorInst] = useState<any>(null);
   const [vimInst, setVimInst] = useState<any>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const scopedProblemId = problem?._id || problem?.id || problemId;
+  const draftStorageKey = embedded
+    ? contestCodeDraftKey(contestUserId!, contestId!, contestSessionId!, scopedProblemId, language)
+    : `codeskill_draft_${problem?.slug || problemId}_${language}`;
+  const noteStorageKey = embedded
+    ? contestNoteKey(contestUserId!, contestId!, contestSessionId!, scopedProblemId)
+    : `codeskill_note_${problem?.slug || problemId}`;
 
   // Execution State
   const [activeBottomTab, setActiveBottomTab] = useState("testcases");
@@ -189,8 +203,7 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
   // Draft Restoration
   useEffect(() => {
     if (!problem) return;
-    const storageKey = `codeskill_draft_${problem.slug}_${language}`;
-    const savedDraft = localStorage.getItem(storageKey);
+    const savedDraft = localStorage.getItem(draftStorageKey);
     if (savedDraft) {
       codeRef.current = savedDraft;
       setCode(savedDraft);
@@ -201,22 +214,21 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
       codeRef.current = defaultCode;
       setCode(defaultCode);
     }
-  }, [problem, language]);
+  }, [problem, language, draftStorageKey]);
 
   // Load notes from localStorage
   useEffect(() => {
     if (!problem) return;
-    const savedNote = localStorage.getItem(`codeskill_note_${problem.slug}`);
-    if (savedNote) setNoteContent(savedNote);
-  }, [problem]);
+    setNoteContent(localStorage.getItem(noteStorageKey) || "");
+  }, [problem, noteStorageKey]);
 
   // Preserve the latest draft when switching between contest problems before the debounce fires.
   useEffect(() => {
     if (!embedded || !problem) return;
     return () => {
-      try { localStorage.setItem(`codeskill_draft_${problem.slug}_${language}`, codeRef.current || code); } catch { /* Storage may be unavailable. */ }
+      try { localStorage.setItem(draftStorageKey, codeRef.current || code); } catch { /* Storage may be unavailable. */ }
     };
-  }, [embedded, problem, language, code]);
+  }, [embedded, problem, draftStorageKey, code]);
 
   // Synchronously persist latest draft if tab is closed or reloaded mid-keystroke
   useEffect(() => {
@@ -225,24 +237,23 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
       const activeCode = codeRef.current || code;
       if (activeCode) {
         try {
-          localStorage.setItem(`codeskill_draft_${problem.slug}_${language}`, activeCode);
+          localStorage.setItem(draftStorageKey, activeCode);
         } catch { /* storage full / disabled */ }
       }
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [problem, language, code]);
+  }, [problem, draftStorageKey, code]);
 
   // Autosave
   useEffect(() => {
     if (!problem || !code) return;
     const timeout = setTimeout(() => {
-      const storageKey = `codeskill_draft_${problem.slug}_${language}`;
-      localStorage.setItem(storageKey, code);
+      localStorage.setItem(draftStorageKey, code);
       setLastSaved(new Date());
     }, 1500);
     return () => clearTimeout(timeout);
-  }, [code, language, problem]);
+  }, [code, draftStorageKey, problem]);
 
   // Vim Mode Setup
   useEffect(() => {
@@ -264,12 +275,12 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
   useEffect(() => {
     if (activeSidebarTab === "submissions" && problem?._id) {
       setSubmissionsLoading(true);
-      submissionAPI.getSubmissions(problem._id)
+      submissionAPI.getSubmissions(problem._id, embedded ? { contestId: contestId!, sessionId: contestSessionId! } : undefined)
         .then(res => setSubmissions(res.data?.data || []))
         .catch(() => setSubmissions([]))
         .finally(() => setSubmissionsLoading(false));
     }
-  }, [activeSidebarTab, problem]);
+  }, [activeSidebarTab, problem, embedded, contestId, contestSessionId]);
 
   // Fetch discussions when that tab is activated
   useEffect(() => {
@@ -513,6 +524,7 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
         code: codeRef.current || code,
         category: problem.categories?.[0] || "General",
         difficulty: problem.difficulty,
+        ...(embedded ? { contestId, sessionId: contestSessionId } : {}),
       });
 
       const submissionId =
@@ -582,12 +594,12 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
     } finally {
       setIsSubmitting(false);
     }
-  }, [code, language, problem, executeCode]);
+  }, [code, language, problem, executeCode, embedded, contestId, contestSessionId]);
 
   const handleSaveNote = () => {
     if (!problem) return;
     setNoteSaving(true);
-    localStorage.setItem(`codeskill_note_${problem.slug}`, noteContent);
+    localStorage.setItem(noteStorageKey, noteContent);
     setTimeout(() => setNoteSaving(false), 500);
   };
 
@@ -597,7 +609,7 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
     const defaultCode = starterCode || LANGUAGES.find(l => l.id === language)?.defaultCode || "";
     codeRef.current = defaultCode;
     setCode(defaultCode);
-    localStorage.removeItem(`codeskill_draft_${problem.slug}_${language}`);
+    localStorage.removeItem(draftStorageKey);
   };
 
   const handleCopyCode = async () => {
@@ -664,6 +676,9 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
           codeSnippet: problem.codeSnippet,
         }}
         embedded={embedded}
+        contestId={contestId}
+        sessionId={contestSessionId}
+        userId={contestUserId}
       />
     );
   }
@@ -773,7 +788,7 @@ export default function ProblemWorkspace({ params, embedded = false, contestId, 
                       onClick={() => {
                         setLanguage(lang.id);
                         try {
-                          if (unwrappedParams?.id) localStorage.setItem(`codeskill_lang_p_${unwrappedParams.id}`, lang.id);
+                          if (unwrappedParams?.id) localStorage.setItem(languageStorageKey, lang.id);
                         } catch {
                           // Preference persistence must never block the language switch.
                         }

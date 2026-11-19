@@ -205,10 +205,11 @@ function ContestSession({ id }: { id: string }) {
                 problem={problem}
                 contestId={id}
                 sessionId={context.sessionId}
+                userId={user.id || user._id || ""}
                 embedded
               />
             ) : (
-              <ProblemWorkspace key={problem.id} params={workspaceParams} contestId={id} embedded onPrevious={() => setSelected(index => Math.max(0, index - 1))} onNext={() => setSelected(index => Math.min(context.problems.length - 1, index + 1))} isFirstQuestion={selected === 0} isLastQuestion={selected === context.problems.length - 1} />
+              <ProblemWorkspace key={problem.id} params={workspaceParams} contestId={id} contestSessionId={context.sessionId} contestUserId={user.id || user._id || ""} embedded onPrevious={() => setSelected(index => Math.max(0, index - 1))} onNext={() => setSelected(index => Math.min(context.problems.length - 1, index + 1))} isFirstQuestion={selected === 0} isLastQuestion={selected === context.problems.length - 1} />
             )}
           </Suspense>
         </div>

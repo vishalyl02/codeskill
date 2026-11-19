@@ -4,6 +4,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import Page from "@/app/contests/[id]/attempt/page";
 import api from "@/config/api";
 import { useAntiCheatMaster } from "@/hooks/anti-cheat/useAntiCheatMaster";
+import ContestMCQWorkspace from "@/app/contests/[id]/attempt/_components/ContestMCQWorkspace";
+import { contestMcqDraftKey, contestCodeDraftKey } from "@/lib/contest-storage";
 const replace = jest.fn(); const router = { replace };
 const mockAuth = { user: { id: "student-id", name: "Real Candidate", username: "candidate" }, loading: false };
 jest.mock("next/navigation", () => ({ useParams: () => ({ id: "contest-id" }), useRouter: () => router }));
@@ -157,9 +159,37 @@ it("renders MCQ workspace with options instead of code editor in mixed contest",
         problemId: "mcq-1",
         selectedAnswer: 3,
         language: "text",
+        contestId: "contest-id",
+        sessionId: "server-session",
       }),
     );
   });
 
   expect(await screen.findByText(/Accepted! Your answer has been verified/i)).toBeInTheDocument();
+});
+
+it("keeps the same question's draft and solved state separate across contests", async () => {
+  localStorage.clear();
+  const problem = {
+    id: "shared-question", title: "Shared MCQ", slug: "",
+    questionType: "single_choice", options: ["First", "Second"], question: "Choose one",
+  };
+  expect(contestCodeDraftKey("student-id", "contest-a", "session-a", "shared-question", "javascript"))
+    .not.toBe(contestCodeDraftKey("student-id", "contest-b", "session-b", "shared-question", "javascript"));
+  get.mockImplementation(async (_url, config) => ({ data: {
+    data: config?.params?.contestId === "contest-a" ? [{ status: "accepted" }] : [],
+  } }));
+  const first = render(<ContestMCQWorkspace problem={problem} contestId="contest-a" sessionId="session-a" userId="student-id" />);
+  fireEvent.click(screen.getByRole("button", { name: /First/ }));
+  expect(screen.getByRole("button", { name: /Submit Answer/ })).toBeEnabled();
+  expect(localStorage.getItem(contestMcqDraftKey("student-id", "contest-a", "session-a", problem.id))).toContain("selectedAnswer");
+  await screen.findByText("Solved (Accepted)");
+  first.unmount();
+  render(<ContestMCQWorkspace problem={problem} contestId="contest-b" sessionId="session-b" userId="student-id" />);
+  expect(screen.getByRole("button", { name: /Submit Answer/ })).toBeDisabled();
+  expect(screen.queryByText("Solved (Accepted)")).toBeNull();
+  await waitFor(() => expect(get).toHaveBeenCalledWith(
+    "/submissions/problem/shared-question", { params: { contestId: "contest-b", sessionId: "session-b" } },
+  ));
+  localStorage.clear();
 });
