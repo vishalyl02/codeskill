@@ -241,10 +241,21 @@ describe('ContestsService - Results & Editorials', () => {
       metadataRepo as any,
     );
 
-    return { service, contestRepo, attemptRepo, problemsService, metadataRepo };
+    return { service, contestRepo, attemptRepo, problemsService, metadataRepo, attempts };
   }
 
   describe('getResults', () => {
+    it('retains the saved aggregate for a completed pre-migration attempt', async () => {
+      const { service, attemptRepo, attempts } = setupService();
+      (attempts[0] as any).problemsSolved = 2;
+      (attempts[0] as any).score = 200;
+      attemptRepo.query.mockResolvedValue([]);
+      const result = await service.getResults(contestId, {});
+      expect(result.standings[0]).toEqual(expect.objectContaining({
+        userId: userAliceId, problemsSolved: 2, totalScore: 200,
+        legacyResultsIncomplete: true,
+      }));
+    });
     it('throws NotFoundException if contest does not exist', async () => {
       const { service } = setupService();
       await expect(service.getResults('non-existent-contest', {})).rejects.toThrow(
