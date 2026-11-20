@@ -55,6 +55,7 @@
     "allow-list-blocking-apps",
     "allow-kill-blocking-app",
     "allow-kill-all-blocking-apps",
-    "allow-run-full-system-diagnostic"
+    "allow-run-full-system-diagnostic",
+    "allow-set-client-accommodations"
   ]
 }

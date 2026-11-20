@@ -17,9 +17,11 @@ import {
   Trash2,
   RefreshCw,
   Edit3,
-  GraduationCap
+  GraduationCap,
+  Sparkles
 } from "lucide-react";
-import { adminAssessmentsAPI } from "@/config/api";
+import api, { adminAssessmentsAPI } from "@/config/api";
+import toast from "react-hot-toast";
 
 export default function AdminAssessmentsPage() {
   const [assessments, setAssessments] = useState<any[]>([]);
@@ -48,6 +50,24 @@ export default function AdminAssessmentsPage() {
     navigator.clipboard.writeText(url);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const [creatingMockId, setCreatingMockId] = useState<string | null>(null);
+
+  const handleCreatePracticeMock = async (id: string) => {
+    setCreatingMockId(id);
+    try {
+      const res = await api.post(`/assessments/${id}/create-practice-mock`);
+      const mock = res.data?.data || res.data;
+      const mockUrl = `${window.location.origin}/assessments/${mock.id}`;
+      navigator.clipboard.writeText(mockUrl);
+      toast.success(`5-Min Practice Mock created! Link copied: ${mock.code}`);
+      fetchAssessments();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to create practice mock");
+    } finally {
+      setCreatingMockId(null);
+    }
   };
 
   const handleToggleStatus = async (id: string, currentStatus: string) => {
@@ -289,7 +309,7 @@ export default function AdminAssessmentsPage() {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => handleCopyLink(test.code, test._id)}
-                      className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                       title="Copy Candidate Link"
                     >
                       {copiedId === test._id ? (
@@ -297,6 +317,15 @@ export default function AdminAssessmentsPage() {
                       ) : (
                         <Copy className="w-3.5 h-3.5" />
                       )}
+                    </button>
+
+                    <button
+                      onClick={() => handleCreatePracticeMock(test._id)}
+                      disabled={creatingMockId === test._id}
+                      className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-sky-400 transition-colors cursor-pointer"
+                      title="Create 5-Minute Practice Mock"
+                    >
+                      <Sparkles className={`w-3.5 h-3.5 ${creatingMockId === test._id ? "animate-spin text-sky-400" : ""}`} />
                     </button>
 
                     <Link

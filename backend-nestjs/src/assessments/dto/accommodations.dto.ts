@@ -10,6 +10,12 @@ export class UpsertAccommodationDto {
   @Max(5.0)
   timeMultiplier?: number;
 
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  @Max(240)
+  extraMinutesFlat?: number;
+
   @IsBoolean()
   @IsOptional()
   secondaryDisplayAllowed?: boolean;

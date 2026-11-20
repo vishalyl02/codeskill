@@ -4,15 +4,18 @@ import {
   ForbiddenException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import * as crypto from 'crypto';
 import { Assessment } from '../database/entities/assessment.entity';
 import { ExamSession } from '../database/entities/exam-session.entity';
 import { ExamSecurityEvent } from '../database/entities/exam-security-event.entity';
 import { AssessmentAttempt } from '../database/entities/assessment-attempt.entity';
 import { User } from '../database/entities/user.entity';
+import { Question } from '../database/entities/question.entity';
+import { CandidateExamAccommodation } from '../database/entities/candidate-exam-accommodation.entity';
 import { SubmissionStore } from '../database/sharding/submission-store';
 import { RedisService } from '../redis/redis.service';
 
@@ -51,6 +54,12 @@ export class LockdownCommandCenterService {
     private readonly attemptRepo: Repository<AssessmentAttempt>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @Optional()
+    @InjectRepository(CandidateExamAccommodation)
+    private readonly accommodationRepo: Repository<CandidateExamAccommodation> | undefined,
+    @Optional()
+    @InjectRepository(Question)
+    private readonly questionRepo: Repository<Question> | undefined,
     private readonly submissionStore: SubmissionStore,
     private readonly redisService: RedisService,
   ) {}
@@ -911,5 +920,308 @@ export class LockdownCommandCenterService {
     }
     const union = setA.size + setB.size - intersection;
     return union > 0 ? (intersection / union) * 100 : 0;
+  }
+
+  /**
+   * 8. GET /api/exam-security/assessments/:assessmentId/candidates/:candidateId/integrity-digest
+   * Returns composite risk score, status, plain-English findings, candidate accommodations,
+   * grade hold state, and code snapshots loaded strictly via SubmissionStore.
+   */
+  async getCandidateIntegrityDigest(assessmentId: string, candidateId: string) {
+    const assessment = await this.assessmentRepo.findOne({
+      where: [{ id: assessmentId }, { mongoId: assessmentId }],
+      relations: { questions: true },
+    });
+    if (!assessment) {
+      throw new NotFoundException(`Assessment ${assessmentId} not found`);
+    }
+
+    const [events, session, attempt, accommodation] = await Promise.all([
+      this.eventRepo.find({
+        where: [{ assessmentId: assessment.id, candidateId }],
+        order: { createdAt: 'ASC' },
+      }),
+      this.sessionRepo.findOne({
+        where: [{ assessmentId: assessment.id, candidateId }],
+      }),
+      this.attemptRepo.findOne({
+        where: [{ assessmentId: assessment.id, studentId: candidateId }],
+        relations: { student: true },
+      }),
+      this.accommodationRepo
+        ? this.accommodationRepo.findOne({
+            where: { assessment_id: assessment.id, user_id: candidateId },
+          })
+        : null,
+    ]);
+
+    // Compute plain-English findings and risk score
+    let riskScore = 0;
+    const plainEnglishFindings: string[] = [];
+
+    const attestedEvent = events.find((ev) => ev.eventType === 'CLIENT_ATTESTED');
+    const attestationTier = (attestedEvent?.metadata?.attestationTier as string) || 'software_binary_bound';
+    if (attestationTier === 'hardware_tpm_enclave') {
+      plainEnglishFindings.push('Cryptographic hardware enclave (TPM / Apple Secure Enclave) confirmed active.');
+    } else {
+      plainEnglishFindings.push('Software-bound binary attestation verified (non-hardware TPM).');
+    }
+
+    let tabSwitchCount = 0;
+    let secondaryDisplayCount = 0;
+    let unauthorizedAppCount = 0;
+    let mitmProxyCount = 0;
+    let vmDetected = false;
+
+    for (const ev of events) {
+      if (ev.eventType === 'TAB_SWITCH' || ev.eventType === 'FOCUS_LOST') {
+        tabSwitchCount++;
+      } else if (ev.eventType === 'SECONDARY_DISPLAY_CONNECTED') {
+        secondaryDisplayCount++;
+      } else if (ev.eventType === 'FORBIDDEN_PROCESS_DETECTED' || ev.eventType === 'BACKGROUND_APP_LAUNCHED') {
+        unauthorizedAppCount++;
+      } else if (ev.eventType === 'MITM_PROXY_DETECTED') {
+        mitmProxyCount++;
+      } else if (ev.eventType === 'VM_DETECTED') {
+        vmDetected = true;
+      }
+    }
+
+    if (tabSwitchCount > 0) {
+      riskScore += Math.min(30, tabSwitchCount * 10);
+      plainEnglishFindings.push(`Detected ${tabSwitchCount} tab-switching or window focus loss event(s).`);
+    }
+    if (secondaryDisplayCount > 0) {
+      if (accommodation?.secondary_display_allowed) {
+        plainEnglishFindings.push(`Secondary display connected (Waived under approved accessibility accommodation).`);
+      } else {
+        riskScore += 25;
+        plainEnglishFindings.push(`Detected unauthorized secondary monitor connection (${secondaryDisplayCount} time(s)).`);
+      }
+    }
+    if (unauthorizedAppCount > 0) {
+      riskScore += Math.min(35, unauthorizedAppCount * 15);
+      plainEnglishFindings.push(`Detected ${unauthorizedAppCount} attempt(s) to run prohibited background processes.`);
+    }
+    if (mitmProxyCount > 0) {
+      riskScore += 35;
+      plainEnglishFindings.push('System HTTP/SOCKS network proxy detected during active exam session.');
+    }
+    if (vmDetected) {
+      riskScore += 40;
+      plainEnglishFindings.push('Virtual machine or hypervisor environment identified.');
+    }
+
+    if (plainEnglishFindings.length <= 1 && attestationTier === 'hardware_tpm_enclave') {
+      plainEnglishFindings.push('No suspicious environmental, network, or keyboard anomalies detected.');
+    }
+
+    const compositeRiskScore = Math.min(100, riskScore);
+    const integrityStatus =
+      compositeRiskScore >= 60 ? 'HIGH_RISK' : compositeRiskScore >= 25 ? 'SUSPICIOUS' : 'CLEAN';
+
+    // Strict Submission Sharding Invariant: Read submissions via SubmissionStore using userId
+    const submissions = await this.submissionStore.find({
+      where: { assessmentId: assessment.id, userId: candidateId } as any,
+      order: { createdAt: 'ASC' } as any,
+    });
+
+    const codeSnapshots = submissions.map((sub) => ({
+      submissionId: sub.id,
+      problemId: sub.problemId,
+      language: sub.language,
+      code: sub.code,
+      status: sub.status,
+      testsPassed: sub.testsPassed,
+      totalTests: sub.totalTests,
+      createdAt: sub.createdAt,
+    }));
+
+    return {
+      success: true,
+      assessmentId: assessment.id,
+      candidateId,
+      candidateName: attempt?.student?.name || 'Anonymous Candidate',
+      candidateEmail: attempt?.student?.email || '',
+      attemptId: attempt?.id || null,
+      compositeRiskScore,
+      integrityStatus,
+      gradeHeld: Boolean(attempt?.gradeHeld),
+      gradeHoldReason: attempt?.gradeHoldReason || '',
+      plainEnglishFindings,
+      codeSnapshots,
+      accommodation: accommodation
+        ? {
+            timeMultiplier: accommodation.time_multiplier,
+            extraMinutesFlat: accommodation.extra_minutes_flat,
+            configuredByRole: accommodation.configured_by_role,
+            secondaryDisplayAllowed: accommodation.secondary_display_allowed,
+            screenReaderAllowed: accommodation.screen_reader_allowed,
+          }
+        : null,
+      totalViolations: events.length,
+      startedAt: attempt?.startedAt || session?.startedAt || null,
+    };
+  }
+
+  /**
+   * 9. POST /api/exam-security/assessments/:assessmentId/candidates/:candidateId/integrity-decision
+   * Applies instructor or admin grade hold decision on candidate's attempt.
+   */
+  async setCandidateIntegrityDecision(
+    assessmentId: string,
+    candidateId: string,
+    decision: 'HOLD_GRADE' | 'CLEAR_HOLD',
+    reason?: string,
+    adminUserId?: string,
+  ) {
+    const assessment = await this.assessmentRepo.findOne({
+      where: [{ id: assessmentId }, { mongoId: assessmentId }],
+    });
+    if (!assessment) {
+      throw new NotFoundException(`Assessment ${assessmentId} not found`);
+    }
+
+    const attempt = await this.attemptRepo.findOne({
+      where: [{ assessmentId: assessment.id, studentId: candidateId }],
+    });
+    if (!attempt) {
+      throw new NotFoundException(`Candidate attempt not found for assessment ${assessmentId}`);
+    }
+
+    const session = await this.sessionRepo.findOne({
+      where: [{ assessmentId: assessment.id, candidateId }],
+    });
+
+    const isHold = decision === 'HOLD_GRADE';
+    attempt.gradeHeld = isHold;
+    attempt.gradeHoldReason = isHold
+      ? reason || 'Held by instructor for exam integrity review'
+      : '';
+
+    await this.attemptRepo.save(attempt);
+
+    // Audit log
+    const auditEvent = this.eventRepo.create({
+      assessmentId: assessment.id,
+      candidateId,
+      sessionId: session?.id || assessment.id,
+      eventType: isHold ? 'GRADE_HOLD_PLACED' : 'GRADE_HOLD_CLEARED',
+      severity: isHold ? 'HIGH' : 'LOW',
+      metadata: {
+        reason: attempt.gradeHoldReason,
+        configuredBy: adminUserId,
+      },
+    });
+    await this.eventRepo.save(auditEvent);
+
+    return {
+      success: true,
+      candidateId,
+      attemptId: attempt.id,
+      gradeHeld: attempt.gradeHeld,
+      gradeHoldReason: attempt.gradeHoldReason,
+    };
+  }
+
+  /**
+   * 10. GET /api/exam-security/assessments/:assessmentId/question-friction-analytics
+   * Aggregates per-question average solve time, error rates, and difficulty category.
+   */
+  async getQuestionFrictionAnalytics(assessmentId: string) {
+    const assessment = await this.assessmentRepo.findOne({
+      where: [{ id: assessmentId }, { mongoId: assessmentId }],
+    });
+    if (!assessment) {
+      throw new NotFoundException(`Assessment ${assessmentId} not found`);
+    }
+
+    const attempts = await this.attemptRepo.find({
+      where: [{ assessmentId: assessment.id }],
+    });
+
+    // Extract all question IDs from assessment.questions and assessment.sections
+    const qIdSet = new Set<string>();
+    if (Array.isArray(assessment.questions)) {
+      assessment.questions.forEach((id) => qIdSet.add(String(id)));
+    }
+    if (Array.isArray(assessment.sections)) {
+      assessment.sections.forEach((sec) => {
+        (sec.questions || []).forEach((q) => qIdSet.add(String(q.questionId)));
+      });
+    }
+
+    const questionIds = Array.from(qIdSet);
+    const questionEntities =
+      this.questionRepo && questionIds.length > 0
+        ? await this.questionRepo.findBy({ id: In(questionIds) as any })
+        : [];
+    const questionMap = new Map(questionEntities.map((q) => [String(q.id), q]));
+
+    const questionStats = new Map<
+      string,
+      { totalTimeSeconds: number; attemptsCount: number; totalScorePct: number }
+    >();
+
+    for (const qId of questionIds) {
+      questionStats.set(qId, { totalTimeSeconds: 0, attemptsCount: 0, totalScorePct: 0 });
+    }
+
+    for (const att of attempts) {
+      const responses = (att.responses as any[]) || [];
+      for (const r of responses) {
+        const qId = String(r.questionId);
+        if (!questionStats.has(qId)) {
+          questionStats.set(qId, { totalTimeSeconds: 0, attemptsCount: 0, totalScorePct: 0 });
+        }
+        const stats = questionStats.get(qId)!;
+        stats.attemptsCount++;
+        stats.totalTimeSeconds += Number(r.timeSpentSeconds) || 0;
+        const maxMarks = Number(r.maxMarks) || 10;
+        const awarded = Number(r.marksAwarded) || (r.isCorrect ? maxMarks : 0);
+        stats.totalScorePct += maxMarks > 0 ? (awarded / maxMarks) * 100 : 0;
+      }
+    }
+
+    const frictionList = Array.from(questionStats.keys()).map((qId) => {
+      const qEntity = questionMap.get(qId);
+      const stats = questionStats.get(qId)!;
+      const attemptsCount = stats.attemptsCount;
+      const averageTimeSpentSeconds =
+        attemptsCount > 0 ? Math.round(stats.totalTimeSeconds / attemptsCount) : 0;
+      const averageScorePct =
+        attemptsCount > 0 ? Math.round(stats.totalScorePct / attemptsCount) : 0;
+
+      // Friction score: high time + low score = high friction (0 - 100)
+      const scoreInversion = 100 - averageScorePct;
+      const timeFactor = Math.min(100, Math.round((averageTimeSpentSeconds / 300) * 100));
+      const frictionScore = Math.round(scoreInversion * 0.6 + timeFactor * 0.4);
+
+      let difficultyCategory: 'LOW_FRICTION' | 'MODERATE' | 'HIGH_FRICTION' =
+        'LOW_FRICTION';
+      if (frictionScore >= 65) difficultyCategory = 'HIGH_FRICTION';
+      else if (frictionScore >= 35) difficultyCategory = 'MODERATE';
+
+      return {
+        questionId: qId,
+        title:
+          qEntity?.question?.slice(0, 50) ||
+          qEntity?.topic ||
+          `Question ${qId.slice(0, 8)}`,
+        type: qEntity?.questionType || 'coding',
+        marks: qEntity?.marks || 10,
+        attemptsCount,
+        averageTimeSpentSeconds,
+        averageScorePercentage: averageScorePct,
+        frictionScore,
+        difficultyCategory,
+      };
+    });
+
+    return {
+      success: true,
+      assessmentId: assessment.id,
+      questions: frictionList,
+    };
   }
 }

@@ -21,6 +21,7 @@ window.__TAURI_ISOLATION_HOOK__ = function (payload) {
       'run_runtime_integrity_check',
       'inspect_media_hardware',
       'set_locked_assessment',
+      'set_client_accommodations',
       'run_preflight_checks',
       'list_non_essential_apps',
       'close_non_essential_apps',

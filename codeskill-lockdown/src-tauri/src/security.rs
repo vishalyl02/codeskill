@@ -876,10 +876,19 @@ pub fn run_preflight_checks(window: tauri::Window) -> PreflightResult {
         Err(_) => 1,
     };
     if monitor_count > 1 {
-        violations.push(format!(
-            "Multiple monitors detected ({} displays connected). Only 1 monitor is permitted during the exam.",
-            monitor_count
-        ));
+        let state = window.state::<crate::attestation::AttestationState>();
+        if state.allow_secondary_display.load(std::sync::atomic::Ordering::Relaxed) {
+            log_diagnostic_entry(
+                "INFO",
+                "ACCOMMODATED_SECONDARY_DISPLAY_ACTIVE",
+                &format!("Candidate has approved accommodation for secondary display ({} monitors active).", monitor_count),
+            );
+        } else {
+            violations.push(format!(
+                "Multiple monitors detected ({} displays connected). Only 1 monitor is permitted during the exam.",
+                monitor_count
+            ));
+        }
     }
 
     // 1.1 Proxy / MITM inspection
@@ -981,29 +990,38 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
             if let Some(window) = app_handle.get_webview_window("exam-kiosk") {
                 if let Ok(monitors) = window.available_monitors() {
                     if monitors.len() > 1 {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
+                        let state = app_handle.state::<crate::attestation::AttestationState>();
+                        if state.allow_secondary_display.load(std::sync::atomic::Ordering::Relaxed) {
+                            log_diagnostic_entry(
+                                "INFO",
+                                "ACCOMMODATED_SECONDARY_DISPLAY_ACTIVE",
+                                &format!("Candidate has approved accommodation for secondary display ({} monitors active).", monitors.len()),
+                            );
+                        } else {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
 
-                        log_diagnostic_entry(
-                            "WARN",
-                            "SECONDARY_DISPLAY_CONNECTED",
-                            &format!("Secondary display connected mid-exam: {} monitors active.", monitors.len()),
-                        );
+                            log_diagnostic_entry(
+                                "WARN",
+                                "SECONDARY_DISPLAY_CONNECTED",
+                                &format!("Secondary display connected mid-exam: {} monitors active.", monitors.len()),
+                            );
 
-                        let _ = app_handle.emit(
-                            "exam:environment-violation",
-                            EnvironmentViolationEvent {
-                                violation_type: "SECONDARY_DISPLAY_CONNECTED".to_string(),
-                                message: format!(
-                                    "Secondary display connected mid-exam: {} monitors active.",
-                                    monitors.len()
-                                ),
-                                timestamp: now,
-                            },
-                        );
-                        crate::kiosk_os::spawn_secondary_monitor_shields(&app_handle);
+                            let _ = app_handle.emit(
+                                "exam:environment-violation",
+                                EnvironmentViolationEvent {
+                                    violation_type: "SECONDARY_DISPLAY_CONNECTED".to_string(),
+                                    message: format!(
+                                        "Secondary display connected mid-exam: {} monitors active.",
+                                        monitors.len()
+                                    ),
+                                    timestamp: now,
+                                },
+                            );
+                            crate::kiosk_os::spawn_secondary_monitor_shields(&app_handle);
+                        }
                     } else {
                         crate::kiosk_os::close_secondary_monitor_shields(&app_handle);
                     }

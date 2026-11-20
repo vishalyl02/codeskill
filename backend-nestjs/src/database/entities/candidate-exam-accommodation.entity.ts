@@ -36,6 +36,9 @@ export class CandidateExamAccommodation {
   @Column({ type: 'float', default: 1.0 })
   time_multiplier: number;
 
+  @Column({ type: 'float', default: 0 })
+  extra_minutes_flat: number;
+
   @Column({ type: 'boolean', default: false })
   secondary_display_allowed: boolean;
 
@@ -47,6 +50,9 @@ export class CandidateExamAccommodation {
 
   @Column({ type: 'uuid', nullable: true })
   granted_by?: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  configured_by_role?: string;
 
   @CreateDateColumn()
   created_at: Date;

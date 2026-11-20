@@ -32,6 +32,7 @@ import {
   closeNonEssentialApps,
   getLockdownDiagnosticLogs,
   setLockedAssessment,
+  setClientAccommodations,
   signExamRequest,
   runRuntimeIntegrityCheck,
   inspectMediaHardware,
@@ -615,6 +616,16 @@ describe('LockDown Desktop Bridge (frontend-v2)', () => {
         assessmentId: 'exam-uuid',
         allowedUrls: ['docs.python.org'],
       });
+    });
+
+    it('setClientAccommodations invokes set_client_accommodations with boolean flags', async () => {
+      mockInvoke.mockResolvedValue(true);
+      const res = await setClientAccommodations(true, false);
+      expect(mockInvoke).toHaveBeenCalledWith('set_client_accommodations', {
+        allowSecondaryDisplay: true,
+        allowAccessibilitySpeech: false,
+      });
+      expect(res).toBe(true);
     });
 
     it('getAttestationInfo invokes get_attestation_info and returns attestation tier and binary hash', async () => {

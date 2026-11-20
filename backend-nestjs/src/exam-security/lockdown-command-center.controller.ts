@@ -147,4 +147,41 @@ export class LockdownCommandCenterController {
       adminUserId,
     );
   }
+
+  @Get('candidates/:candidateId/integrity-digest')
+  async getCandidateIntegrityDigest(
+    @Param('assessmentId') assessmentId: string,
+    @Param('candidateId') candidateId: string,
+  ) {
+    return this.commandCenterService.getCandidateIntegrityDigest(
+      assessmentId,
+      candidateId,
+    );
+  }
+
+  @Post('candidates/:candidateId/integrity-decision')
+  @HttpCode(200)
+  async setCandidateIntegrityDecision(
+    @Param('assessmentId') assessmentId: string,
+    @Param('candidateId') candidateId: string,
+    @CurrentUser('id') adminUserId: string,
+    @Body() body: { decision: 'HOLD_GRADE' | 'CLEAR_HOLD'; reason?: string },
+  ) {
+    return this.commandCenterService.setCandidateIntegrityDecision(
+      assessmentId,
+      candidateId,
+      body.decision,
+      body.reason,
+      adminUserId,
+    );
+  }
+
+  @Get('question-friction-analytics')
+  async getQuestionFrictionAnalytics(
+    @Param('assessmentId') assessmentId: string,
+  ) {
+    return this.commandCenterService.getQuestionFrictionAnalytics(
+      assessmentId,
+    );
+  }
 }

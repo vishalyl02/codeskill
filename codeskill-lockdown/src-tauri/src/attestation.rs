@@ -20,6 +20,8 @@ pub struct AttestationState {
     pub kiosk_active: std::sync::atomic::AtomicBool,
     pub client_binary_hash: Mutex<String>,
     pub session_hmac_key: Mutex<Option<[u8; 32]>>,
+    pub allow_secondary_display: std::sync::atomic::AtomicBool,
+    pub allow_accessibility_speech: std::sync::atomic::AtomicBool,
 }
 
 impl AttestationState {
@@ -84,6 +86,8 @@ impl AttestationState {
             kiosk_active: std::sync::atomic::AtomicBool::new(false),
             client_binary_hash: Mutex::new(binary_hash),
             session_hmac_key: Mutex::new(Some(initial_hmac_key)),
+            allow_secondary_display: std::sync::atomic::AtomicBool::new(false),
+            allow_accessibility_speech: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -393,6 +397,25 @@ pub fn sign_exam_request(
     })
 }
 
+#[tauri::command]
+pub fn set_client_accommodations(
+    allow_secondary_display: bool,
+    allow_accessibility_speech: bool,
+    state: tauri::State<'_, AttestationState>,
+) -> Result<bool, String> {
+    state.allow_secondary_display.store(allow_secondary_display, Ordering::Relaxed);
+    state.allow_accessibility_speech.store(allow_accessibility_speech, Ordering::Relaxed);
+    crate::security::log_diagnostic_entry(
+        "INFO",
+        "ACCOMMODATIONS_CONFIGURED",
+        &format!(
+            "Candidate accommodations configured: allow_secondary_display={}, allow_accessibility_speech={}",
+            allow_secondary_display, allow_accessibility_speech
+        ),
+    );
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,5 +470,18 @@ mod tests {
 
         assert!(!expected_sig.is_empty());
         assert_eq!(expected_sig.len(), 64);
+    }
+
+    #[test]
+    fn test_client_accommodations_state() {
+        let state = AttestationState::new();
+        assert!(!state.allow_secondary_display.load(Ordering::Relaxed));
+        assert!(!state.allow_accessibility_speech.load(Ordering::Relaxed));
+
+        state.allow_secondary_display.store(true, Ordering::Relaxed);
+        state.allow_accessibility_speech.store(true, Ordering::Relaxed);
+
+        assert!(state.allow_secondary_display.load(Ordering::Relaxed));
+        assert!(state.allow_accessibility_speech.load(Ordering::Relaxed));
     }
 }

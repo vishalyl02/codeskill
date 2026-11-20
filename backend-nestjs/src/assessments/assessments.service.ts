@@ -136,8 +136,13 @@ export class AssessmentsService {
     const extraMinutes =
       Number((attempt as any)?.extraTimeMinutes) ||
       Number(attempt?.extraTimeGrantedMinutes) ||
+      Number((attempt as any)?.extraMinutesFlat) ||
+      Number((attempt as any)?.accommodation?.extra_minutes_flat) ||
       0;
-    const timeMultiplier = Number((attempt as any)?.timeMultiplier) || 1.0;
+    const timeMultiplier =
+      Number((attempt as any)?.timeMultiplier) ||
+      Number((attempt as any)?.accommodation?.time_multiplier) ||
+      1.0;
     const baseDuration =
       Number(assessment.durationMinutes) > 0
         ? Number(assessment.durationMinutes)
@@ -2588,6 +2593,17 @@ export class AssessmentsService {
       status: attempt.status,
     });
 
+    const accommodation = this.accommodationRepo
+      ? await this.accommodationRepo.findOne({
+          where: { assessment_id: assessment.id, user_id: studentId },
+        })
+      : null;
+    if (accommodation) {
+      (attempt as any).timeMultiplier = accommodation.time_multiplier;
+      (attempt as any).extraMinutesFlat = accommodation.extra_minutes_flat;
+      (attempt as any).accommodation = accommodation;
+    }
+
     const expiresAt = this.attemptExpiresAt(assessment, attempt);
     const serverEndsAtEpochMs = expiresAt.getTime();
     const serverNowMs = Date.now();
@@ -2601,6 +2617,14 @@ export class AssessmentsService {
       ...this.resumeDetails(assessment, attempt),
       serverEndsAtEpochMs,
       serverNowMs,
+      accommodations: accommodation
+        ? {
+            timeMultiplier: accommodation.time_multiplier,
+            extraMinutesFlat: accommodation.extra_minutes_flat,
+            allowSecondaryDisplay: accommodation.secondary_display_allowed,
+            allowAccessibilitySpeech: accommodation.screen_reader_allowed,
+          }
+        : null,
       proctoring: assessment.proctoring,
       securityPolicy: assessment.securityPolicy
         ? (({ lockdownQuitPassword, ...rest }: any) => rest)(assessment.securityPolicy)
@@ -3999,6 +4023,17 @@ export class AssessmentsService {
       latestAttempt.status,
     );
 
+    const accommodation = this.accommodationRepo
+      ? await this.accommodationRepo.findOne({
+          where: { assessment_id: assessment.id, user_id: studentId },
+        })
+      : null;
+    if (accommodation) {
+      (latestAttempt as any).timeMultiplier = accommodation.time_multiplier;
+      (latestAttempt as any).extraMinutesFlat = accommodation.extra_minutes_flat;
+      (latestAttempt as any).accommodation = accommodation;
+    }
+
     const expiresAt = this.attemptExpiresAt(assessment, latestAttempt);
     const serverEndsAtEpochMs = expiresAt.getTime();
     const serverNowMs = Date.now();
@@ -4029,6 +4064,14 @@ export class AssessmentsService {
       serverNowMs,
       responses,
       resumeDetails: this.resumeDetails(assessment, latestAttempt),
+      accommodations: accommodation
+        ? {
+            timeMultiplier: accommodation.time_multiplier,
+            extraMinutesFlat: accommodation.extra_minutes_flat,
+            allowSecondaryDisplay: accommodation.secondary_display_allowed,
+            allowAccessibilitySpeech: accommodation.screen_reader_allowed,
+          }
+        : null,
     };
   }
 
@@ -4117,20 +4160,24 @@ export class AssessmentsService {
 
     if (existing) {
       if (dto.timeMultiplier !== undefined) existing.time_multiplier = dto.timeMultiplier;
+      if (dto.extraMinutesFlat !== undefined) existing.extra_minutes_flat = dto.extraMinutesFlat;
       if (dto.secondaryDisplayAllowed !== undefined) existing.secondary_display_allowed = dto.secondaryDisplayAllowed;
       if (dto.screenReaderAllowed !== undefined) existing.screen_reader_allowed = dto.screenReaderAllowed;
       if (dto.customNotes !== undefined) existing.custom_notes = dto.customNotes;
       existing.granted_by = adminUser?.id || adminUser?._id;
+      existing.configured_by_role = adminUser?.role || 'ADMIN';
       return this.accommodationRepo.save(existing);
     } else {
       const created = this.accommodationRepo.create({
         assessment_id: assessment.id,
         user_id: dto.userId,
         time_multiplier: dto.timeMultiplier || 1.0,
+        extra_minutes_flat: dto.extraMinutesFlat || 0,
         secondary_display_allowed: dto.secondaryDisplayAllowed || false,
         screen_reader_allowed: dto.screenReaderAllowed || false,
         custom_notes: dto.customNotes,
         granted_by: adminUser?.id || adminUser?._id,
+        configured_by_role: adminUser?.role || 'ADMIN',
       });
       return this.accommodationRepo.save(created);
     }
@@ -4182,6 +4229,8 @@ export class AssessmentsService {
         gradeHoldReason: att.gradeHoldReason || '',
         accommodation: acc ? {
           timeMultiplier: acc.time_multiplier,
+          extraMinutesFlat: acc.extra_minutes_flat,
+          configuredByRole: acc.configured_by_role,
           secondaryDisplayAllowed: acc.secondary_display_allowed,
           screenReaderAllowed: acc.screen_reader_allowed,
         } : null,

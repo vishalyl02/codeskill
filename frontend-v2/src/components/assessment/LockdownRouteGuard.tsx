@@ -1,12 +1,17 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { isLockdownClient, setLockedAssessment } from "@/lib/lockdown-bridge";
+import { isLockdownClient, setLockedAssessment, setClientAccommodations } from "@/lib/lockdown-bridge";
 
 interface LockdownRouteGuardProps {
   assessmentId: string;
   allowedUrlPatterns?: string[];
   allowFindOnPage?: boolean;
+  accommodations?: {
+    allowSecondaryDisplay?: boolean;
+    allowAccessibilitySpeech?: boolean;
+    [key: string]: any;
+  } | null;
   children: React.ReactNode;
 }
 
@@ -14,6 +19,7 @@ export default function LockdownRouteGuard({
   assessmentId,
   allowedUrlPatterns = [],
   allowFindOnPage = true,
+  accommodations,
   children,
 }: LockdownRouteGuardProps) {
   // 1. Enforce single-assessment isolation in the native Rust client
@@ -22,6 +28,16 @@ export default function LockdownRouteGuard({
       void setLockedAssessment(assessmentId, allowedUrlPatterns);
     }
   }, [assessmentId, allowedUrlPatterns]);
+
+  // 2. Synchronize approved candidate accommodations (VoiceOver speech, secondary monitor)
+  useEffect(() => {
+    if (isLockdownClient() && accommodations) {
+      void setClientAccommodations(
+        Boolean(accommodations.allowSecondaryDisplay),
+        Boolean(accommodations.allowAccessibilitySpeech),
+      );
+    }
+  }, [accommodations]);
 
   // 2. Suppress Find-on-Page (Cmd+F / Ctrl+F) if allowFindOnPage is false
   useEffect(() => {

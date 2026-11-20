@@ -34,6 +34,8 @@ import toast from "react-hot-toast";
 import { formatIndianDateTime } from "@/lib/indian-time";
 import { assessmentResultsCSV } from "@/lib/assessment-results-export";
 import { Spinner } from "@/components/ui/spinner";
+import QuestionFrictionHeatmap from "@/components/assessment/QuestionFrictionHeatmap";
+import IntegrityReviewCard from "@/components/assessment/IntegrityReviewCard";
 
 export default function FacultyAssessmentResultsPage({
   params,
@@ -49,7 +51,7 @@ export default function FacultyAssessmentResultsPage({
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"candidates" | "all_attempts">("candidates");
   const [selectedCandidate, setSelectedCandidate] = useState<any | null>(null);
-  const [modalTab, setModalTab] = useState<"proctoring" | "grading" | "code" | "attempts">("proctoring");
+  const [modalTab, setModalTab] = useState<"proctoring" | "grading" | "code" | "attempts" | "integrity_replay">("proctoring");
 
   // Snapshots state
   const [snapshots, setSnapshots] = useState<any[]>([]);
@@ -495,6 +497,9 @@ export default function FacultyAssessmentResultsPage({
         )}
       </div>
 
+      {/* Per-Question Friction & Candidate Struggle Heatmap */}
+      <QuestionFrictionHeatmap assessmentId={id} />
+
       {/* Proctoring, Snapshots & Grading Modal */}
       {selectedCandidate && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -615,6 +620,17 @@ export default function FacultyAssessmentResultsPage({
                 }`}
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Attempts ({selectedCandidate.allAttempts?.length || 1})
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab("integrity_replay")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                  modalTab === "integrity_replay"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5" /> Integrity & Code Replay
               </button>
             </div>
 
@@ -862,6 +878,22 @@ export default function FacultyAssessmentResultsPage({
                     </div>
                   ))}
                 </div>
+              )}
+
+              {modalTab === "integrity_replay" && (
+                <IntegrityReviewCard
+                  candidateName={selectedCandidate.studentName}
+                  candidateId={selectedCandidate.studentId || selectedCandidate.studentUid}
+                  assessmentId={id}
+                  gradeHeld={selectedCandidate.gradeHeld}
+                  gradeHoldReason={selectedCandidate.gradeHoldReason}
+                  violations={selectedCandidate.violations}
+                  onDecisionChange={(newHold, reason) => {
+                    setSelectedCandidate((prev: any) =>
+                      prev ? { ...prev, gradeHeld: newHold, gradeHoldReason: reason } : prev,
+                    );
+                  }}
+                />
               )}
             </div>
 

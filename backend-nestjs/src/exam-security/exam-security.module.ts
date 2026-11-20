@@ -11,6 +11,8 @@ import { ExamSession } from '../database/entities/exam-session.entity';
 import { ExamSecurityEvent } from '../database/entities/exam-security-event.entity';
 import { AssessmentAttempt } from '../database/entities/assessment-attempt.entity';
 import { User } from '../database/entities/user.entity';
+import { Question } from '../database/entities/question.entity';
+import { CandidateExamAccommodation } from '../database/entities/candidate-exam-accommodation.entity';
 import { RedisModule } from '../redis/redis.module';
 import { SubmissionShardingModule } from '../database/sharding/sharding.module';
 import { SebGuard } from './guards/seb.guard';
@@ -24,6 +26,8 @@ import { LockdownSignatureGuard } from './lockdown-signature.guard';
       ExamSecurityEvent,
       AssessmentAttempt,
       User,
+      Question,
+      CandidateExamAccommodation,
     ]),
     RedisModule,
     SubmissionShardingModule,

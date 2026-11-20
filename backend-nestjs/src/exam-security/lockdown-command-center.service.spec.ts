@@ -316,4 +316,154 @@ describe('LockdownCommandCenterService', () => {
       );
     });
   });
+
+  describe('getCandidateIntegrityDigest', () => {
+    it('returns composite risk score, plain English findings, and code snapshots via SubmissionStore', async () => {
+      mockEventRepo.find.mockResolvedValueOnce([
+        {
+          eventType: 'CLIENT_ATTESTED',
+          metadata: { attestationTier: 'hardware_tpm_enclave' },
+        },
+        {
+          eventType: 'SECONDARY_DISPLAY_CONNECTED',
+          metadata: {},
+        },
+      ]);
+
+      mockAttemptRepo.findOne.mockResolvedValueOnce({
+        id: 'att-1',
+        studentId: 'cand-1',
+        student: { name: 'Charlie', email: 'charlie@test.com' },
+        gradeHeld: false,
+      });
+
+      mockSubmissionStore.find.mockResolvedValueOnce([
+        {
+          id: 'sub-1',
+          problemId: 'p-1',
+          language: 'python',
+          code: 'print("hello")',
+          status: 'Accepted',
+          testsPassed: 5,
+          totalTests: 5,
+        },
+      ]);
+
+      const res = await service.getCandidateIntegrityDigest('asmt-1', 'cand-1');
+      expect(res.success).toBe(true);
+      expect(res.compositeRiskScore).toBe(25);
+      expect(res.integrityStatus).toBe('SUSPICIOUS');
+      expect(res.plainEnglishFindings).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('Cryptographic hardware enclave'),
+          expect.stringContaining('Detected unauthorized secondary monitor connection'),
+        ]),
+      );
+      expect(mockSubmissionStore.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ userId: 'cand-1' }),
+        }),
+      );
+      expect(res.codeSnapshots).toHaveLength(1);
+      expect(res.codeSnapshots[0].code).toBe('print("hello")');
+    });
+  });
+
+  describe('setCandidateIntegrityDecision', () => {
+    it('places grade hold and records audit event', async () => {
+      const mockAttempt = {
+        id: 'att-1',
+        studentId: 'cand-1',
+        gradeHeld: false,
+        gradeHoldReason: '',
+      };
+      mockAttemptRepo.findOne.mockResolvedValueOnce(mockAttempt);
+
+      const res = await service.setCandidateIntegrityDecision(
+        'asmt-1',
+        'cand-1',
+        'HOLD_GRADE',
+        'Suspected secondary monitor usage',
+        'teacher-1',
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.gradeHeld).toBe(true);
+      expect(res.gradeHoldReason).toBe('Suspected secondary monitor usage');
+      expect(mockAttemptRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gradeHeld: true,
+          gradeHoldReason: 'Suspected secondary monitor usage',
+        }),
+      );
+      expect(mockEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'GRADE_HOLD_PLACED',
+          severity: 'HIGH',
+        }),
+      );
+    });
+
+    it('clears grade hold when decision is CLEAR_HOLD', async () => {
+      const mockAttempt = {
+        id: 'att-1',
+        studentId: 'cand-1',
+        gradeHeld: true,
+        gradeHoldReason: 'Flagged for review',
+      };
+      mockAttemptRepo.findOne.mockResolvedValueOnce(mockAttempt);
+
+      const res = await service.setCandidateIntegrityDecision(
+        'asmt-1',
+        'cand-1',
+        'CLEAR_HOLD',
+        'Waiver verified',
+        'teacher-1',
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.gradeHeld).toBe(false);
+      expect(res.gradeHoldReason).toBe('');
+      expect(mockEventRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'GRADE_HOLD_CLEARED',
+          severity: 'LOW',
+        }),
+      );
+    });
+  });
+
+  describe('getQuestionFrictionAnalytics', () => {
+    it('aggregates per-question solve time, error rates, and difficulty category', async () => {
+      mockAttemptRepo.find.mockResolvedValueOnce([
+        {
+          responses: [
+            {
+              questionId: 'q-1',
+              timeSpentSeconds: 400,
+              marksAwarded: 2,
+              maxMarks: 10,
+              isCorrect: false,
+            },
+            {
+              questionId: 'q-2',
+              timeSpentSeconds: 60,
+              marksAwarded: 10,
+              maxMarks: 10,
+              isCorrect: true,
+            },
+          ],
+        },
+      ]);
+
+      const res = await service.getQuestionFrictionAnalytics('asmt-1');
+      expect(res.success).toBe(true);
+      expect(res.questions.length).toBeGreaterThanOrEqual(1);
+
+      const q1 = res.questions.find((q: any) => q.questionId === 'q-1');
+      expect(q1).toBeDefined();
+      expect(q1.difficultyCategory).toBe('HIGH_FRICTION');
+      expect(q1.frictionScore).toBeGreaterThanOrEqual(65);
+    });
+  });
 });

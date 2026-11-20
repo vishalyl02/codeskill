@@ -904,6 +904,25 @@ export async function setLockedAssessment(
 }
 
 /**
+ * Synchronizes approved candidate accommodations (secondary display, screen reader speech) with the desktop kiosk.
+ */
+export async function setClientAccommodations(
+  allowSecondaryDisplay: boolean = false,
+  allowAccessibilitySpeech: boolean = false,
+): Promise<boolean> {
+  if (!isLockdownClient()) return true;
+  try {
+    return await tauriInvoke<boolean>('set_client_accommodations', {
+      allowSecondaryDisplay,
+      allowAccessibilitySpeech,
+    });
+  } catch (err) {
+    console.warn('Failed to set candidate accommodations in LockDown:', err);
+    return false;
+  }
+}
+
+/**
  * Retrieves the persisted exam session journal snapshot from Rust disk storage.
  */
 export async function getPersistedExamSession(): Promise<PersistedExamSession | null> {

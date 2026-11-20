@@ -361,7 +361,7 @@ mod macos_impl {
         }
     }
 
-    pub fn try_start_aac_session() -> Result<(), String> {
+    pub fn try_start_aac_session(allow_accessibility_speech: bool) -> Result<(), String> {
         unsafe {
             let config_cls = objc2::runtime::AnyClass::get("AEAssessmentConfiguration")
                 .ok_or_else(|| "AEAssessmentConfiguration class not found".to_string())?;
@@ -375,12 +375,17 @@ mod macos_impl {
             }
 
             let no_val = objc2::runtime::Bool::NO;
+            let speech_val = if allow_accessibility_speech {
+                objc2::runtime::Bool::YES
+            } else {
+                objc2::runtime::Bool::NO
+            };
             let _: () = objc2::msg_send![config, setAllowsSpellCheck: no_val];
             let _: () = objc2::msg_send![config, setAllowsPredictiveKeyboard: no_val];
             let _: () = objc2::msg_send![config, setAllowsKeyboardShortcuts: no_val];
             let _: () = objc2::msg_send![config, setAllowsActivityContinuation: no_val];
             let _: () = objc2::msg_send![config, setAllowsDictation: no_val];
-            let _: () = objc2::msg_send![config, setAllowsAccessibilitySpeech: no_val];
+            let _: () = objc2::msg_send![config, setAllowsAccessibilitySpeech: speech_val];
             let _: () = objc2::msg_send![config, setAllowsPasswordAutoFill: no_val];
             let _: () = objc2::msg_send![config, setAllowsContinuousPathKeyboard: no_val];
 
@@ -1053,7 +1058,8 @@ pub fn enable_kiosk_mode(
         });
 
         // Try AAC first; fallback to Cocoa kiosk
-        let aac_result = macos_impl::try_start_aac_session();
+        let allow_speech = att_state.allow_accessibility_speech.load(std::sync::atomic::Ordering::Relaxed);
+        let aac_result = macos_impl::try_start_aac_session(allow_speech);
         let mode = if aac_result.is_ok() {
             log_diagnostic_entry("INFO", "KIOSK", "macOS AEAssessmentSession started successfully");
             "macos_aac_enforced"

@@ -477,6 +477,7 @@ pub fn run() {
             attestation::sign_api_request,
             attestation::sign_exam_request,
             attestation::set_locked_assessment,
+            attestation::set_client_accommodations,
             security::run_preflight_checks,
             security::run_runtime_integrity_check,
             security::inspect_media_hardware,

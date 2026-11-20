@@ -264,6 +264,7 @@ export default function TakeAssessmentPage({
     return LockdownSessionStore.getLocalState(id)?.submittedAtMs || null;
   });
   const [startError, setStartError] = useState<string | null>(null);
+  const [accommodations, setAccommodations] = useState<any>(null);
   const [lockSectionsSequentially, setLockSectionsSequentially] = useState(false);
   const [completedSectionIds, setCompletedSectionIds] = useState<string[]>([]);
   const [showSectionSubmitModal, setShowSectionSubmitModal] = useState(false);
@@ -508,6 +509,9 @@ export default function TakeAssessmentPage({
                   attemptIdRef.current = resumeData.attemptId;
                 }
                 setTimeLeftSeconds(resumeData.remainingSeconds);
+                if (resumeData.accommodations) {
+                  setAccommodations(resumeData.accommodations);
+                }
                 if (resumeData.responses && typeof resumeData.responses === "object") {
                   responsesRef.current = { ...responsesRef.current, ...resumeData.responses };
                   setResponses((prev) => ({ ...prev, ...resumeData.responses }));
@@ -730,6 +734,9 @@ export default function TakeAssessmentPage({
       }
       if (data.studentId || data.candidateId || data.studentUid) {
         candidateIdRef.current = data.studentId || data.candidateId || data.studentUid;
+      }
+      if (data.accommodations) {
+        setAccommodations(data.accommodations);
       }
       if (data.lockSectionsSequentially !== undefined) {
         setLockSectionsSequentially(Boolean(data.lockSectionsSequentially));
@@ -2023,7 +2030,7 @@ export default function TakeAssessmentPage({
 
   if (isLoading || !currentQ) {
     return (
-      <LockdownRouteGuard assessmentId={id} allowedUrlPatterns={allowedUrlPatterns} allowFindOnPage={allowFindOnPage}>
+      <LockdownRouteGuard assessmentId={id} allowedUrlPatterns={allowedUrlPatterns} allowFindOnPage={allowFindOnPage} accommodations={accommodations}>
         <SafeExamBrowser
           isEnabled={!isLoadingSettings && !isSubmitting}
           requireFullscreen={proctoring?.enforceFullscreen !== false && !isLockdownClient()}
@@ -2077,6 +2084,7 @@ export default function TakeAssessmentPage({
       assessmentId={id}
       allowedUrlPatterns={allowedUrlPatterns}
       allowFindOnPage={allowFindOnPage}
+      accommodations={accommodations}
     >
     <SafeExamBrowser
       isEnabled={!isSubmitting}

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Headers, Header } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, UseGuards, Headers, Header } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AssessmentsService } from './assessments.service';
@@ -13,7 +13,9 @@ import {
   VerifyIdentityDto,
   ProctorCaptureDto,
 } from './dto/submit-assessment.dto';
+import { UpsertAccommodationDto } from './dto/accommodations.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { TeacherGuard } from '../common/guards/admin.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Student Assessments')
@@ -193,5 +195,43 @@ export class AssessmentsStudentController {
     @CurrentUser() studentUser: any,
   ) {
     return this.assessmentsService.saveLockdownFeedback(id, dto, studentUser);
+  }
+
+  @Post(':id/create-practice-mock')
+  @UseGuards(TeacherGuard)
+  @ApiOperation({ summary: 'Create a 5-minute practice mock from this assessment (Instructor / Admin)' })
+  async createPracticeMock(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.assessmentsService.createPracticeMock(id, user);
+  }
+
+  @Get(':id/accommodations')
+  @UseGuards(TeacherGuard)
+  @ApiOperation({ summary: 'Get candidate accommodations for this assessment' })
+  async getAccommodations(@Param('id') id: string) {
+    return this.assessmentsService.getAccommodations(id);
+  }
+
+  @Post(':id/accommodations')
+  @UseGuards(TeacherGuard)
+  @ApiOperation({ summary: 'Upsert candidate accommodation' })
+  async upsertAccommodation(
+    @Param('id') id: string,
+    @Body() dto: UpsertAccommodationDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.assessmentsService.upsertAccommodation(id, dto, user);
+  }
+
+  @Delete(':id/accommodations/:userId')
+  @UseGuards(TeacherGuard)
+  @ApiOperation({ summary: 'Delete candidate accommodation' })
+  async deleteAccommodation(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.assessmentsService.deleteAccommodation(id, userId);
   }
 }

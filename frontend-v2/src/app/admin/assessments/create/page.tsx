@@ -378,21 +378,34 @@ function AssessmentBuilder() {
     setTargetGroup(group);
   };
 
-  const applySecurityProfile = (profile: "STANDARD_CLASSROOM_QUIZ" | "PROCTORED_MIDTERM_FINAL" | "HIGH_STAKES_CERTIFICATION") => {
+  const applySecurityProfile = (profile: "STANDARD_CLASSROOM_QUIZ" | "PROCTORED_MIDFINAL" | "PROCTORED_MIDTERM_FINAL" | "HIGH_STAKES_CERTIFICATION") => {
     store.setRequireLockdown(true);
     if (profile === "STANDARD_CLASSROOM_QUIZ") {
       store.setAllowCalculators(true);
       store.setAllowScratchpad(true);
       store.setAllowVirtualMachine(true);
-      store.setRequireCloseOtherApps(false);
+      store.setRequireCloseOtherApps(true);
       store.setEnableForensicWatermark(false);
-    } else if (profile === "PROCTORED_MIDTERM_FINAL") {
+      store.setProctoring({
+        useCamera: false,
+        enforceFullscreen: true,
+        blockCopyPaste: true,
+        detectTabSwitch: true,
+      });
+    } else if (profile === "PROCTORED_MIDTERM_FINAL" || profile === "PROCTORED_MIDFINAL") {
       store.setAllowCalculators(true);
       store.setAllowScratchpad(true);
       store.setAllowReferenceDoc(false);
       store.setAllowVirtualMachine(false);
       store.setRequireCloseOtherApps(true);
       store.setEnableForensicWatermark(false);
+      store.setProctoring({
+        mode: 'fully_proctored',
+        useCamera: true,
+        enforceFullscreen: true,
+        blockCopyPaste: true,
+        detectTabSwitch: true,
+      });
     } else if (profile === "HIGH_STAKES_CERTIFICATION") {
       store.setAllowCalculators(false);
       store.setAllowScratchpad(false);
@@ -400,6 +413,13 @@ function AssessmentBuilder() {
       store.setAllowVirtualMachine(false);
       store.setRequireCloseOtherApps(true);
       store.setEnableForensicWatermark(true);
+      store.setProctoring({
+        mode: 'fully_proctored',
+        useCamera: true,
+        enforceFullscreen: true,
+        blockCopyPaste: true,
+        detectTabSwitch: true,
+      });
     }
   };
   const clearAutoSelection = (sectionId: string) => {
