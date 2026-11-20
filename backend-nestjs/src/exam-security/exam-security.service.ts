@@ -48,12 +48,14 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.flushTimer = setInterval(async () => {
-      try {
-        await this.flushTelemetryBuffer(200);
-      } catch {
-        // non-blocking
-      }
+    this.flushTimer = setInterval(() => {
+      void (async () => {
+        try {
+          await this.flushTelemetryBuffer(200);
+        } catch {
+          // non-blocking
+        }
+      })();
     }, 5000);
     if (this.flushTimer?.unref) {
       this.flushTimer.unref();
