@@ -6,12 +6,14 @@ import api from "@/config/api";
 import { useAntiCheatMaster } from "@/hooks/anti-cheat/useAntiCheatMaster";
 import ContestMCQWorkspace from "@/app/contests/[id]/attempt/_components/ContestMCQWorkspace";
 import { contestMcqDraftKey, contestCodeDraftKey } from "@/lib/contest-storage";
+import { exitDocumentFullscreen } from "@/lib/fullscreen";
 const replace = jest.fn(); const router = { replace };
 const mockAuth = { user: { id: "student-id", name: "Real Candidate", username: "candidate" }, loading: false };
 jest.mock("next/navigation", () => ({ useParams: () => ({ id: "contest-id" }), useRouter: () => router }));
 jest.mock("@/context/AuthContext", () => ({ useAuth: () => mockAuth }));
 jest.mock("@/config/api", () => ({ __esModule: true, default: { post: jest.fn(), get: jest.fn() } }));
 jest.mock("@/hooks/anti-cheat/useAntiCheatMaster", () => ({ useAntiCheatMaster: jest.fn() }));
+jest.mock("@/lib/fullscreen", () => ({ exitDocumentFullscreen: jest.fn().mockResolvedValue(undefined) }));
 jest.mock("@/components/problems/ProblemWorkspace", () => function MockProblemWorkspace({ embedded }: { embedded?: boolean }) { return <div>Existing problem editor {embedded ? "embedded" : "standalone"}</div>; });
 jest.mock("@/app/contests/[id]/attempt/_components/ContestStartGate", () => ({ ContestStartGate: ({ onAccept }: { onAccept: () => void }) => <button onClick={() => onAccept()}>Start live contest</button> }));
 jest.mock("@/app/contests/[id]/attempt/_components/AntiCheatWarningDialog", () => ({ AntiCheatWarningDialog: () => null }));
@@ -30,13 +32,16 @@ it("finalizes the persisted session and opens its actual contest rankings", asyn
   render(<Page />); const startButton = await screen.findByRole("button", { name: "Start live contest" }); await act(async () => { fireEvent.click(startButton); });
   fireEvent.click(screen.getByRole("button", { name: "Finish Contest" })); fireEvent.click(screen.getByRole("button", { name: "Submit Now" }));
   await waitFor(() => expect(post).toHaveBeenCalledWith("/contests/contest-id/submit", { sessionId: "server-session" }, expect.objectContaining({ signal: expect.any(AbortSignal) })));
-  expect(replace).toHaveBeenCalledWith("/contests/contest-id/results");
+  await waitFor(() => expect(replace).toHaveBeenCalledWith("/contests/contest-id/results"));
+  expect(exitDocumentFullscreen).toHaveBeenCalledTimes(1);
+  expect(jest.mocked(exitDocumentFullscreen).mock.invocationCallOrder[0]).toBeLessThan(replace.mock.invocationCallOrder[0]);
 });
 it("shows API failures and allows a manual retry instead of claiming success", async () => {
   render(<Page />); const startButton = await screen.findByRole("button", { name: "Start live contest" }); await act(async () => { fireEvent.click(startButton); });
   post.mockRejectedValueOnce(new Error("Offline"));
   fireEvent.click(screen.getByRole("button", { name: "Finish Contest" })); fireEvent.click(screen.getByRole("button", { name: "Submit Now" }));
   await screen.findByRole("alert"); expect(replace).not.toHaveBeenCalled();
+  expect(exitDocumentFullscreen).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Finish Contest" })); fireEvent.click(screen.getByRole("button", { name: "Submit Now" }));
   await waitFor(() => expect(replace).toHaveBeenCalled());
 });
@@ -64,6 +69,7 @@ it('auto-finalizes at the configured end time and unmounts the editor', async ()
     await act(async () => jest.advanceTimersByTime(1000));
     expect(post.mock.calls.filter(call => String(call[0]).endsWith('/submit'))).toHaveLength(1);
     expect(screen.queryByText('Existing problem editor embedded')).toBeNull();
+    expect(exitDocumentFullscreen).toHaveBeenCalledTimes(1);
   } finally { jest.useRealTimers(); }
 });
 
