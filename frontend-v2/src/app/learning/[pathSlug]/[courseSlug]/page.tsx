@@ -513,27 +513,102 @@ const W3_EXERCISES_DATABASE: Record<string, W3ExerciseItem[]> = {
       hint: "Zero temperature.",
       explanation: "temperature: 0.0 forces argmax greedy token sampling for deterministic and consistent formatting."
     }
+  ],
+  c: [
+    {
+      id: "w3-c-1",
+      title: "C Standard I/O Preprocessor Header",
+      instruction: "Fill in the standard I/O library header to enable printf and scanf.",
+      language: "c",
+      codeTemplate: "#include <[b1].h>\n\nint main() {\n  printf(\"Chandigarh University\\n\");\n  return 0;\n}",
+      blanks: [{ id: "b1", answer: "stdio", placeholder: "header", caseSensitive: true }],
+      hint: "Standard input/output header name.",
+      explanation: "<stdio.h> provides essential declarations for standard console I/O functions like printf() and scanf()."
+    },
+    {
+      id: "w3-c-2",
+      title: "C Pointer Value Dereferencing",
+      instruction: "Insert the dereference operator to print the integer value stored at memory address ptr.",
+      language: "c",
+      codeTemplate: "int score = 95;\nint *ptr = &score;\n// Dereference pointer to print value:\nprintf(\"Score: %d\\n\", [b1]ptr);",
+      blanks: [{ id: "b1", answer: "*", placeholder: "op", caseSensitive: true }],
+      hint: "Unary asterisk * dereference operator.",
+      explanation: "The asterisk (*) dereferences a pointer, resolving to the value stored in the referenced memory address."
+    },
+    {
+      id: "w3-c-3",
+      title: "C Heap Allocation & Deallocation",
+      instruction: "Insert the heap allocation and deallocation functions to manage dynamic array memory.",
+      language: "c",
+      codeTemplate: "int *arr = (int *)[b1](5 * sizeof(int));\n// Process dynamic array elements...\n[b2](arr);\narr = NULL;",
+      blanks: [
+        { id: "b1", answer: "malloc", placeholder: "alloc func", caseSensitive: true },
+        { id: "b2", answer: "free", placeholder: "dealloc func", caseSensitive: true }
+      ],
+      hint: "malloc allocates heap bytes, free releases them back to the operating system.",
+      explanation: "malloc() allocates contiguous uninitialized bytes on the heap; free() prevents memory leaks."
+    },
+    {
+      id: "w3-c-4",
+      title: "C Structure Member Access through Pointer",
+      instruction: "Insert the member selection operator used to access structure fields through a pointer.",
+      language: "c",
+      codeTemplate: "struct Student s = { 2024, \"CU Student\" };\nstruct Student *ptr = &s;\n// Access year through pointer:\nprintf(\"Year: %d\\n\", ptr[b1]year);",
+      blanks: [{ id: "b1", answer: "->", placeholder: "op", caseSensitive: true }],
+      hint: "Arrow operator ->",
+      explanation: "The arrow operator (->) dereferences the structure pointer and accesses the member in one step."
+    },
+    {
+      id: "w3-c-5",
+      title: "C Address-Of Operator with scanf",
+      instruction: "Pass the memory address of the integer variable so scanf can store the input value.",
+      language: "c",
+      codeTemplate: "int rollNumber;\nprintf(\"Enter your roll number: \");\nscanf(\"%d\", [b1]rollNumber);",
+      blanks: [{ id: "b1", answer: "&", placeholder: "op", caseSensitive: true }],
+      hint: "Ampersand & address-of operator.",
+      explanation: "scanf requires a pointer to the variable's memory address to write the parsed user input."
+    }
   ]
 };
 
-function getW3ExercisesForCourse(courseSlug: string, pathSlug: string): W3ExerciseItem[] {
-  const slug = `${courseSlug || ""} ${pathSlug || ""}`.toLowerCase();
-  if (slug.includes("dbms") || slug.includes("database") || slug.includes("sql")) {
+function getW3ExercisesForCourse(
+  courseSlug: string,
+  pathSlug: string,
+  lessonTitle?: string,
+): W3ExerciseItem[] {
+  const combined = `${courseSlug || ""} ${pathSlug || ""} ${lessonTitle || ""}`.toLowerCase();
+
+  // Contextual matching by current lesson topic
+  if (combined.includes("pointer") || combined.includes("dereference")) {
+    return [W3_EXERCISES_DATABASE.c[1], W3_EXERCISES_DATABASE.c[3], W3_EXERCISES_DATABASE.c[4]];
+  }
+  if (combined.includes("malloc") || combined.includes("heap") || combined.includes("memory")) {
+    return [W3_EXERCISES_DATABASE.c[2], W3_EXERCISES_DATABASE.c[1], W3_EXERCISES_DATABASE.c[0]];
+  }
+  if (combined.includes("dbms") || combined.includes("database") || combined.includes("sql")) {
     return W3_EXERCISES_DATABASE.dbms;
   }
-  if (slug.includes("java")) {
-    return W3_EXERCISES_DATABASE.java;
-  }
-  if (slug.includes("os") || slug.includes("operating-systems")) {
+  if (combined.includes("os") || combined.includes("operating-systems") || combined.includes("system call") || combined.includes("fork")) {
     return W3_EXERCISES_DATABASE.os;
   }
-  if (slug.includes("cf") || slug.includes("computer-fundamentals") || slug.includes("architecture")) {
-    return W3_EXERCISES_DATABASE.cf;
+  if (combined.includes("java")) {
+    return W3_EXERCISES_DATABASE.java;
   }
-  if (slug.includes("ai") || slug.includes("prompt") || slug.includes("genai")) {
+  if (combined.includes("ai") || combined.includes("prompt") || combined.includes("genai")) {
     return W3_EXERCISES_DATABASE.ai;
   }
-  return W3_EXERCISES_DATABASE.dbms;
+  if (combined.includes("cf") || combined.includes("computer-fundamentals") || combined.includes("architecture")) {
+    return W3_EXERCISES_DATABASE.cf;
+  }
+  if (
+    combined.includes("c-programming") ||
+    combined.includes("c-lang") ||
+    combined.includes("interactive-practice") ||
+    combined.includes("cu-practice")
+  ) {
+    return W3_EXERCISES_DATABASE.c;
+  }
+  return W3_EXERCISES_DATABASE.c;
 }
 
 const DEFAULT_STARTER_CODES: Record<string, string> = {
@@ -639,7 +714,8 @@ export default function CourseWorkspacePage({
       time: "--:--:--",
     },
   ]);
-  const [terminalTab, setTerminalTab] = useState<"output" | "table" | "tests">("output");
+  const [terminalTab, setTerminalTab] = useState<"output" | "table" | "tests" | "stdin">("output");
+  const [customStdin, setCustomStdin] = useState("");
   const [sqlResult, setSqlResult] = useState<{
     columns: string[];
     rows: any[];
@@ -786,9 +862,16 @@ export default function CourseWorkspacePage({
         } else {
           setCode(DEFAULT_STARTER_CODES[language] || "// Write your solution below\n");
         }
-      } else if (courseSlug.includes("c-programming") || courseSlug.includes("c-lang")) {
+      } else if (
+        courseSlug.includes("c-programming") ||
+        courseSlug.includes("c-lang") ||
+        courseSlug.includes("interactive-practice") ||
+        courseSlug.includes("cu-practice")
+      ) {
         setLanguage("c");
-        setCode(DEFAULT_STARTER_CODES.c);
+        setCode(
+          `#include <stdio.h>\n\n// Chandigarh University Lab: ${lessonData?.title || "Exercise"}\nint main() {\n    printf("Welcome to Chandigarh University Interactive Lab!\\n");\n    printf("Task: %s\\n", "${lessonData?.title || "Hands-on Exercise"}");\n    return 0;\n}\n`,
+        );
       } else if (courseSlug.includes("dbms") || courseSlug.includes("sql")) {
         setLanguage("sql");
         setCode(DEFAULT_STARTER_CODES.sql);
@@ -971,9 +1054,13 @@ export default function CourseWorkspacePage({
         }
       }
     } else {
-      // Server-side real-time execution runner for Python/Java/C++
+      // Server-side real-time execution runner for C/C++/Python/Java/SQL
       try {
-        const res = await learningAPI.runPlayground({ code, language });
+        const res = await learningAPI.runPlayground({
+          code,
+          language,
+          stdin: customStdin.trim() ? customStdin : undefined,
+        });
         if (activeExecutionIdRef.current !== executionId) return;
         const resultData = (res.data as any)?.data || res.data;
         const elapsed = resultData?.durationMs ?? Math.round(performance.now() - startTime);
@@ -1253,7 +1340,7 @@ export default function CourseWorkspacePage({
   const currentLessonIndex = allLessons.findIndex((l) => l.id === activeLessonId);
 
   const renderInteractivePracticeSuite = (ex?: any) => {
-    const w3List = getW3ExercisesForCourse(courseSlug, pathSlug);
+    const w3List = getW3ExercisesForCourse(courseSlug, pathSlug, lesson?.title);
     const safeIdx = Math.min(Math.max(0, w3Index), w3List.length - 1);
     const currentEx = w3List[safeIdx];
     const feedback = currentEx ? w3Feedback[currentEx.id] : undefined;
@@ -1302,6 +1389,38 @@ export default function CourseWorkspacePage({
         {/* MODE A: Real-Time Coding Compiler & Live Terminal */}
         {(activeTabMode === "coding" || activeTabMode === "content") && (
           <div className="space-y-4">
+            {ex && (
+              <div className="p-4 rounded-xl bg-card border border-border shadow-xs space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                      Hands-On Challenge
+                    </span>
+                    <h3 className="text-sm font-bold text-foreground">
+                      {ex.title}
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold text-[11px]">
+                      +{ex.marks || 25} XP
+                    </span>
+                    <span className="text-[11px] font-semibold text-muted-foreground uppercase">
+                      {language}
+                    </span>
+                  </div>
+                </div>
+
+                {ex.hints && ex.hints.length > 0 && (
+                  <div className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2 bg-amber-500/5 p-2.5 rounded-lg border border-amber-500/20">
+                    <Lightbulb className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <div className="leading-relaxed font-medium">
+                      <strong>Problem Clue:</strong> {ex.hints[0]}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <select
@@ -1468,6 +1587,20 @@ export default function CourseWorkspacePage({
                     >
                       Test Results
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setTerminalTab("stdin")}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        terminalTab === "stdin"
+                          ? "bg-slate-700 text-white shadow-xs"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      <span>Custom Input</span>
+                      {customStdin.trim().length > 0 && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                      )}
+                    </button>
                   </div>
 
                   <button
@@ -1560,6 +1693,32 @@ export default function CourseWorkspacePage({
                       )}
                     </div>
                   ))
+                ) : terminalTab === "stdin" ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono pb-1 border-b border-slate-700/60">
+                      <span>Standard Input (stdin)</span>
+                      <span>Passed to program during execution</span>
+                    </div>
+                    <textarea
+                      value={customStdin}
+                      onChange={(e) => setCustomStdin(e.target.value)}
+                      placeholder="Enter custom program input (e.g. scanf / input() data separated by lines)..."
+                      rows={4}
+                      className="w-full bg-slate-950/80 text-emerald-300 font-mono text-xs p-2.5 rounded border border-slate-700/80 focus:outline-hidden focus:border-emerald-500/60 resize-none placeholder:text-slate-600"
+                    />
+                    <div className="flex items-center justify-between text-[10px] text-slate-500">
+                      <span>Tip: Useful for testing interactive user input before submitting</span>
+                      {customStdin && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomStdin("")}
+                          className="hover:text-rose-400 transition-colors cursor-pointer"
+                        >
+                          Clear Input
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {executionFeedback?.results ? (

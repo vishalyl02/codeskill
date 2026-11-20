@@ -129,6 +129,24 @@ export default function CourseCurriculumEditorPage({
   const [starterCode, setStarterCode] = useState("");
   const [exerciseHint, setExerciseHint] = useState("");
 
+  // Edit existing exercise state
+  const [editingExercise, setEditingExercise] = useState<{
+    id: string;
+    lessonId: string;
+    type: string;
+    title: string;
+    marks: number;
+    quizQuestion?: string;
+    quizOptA?: string;
+    quizOptB?: string;
+    quizOptC?: string;
+    quizOptD?: string;
+    quizCorrect?: number;
+    quizExplanation?: string;
+    starterCode?: string;
+    exerciseHint?: string;
+  } | null>(null);
+
   useEffect(() => {
     loadCourse();
   }, [id]);
@@ -430,6 +448,62 @@ export default function CourseCurriculumEditorPage({
       await loadCourse();
     } catch (err: any) {
       showNotification("error", err?.response?.data?.message || "Failed to delete exercise");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveExercise = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingExercise) return;
+
+    try {
+      setSaving(true);
+      if (editingExercise.type === "quiz") {
+        const options = [editingExercise.quizOptA || "", editingExercise.quizOptB || ""];
+        if (editingExercise.quizOptC) options.push(editingExercise.quizOptC);
+        if (editingExercise.quizOptD) options.push(editingExercise.quizOptD);
+
+        const quizConfig = {
+          questions: [
+            {
+              id: `q-${Date.now()}`,
+              question: editingExercise.quizQuestion || editingExercise.title,
+              options,
+              correctAnswer: Number(editingExercise.quizCorrect) || 0,
+              explanation: editingExercise.quizExplanation || "",
+            },
+          ],
+        };
+
+        await adminLearningAPI.updateExercise(editingExercise.id, {
+          title: (editingExercise.quizQuestion || editingExercise.title).substring(0, 60),
+          marks: Number(editingExercise.marks) || 15,
+          quizConfig,
+        });
+      } else {
+        const codeMap: Record<string, string> = {};
+        if (editingExercise.type === "sql") {
+          codeMap.sql = editingExercise.starterCode || "SELECT * FROM customers LIMIT 10;";
+        } else {
+          codeMap.c = editingExercise.starterCode || "#include <stdio.h>\n\nint main() {\n    return 0;\n}";
+          codeMap.javascript = editingExercise.starterCode || "// Write solution here\n";
+          codeMap.python = editingExercise.starterCode || "# Write solution here\n";
+        }
+
+        await adminLearningAPI.updateExercise(editingExercise.id, {
+          title: editingExercise.title.trim(),
+          marks: Number(editingExercise.marks) || 25,
+          starterCode: codeMap,
+          hints: editingExercise.exerciseHint ? [editingExercise.exerciseHint] : [],
+        });
+      }
+
+      setEditingExercise(null);
+      showNotification("success", "Exercise updated successfully");
+      await loadCourse();
+    } catch (err: any) {
+      showNotification("error", err?.response?.data?.message || "Failed to update exercise");
     } finally {
       setSaving(false);
     }
@@ -840,13 +914,47 @@ export default function CourseCurriculumEditorPage({
                                           </button>
                                         </div>
 
-                                        <button
-                                          onClick={() => handleDeleteExercise(ex.id)}
-                                          className="text-muted-foreground hover:text-destructive p-1 rounded transition-colors"
-                                          title="Remove exercise"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const q0 = ex.quizConfig?.questions?.[0];
+                                              const starter =
+                                                ex.starterCode?.c ||
+                                                ex.starterCode?.sql ||
+                                                ex.starterCode?.javascript ||
+                                                ex.starterCode?.python ||
+                                                "";
+                                              setEditingExercise({
+                                                id: ex.id,
+                                                lessonId: lesson.id,
+                                                type: ex.type,
+                                                title: ex.title,
+                                                marks: ex.marks || 15,
+                                                quizQuestion: q0?.question || ex.title,
+                                                quizOptA: q0?.options?.[0] || "",
+                                                quizOptB: q0?.options?.[1] || "",
+                                                quizOptC: q0?.options?.[2] || "",
+                                                quizOptD: q0?.options?.[3] || "",
+                                                quizCorrect: q0?.correctAnswer ?? 0,
+                                                quizExplanation: q0?.explanation || "",
+                                                starterCode: starter,
+                                                exerciseHint: ex.hints?.[0] || "",
+                                              });
+                                            }}
+                                            className="text-muted-foreground hover:text-primary p-1 rounded transition-colors"
+                                            title="Edit exercise / MCQ"
+                                          >
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            onClick={() => handleDeleteExercise(ex.id)}
+                                            className="text-muted-foreground hover:text-destructive p-1 rounded transition-colors"
+                                            title="Remove exercise"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
@@ -1299,6 +1407,215 @@ export default function CourseCurriculumEditorPage({
                   className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold"
                 >
                   Add Exercise
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal: Edit Exercise / MCQ */}
+      {editingExercise && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-card border border-border rounded-xl max-w-lg w-full p-6 shadow-xl my-8">
+            <h3 className="text-base font-bold text-foreground mb-1 flex items-center gap-2">
+              <Edit2 className="w-4 h-4 text-primary" />
+              <span>
+                Edit {editingExercise.type === "quiz" ? "MCQ Assessment Question" : "Coding / SQL Challenge"}
+              </span>
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Update challenge details, test options, starter code, or XP marks.
+            </p>
+
+            <form onSubmit={handleSaveExercise} className="space-y-4 text-xs">
+              {editingExercise.type === "quiz" ? (
+                <>
+                  <div>
+                    <label className="font-semibold block mb-1">Question Text</label>
+                    <textarea
+                      required
+                      value={editingExercise.quizQuestion || ""}
+                      onChange={(e) =>
+                        setEditingExercise({
+                          ...editingExercise,
+                          quizQuestion: e.target.value,
+                          title: e.target.value.substring(0, 60),
+                        })
+                      }
+                      rows={2}
+                      className="w-full bg-background border border-border rounded p-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="font-semibold block">Answer Options & Correct Key</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="editCorrect"
+                        checked={editingExercise.quizCorrect === 0}
+                        onChange={() =>
+                          setEditingExercise({ ...editingExercise, quizCorrect: 0 })
+                        }
+                      />
+                      <Input
+                        required
+                        value={editingExercise.quizOptA || ""}
+                        onChange={(e) =>
+                          setEditingExercise({ ...editingExercise, quizOptA: e.target.value })
+                        }
+                        placeholder="Option A"
+                        className="bg-background text-foreground text-xs"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="editCorrect"
+                        checked={editingExercise.quizCorrect === 1}
+                        onChange={() =>
+                          setEditingExercise({ ...editingExercise, quizCorrect: 1 })
+                        }
+                      />
+                      <Input
+                        required
+                        value={editingExercise.quizOptB || ""}
+                        onChange={(e) =>
+                          setEditingExercise({ ...editingExercise, quizOptB: e.target.value })
+                        }
+                        placeholder="Option B"
+                        className="bg-background text-foreground text-xs"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="editCorrect"
+                        checked={editingExercise.quizCorrect === 2}
+                        onChange={() =>
+                          setEditingExercise({ ...editingExercise, quizCorrect: 2 })
+                        }
+                      />
+                      <Input
+                        value={editingExercise.quizOptC || ""}
+                        onChange={(e) =>
+                          setEditingExercise({ ...editingExercise, quizOptC: e.target.value })
+                        }
+                        placeholder="Option C (Optional)"
+                        className="bg-background text-foreground text-xs"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="editCorrect"
+                        checked={editingExercise.quizCorrect === 3}
+                        onChange={() =>
+                          setEditingExercise({ ...editingExercise, quizCorrect: 3 })
+                        }
+                      />
+                      <Input
+                        value={editingExercise.quizOptD || ""}
+                        onChange={(e) =>
+                          setEditingExercise({ ...editingExercise, quizOptD: e.target.value })
+                        }
+                        placeholder="Option D (Optional)"
+                        className="bg-background text-foreground text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold block mb-1">Answer Explanation</label>
+                    <textarea
+                      value={editingExercise.quizExplanation || ""}
+                      onChange={(e) =>
+                        setEditingExercise({
+                          ...editingExercise,
+                          quizExplanation: e.target.value,
+                        })
+                      }
+                      rows={2}
+                      placeholder="Explain why the selected option is correct..."
+                      className="w-full bg-background border border-border rounded p-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="font-semibold block mb-1">Challenge Title</label>
+                    <Input
+                      value={editingExercise.title || ""}
+                      onChange={(e) =>
+                        setEditingExercise({ ...editingExercise, title: e.target.value })
+                      }
+                      className="bg-background text-foreground text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold block mb-1">Starter Code / Query Template</label>
+                    <textarea
+                      rows={5}
+                      value={editingExercise.starterCode || ""}
+                      onChange={(e) =>
+                        setEditingExercise({
+                          ...editingExercise,
+                          starterCode: e.target.value,
+                        })
+                      }
+                      className="w-full bg-background border border-border rounded p-2 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold block mb-1">Hint for Students</label>
+                    <Input
+                      value={editingExercise.exerciseHint || ""}
+                      onChange={(e) =>
+                        setEditingExercise({
+                          ...editingExercise,
+                          exerciseHint: e.target.value,
+                        })
+                      }
+                      placeholder="Optional hint..."
+                      className="bg-background text-foreground text-xs"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="font-semibold block mb-1">Gamification XP Award</label>
+                <Input
+                  type="number"
+                  value={editingExercise.marks || 15}
+                  onChange={(e) =>
+                    setEditingExercise({
+                      ...editingExercise,
+                      marks: Number(e.target.value),
+                    })
+                  }
+                  className="bg-background text-foreground text-xs"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditingExercise(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={saving}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold"
+                >
+                  Save Changes
                 </Button>
               </div>
             </form>
