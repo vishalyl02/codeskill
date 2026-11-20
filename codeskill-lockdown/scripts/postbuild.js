@@ -65,8 +65,12 @@ for (const plist of plistPaths) {
         console.warn('[postbuild] Warning re-signing app bundle:', signErr.message);
       }
 
-      execSync(`/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "${appDir}"`);
-      console.log(`[postbuild] Registered deep-link schemes (codeskill-exam, codeskill-lockdown) for ${appDir}`);
+      try {
+        execSync(`/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "${appDir}"`);
+        console.log(`[postbuild] Registered deep-link schemes (codeskill-exam, codeskill-lockdown) for ${appDir}`);
+      } catch (lsErr) {
+        console.warn(`[postbuild] Notice: lsregister deferred: ${lsErr.message}`);
+      }
     } catch (e) {
       console.warn('[postbuild] Failed to inject CFBundleURLTypes into ' + plist, e.message);
     }

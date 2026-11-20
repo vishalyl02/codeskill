@@ -9,6 +9,10 @@
       "http://127.0.0.1:3000/*",
       "http://localhost:*/*",
       "http://127.0.0.1:*/*",
+      "https://*.novaserve.cloud/*",
+      "https://codeskill.novaserve.cloud/*",
+      "https://*.novaserve.cloud",
+      "https://codeskill.novaserve.cloud",
       "https://*.codeskill.com/*",
       "https://codeskill.com/*"
     ]

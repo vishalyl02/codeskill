@@ -375,6 +375,33 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             let state = webview.state::<AttestationState>();
             let url_str = url.as_str();
 
+            // 0. Intercept native OS system settings / privacy deep links
+            if url.scheme() == "x-apple.systempreferences"
+                || url.scheme() == "ms-settings"
+                || url_str.starts_with("x-apple.systempreferences:")
+                || url_str.starts_with("ms-settings:")
+            {
+                security::log_diagnostic_entry(
+                    "INFO",
+                    "SYSTEM_SETTINGS",
+                    &format!("Native OS settings protocol intercepted: {}", url_str),
+                );
+
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = security::open_macos_privacy_pane(url_str);
+                }
+
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("cmd")
+                        .args(&["/c", "start", url_str])
+                        .spawn();
+                }
+
+                return false;
+            }
+
             // 1. Allow local / tauri internal resources and splash screen
             if url.scheme() == "tauri" || url.scheme() == "about" || url_str.starts_with("data:") {
                 return true;
