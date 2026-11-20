@@ -72,6 +72,11 @@ backend-nestjs/dist/
 backend-nestjs/build/
 *.tsbuildinfo
 
+# CodeSkill LockDown
+codeskill-lockdown/src-tauri/target/
+codeskill-lockdown/src-tauri/gen/
+codeskill-lockdown/node_modules/
+
 # Coverage directory used by tools like istanbul
 coverage/
 .nyc_output/

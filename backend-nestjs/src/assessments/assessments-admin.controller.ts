@@ -17,6 +17,11 @@ import {
   UpdateAssessmentDto,
   UpdateAssessmentStatusDto,
 } from './dto/update-assessment.dto';
+import {
+  UpsertAccommodationDto,
+  GrantExtraTimeDto,
+  GradeHoldDto,
+} from './dto/accommodations.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AssessmentAuthorGuard } from '../common/guards/assessment-author.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -119,5 +124,68 @@ export class AssessmentsAdminController {
   })
   async getResults(@Param('id') id: string, @CurrentUser() adminUser: any) {
     return this.assessmentsService.getAssessmentResults(id, adminUser);
+  }
+
+  @Post(':id/create-practice-mock')
+  @ApiOperation({ summary: 'Create a 5-minute practice mock from this assessment' })
+  async createPracticeMock(@Param('id') id: string, @CurrentUser() adminUser: any) {
+    return this.assessmentsService.createPracticeMock(id, adminUser);
+  }
+
+  @Get(':id/accommodations')
+  @ApiOperation({ summary: 'Get candidate accommodations for this assessment' })
+  async getAccommodations(@Param('id') id: string) {
+    return this.assessmentsService.getAccommodations(id);
+  }
+
+  @Post(':id/accommodations')
+  @ApiOperation({ summary: 'Upsert candidate accommodation' })
+  async upsertAccommodation(
+    @Param('id') id: string,
+    @Body() dto: UpsertAccommodationDto,
+    @CurrentUser() adminUser: any,
+  ) {
+    return this.assessmentsService.upsertAccommodation(id, dto, adminUser);
+  }
+
+  @Delete(':id/accommodations/:userId')
+  @ApiOperation({ summary: 'Delete candidate accommodation' })
+  async deleteAccommodation(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.assessmentsService.deleteAccommodation(id, userId);
+  }
+
+  @Get(':id/invigilation-roster')
+  @ApiOperation({ summary: 'Get live classroom invigilation roster' })
+  async getInvigilationRoster(@Param('id') id: string) {
+    return this.assessmentsService.getInvigilationRoster(id);
+  }
+
+  @Post(':id/invigilation-grant-time')
+  @ApiOperation({ summary: 'Grant extra exam time to candidate' })
+  async grantExtraTime(
+    @Param('id') id: string,
+    @Body() dto: GrantExtraTimeDto,
+    @CurrentUser() adminUser: any,
+  ) {
+    return this.assessmentsService.grantExtraTime(id, dto, adminUser);
+  }
+
+  @Post(':id/invigilation-grade-hold')
+  @ApiOperation({ summary: 'Flag or release grade hold on attempt' })
+  async holdGrade(
+    @Param('id') id: string,
+    @Body() dto: GradeHoldDto,
+    @CurrentUser() adminUser: any,
+  ) {
+    return this.assessmentsService.holdGrade(id, dto, adminUser);
+  }
+
+  @Get(':id/friction-analytics')
+  @ApiOperation({ summary: 'Get per-question friction and struggle analytics' })
+  async getFrictionAnalytics(@Param('id') id: string) {
+    return this.assessmentsService.getFrictionAnalytics(id);
   }
 }

@@ -1,16 +1,21 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, UseGuards, Headers, Header } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AssessmentsService } from './assessments.service';
 import { EvaluateAssessmentCodeDto } from './dto/evaluate-code.dto';
 import { SubmissionRateLimitGuard } from '../common/guards/submission-rate-limit.guard';
+import { SebGuard } from '../exam-security/guards/seb.guard';
+import { LockdownSignatureGuard } from '../exam-security/lockdown-signature.guard';
+import { ExamBackpressureGuard } from '../common/guards/exam-backpressure.guard';
 import {
   SubmitAssessmentDto,
   RecordViolationDto,
   VerifyIdentityDto,
   ProctorCaptureDto,
 } from './dto/submit-assessment.dto';
+import { UpsertAccommodationDto } from './dto/accommodations.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { TeacherGuard } from '../common/guards/admin.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Student Assessments')
@@ -27,6 +32,7 @@ export class AssessmentsStudentController {
   }
 
   @Get(':id/overview')
+  @Header('Cache-Control', 'private, max-age=300')
   @ApiOperation({
     summary: 'Get assessment briefing and candidate eligibility',
   })
@@ -37,7 +43,23 @@ export class AssessmentsStudentController {
     );
   }
 
+  @Get(':id/question-bundle')
+  @Header('Cache-Control', 'private, max-age=300')
+  @ApiOperation({
+    summary: 'Get prefetchable question bundle metadata and references',
+  })
+  async getQuestionBundle(
+    @Param('id') id: string,
+    @CurrentUser() studentUser: any,
+  ) {
+    return this.assessmentsService.getStudentAssessmentOverview(
+      id,
+      studentUser,
+    );
+  }
+
   @Post(':id/start')
+  @UseGuards(SebGuard, LockdownSignatureGuard)
   @ApiOperation({ summary: 'Begin or resume assessment attempt session' })
   @Throttle({
     short: { limit: 10, ttl: 1000 },
@@ -103,6 +125,7 @@ export class AssessmentsStudentController {
   }
 
   @Post(':id/save-progress')
+  @UseGuards(SebGuard, LockdownSignatureGuard, ExamBackpressureGuard)
   @ApiOperation({ summary: 'Autosave candidate responses during test' })
   @Throttle({
     short: { limit: 20, ttl: 1000 },
@@ -113,11 +136,13 @@ export class AssessmentsStudentController {
     @Param('id') id: string,
     @Body() dto: SubmitAssessmentDto,
     @CurrentUser() studentUser: any,
+    @Headers('x-idempotency-key') headerKey?: string,
   ) {
-    return this.assessmentsService.saveProgress(id, dto, studentUser);
+    return this.assessmentsService.saveProgress(id, dto, studentUser, headerKey);
   }
 
   @Post(':id/submit')
+  @UseGuards(SebGuard, LockdownSignatureGuard)
   @ApiOperation({
     summary: 'Submit completed assessment for server evaluation',
   })
@@ -130,12 +155,13 @@ export class AssessmentsStudentController {
     @Param('id') id: string,
     @Body() dto: SubmitAssessmentDto,
     @CurrentUser() studentUser: any,
+    @Headers('x-idempotency-key') headerKey?: string,
   ) {
-    return this.assessmentsService.submitAttempt(id, dto, studentUser);
+    return this.assessmentsService.submitAttempt(id, dto, studentUser, headerKey);
   }
 
   @Post(':id/evaluate-code')
-  @UseGuards(SubmissionRateLimitGuard)
+  @UseGuards(SebGuard, SubmissionRateLimitGuard, LockdownSignatureGuard)
   @Throttle({
     short: { limit: 1, ttl: 4000 },
     medium: { limit: 6, ttl: 30000 },
@@ -153,5 +179,59 @@ export class AssessmentsStudentController {
   @ApiOperation({ summary: 'Get candidate scorecard and performance review' })
   async getResult(@Param('id') id: string, @CurrentUser() studentUser: any) {
     return this.assessmentsService.getStudentResult(id, studentUser);
+  }
+
+  @Get(':id/resume-state')
+  @ApiOperation({ summary: 'Get candidate server-persisted answers, timer, and submission status' })
+  async getResumeState(@Param('id') id: string, @CurrentUser() studentUser: any) {
+    return this.assessmentsService.getStudentResumeState(id, studentUser);
+  }
+
+  @Post(':id/lockdown-feedback')
+  @ApiOperation({ summary: 'Submit post-assessment candidate technical and experience feedback' })
+  async submitLockdownFeedback(
+    @Param('id') id: string,
+    @Body() dto: { rating: number; technicalIssues?: string[]; comments?: string; kioskMode?: string },
+    @CurrentUser() studentUser: any,
+  ) {
+    return this.assessmentsService.saveLockdownFeedback(id, dto, studentUser);
+  }
+
+  @Post(':id/create-practice-mock')
+  @UseGuards(TeacherGuard)
+  @ApiOperation({ summary: 'Create a 5-minute practice mock from this assessment (Instructor / Admin)' })
+  async createPracticeMock(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.assessmentsService.createPracticeMock(id, user);
+  }
+
+  @Get(':id/accommodations')
+  @UseGuards(TeacherGuard)
+  @ApiOperation({ summary: 'Get candidate accommodations for this assessment' })
+  async getAccommodations(@Param('id') id: string) {
+    return this.assessmentsService.getAccommodations(id);
+  }
+
+  @Post(':id/accommodations')
+  @UseGuards(TeacherGuard)
+  @ApiOperation({ summary: 'Upsert candidate accommodation' })
+  async upsertAccommodation(
+    @Param('id') id: string,
+    @Body() dto: UpsertAccommodationDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.assessmentsService.upsertAccommodation(id, dto, user);
+  }
+
+  @Delete(':id/accommodations/:userId')
+  @UseGuards(TeacherGuard)
+  @ApiOperation({ summary: 'Delete candidate accommodation' })
+  async deleteAccommodation(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.assessmentsService.deleteAccommodation(id, userId);
   }
 }

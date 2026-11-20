@@ -48,6 +48,7 @@ export function useAssessmentMedia(
   });
   const [cameraActive, setCameraActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [faceCount, setFaceCount] = useState(0);
@@ -80,6 +81,7 @@ export function useAssessmentMedia(
     session.analyser?.disconnect();
     session.analyser = null;
     session.stream = null;
+    setMediaStream(null);
     releaseAssessmentStream(session.id);
     const video = videoRef.current;
     if (video) {
@@ -121,10 +123,10 @@ export function useAssessmentMedia(
         const preferredCamera = systemDefaultCamera ? undefined : getPreferredAssessmentCamera(sessionId);
         const stream = takeAssessmentStream(sessionId, preferredCamera) || await navigator.mediaDevices.getUserMedia({
           video: preferredCamera
-            ? { deviceId: { exact: preferredCamera }, width: { ideal: 320 }, height: { ideal: 240 } }
+            ? { deviceId: { exact: preferredCamera }, width: { ideal: 640, max: 1280 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } }
             : systemDefaultCamera
-              ? true
-              : { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: "user" },
+              ? { width: { ideal: 640, max: 1280 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } }
+              : { width: { ideal: 640, max: 1280 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 }, facingMode: "user" },
           audio: true,
         });
         // A permission prompt may settle after submission, navigation or a StrictMode cleanup.
@@ -133,6 +135,7 @@ export function useAssessmentMedia(
           return;
         }
         session.stream = stream;
+        setMediaStream(stream);
         trackAssessmentStream(sessionId, stream);
         setCameraActive(true);
         setMicActive(true);
@@ -294,6 +297,7 @@ export function useAssessmentMedia(
     attachVideo,
     cameraActive: enabled && cameraActive,
     micActive: enabled && micActive,
+    mediaStream: enabled ? mediaStream : null,
     audioLevel: enabled ? audioLevel : 0,
     cameraError,
     faceCount: enabled ? faceCount : 0,

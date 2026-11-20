@@ -408,4 +408,201 @@ export class CheatingRadarService implements OnModuleDestroy {
 
     return false;
   }
+
+  // --- HEURISTIC 4: DESKTOP CLIENT RELAUNCH / CRASH RECOVERY ---
+
+  /**
+   * Records desktop client relaunch events during an active assessment.
+   * Relaunching more than twice flags HIGH risk in Cheating Radar.
+   */
+  async recordClientRelaunch(params: {
+    studentId: string;
+    assessmentId: string;
+    relaunchCount: number;
+    actorName?: string;
+    actorEmail?: string;
+    actorUid?: string;
+    ipAddress?: string;
+  }): Promise<boolean> {
+    const { studentId, assessmentId, relaunchCount, ipAddress } = params;
+    if (!studentId || !assessmentId) return false;
+
+    const isHighRisk = relaunchCount > 2;
+    const severity = isHighRisk ? 'HIGH' : 'LOW';
+    const riskWeight = isHighRisk ? 3 : 1;
+
+    const details = {
+      anomaly: 'CLIENT_RELAUNCHED',
+      relaunchCount,
+      riskLevel: severity,
+      assessmentId,
+    };
+
+    this.logger.warn(
+      `[CHEATING_RADAR] Client relaunch #${relaunchCount} for student ${studentId} in assessment ${assessmentId} (Risk: ${severity})`,
+    );
+
+    this.activityLogService.log({
+      action: 'CHEATING_RADAR_CLIENT_RELAUNCHED',
+      actorId: studentId,
+      actorName: params.actorName,
+      actorEmail: params.actorEmail,
+      actorUid: params.actorUid,
+      studentId,
+      assessmentId,
+      target: `Assessment ${assessmentId}`,
+      targetType: 'Assessment',
+      riskWeight,
+      ipAddress,
+      metadata: details,
+    });
+
+    if (isHighRisk) {
+      void this.alertWebhookService.sendAlert({
+        action: 'CHEATING_RADAR_CLIENT_RELAUNCHED',
+        severity: 'CRITICAL',
+        riskWeight: 3,
+        actorName: params.actorName,
+        actorEmail: params.actorEmail,
+        actorUid: params.actorUid,
+        target: `Assessment ${assessmentId}`,
+        targetType: 'Assessment',
+        ipAddress,
+        details,
+      });
+    }
+
+    return true;
+  }
+
+  // --- HEURISTIC 5: HARDWARE / MEDIA DISCONNECT OUTAGE ---
+
+  /**
+   * Records media disconnect events (CAMERA_OR_MIC_DISCONNECTED / CAMERA_OR_MIC_RESTORED).
+   * Accumulates outage duration and triggers an alert if total outage exceeds 30 seconds.
+   */
+  async recordMediaDisconnectOutage(params: {
+    studentId: string;
+    assessmentId: string;
+    deviceKind: string;
+    outageDurationMs?: number;
+    reason?: string;
+    actorName?: string;
+    actorEmail?: string;
+    actorUid?: string;
+    ipAddress?: string;
+  }): Promise<boolean> {
+    const { studentId, assessmentId, deviceKind, outageDurationMs, reason, ipAddress } = params;
+    if (!studentId || !assessmentId) return false;
+
+    const outageSecs = Math.round((outageDurationMs || 0) / 1000);
+    const isSignificant = outageSecs >= 30;
+    const severity = isSignificant ? 'HIGH' : 'MEDIUM';
+    const riskWeight = isSignificant ? 3 : 2;
+
+    const details = {
+      anomaly: 'MEDIA_DISCONNECT_OUTAGE',
+      deviceKind,
+      outageDurationMs,
+      outageSecs,
+      reason: reason || 'hardware_disconnect',
+      assessmentId,
+    };
+
+    this.logger.warn(
+      `[CHEATING_RADAR] Media disconnect outage for student ${studentId} in assessment ${assessmentId}: ${deviceKind} out for ${outageSecs}s`,
+    );
+
+    this.activityLogService.log({
+      action: 'CHEATING_RADAR_MEDIA_DISCONNECT_OUTAGE',
+      actorId: studentId,
+      actorName: params.actorName,
+      actorEmail: params.actorEmail,
+      actorUid: params.actorUid,
+      studentId,
+      assessmentId,
+      target: `Assessment ${assessmentId}`,
+      targetType: 'Assessment',
+      riskWeight,
+      ipAddress,
+      metadata: details,
+    });
+
+    if (isSignificant) {
+      void this.alertWebhookService.sendAlert({
+        action: 'CHEATING_RADAR_MEDIA_DISCONNECT_OUTAGE',
+        severity: 'CRITICAL',
+        riskWeight,
+        actorName: params.actorName,
+        actorEmail: params.actorEmail,
+        actorUid: params.actorUid,
+        target: `Assessment ${assessmentId}`,
+        targetType: 'Assessment',
+        ipAddress,
+        details,
+      });
+    }
+
+    return true;
+  }
+
+  // --- HEURISTIC 6: FRONTIER SECURITY HARDENING VIOLATIONS ---
+
+  /**
+   * Records critical frontier security anomalies:
+   * HID_MACRO_INJECTION_SUSPECTED, WATERMARK_TAMPER_ATTEMPT, RUNTIME_TAMPER_DETECTED, INVALID_REQUEST_SIGNATURE
+   */
+  async recordSecurityViolationAnomaly(params: {
+    studentId: string;
+    assessmentId: string;
+    eventType: string;
+    metadata?: any;
+    actorName?: string;
+    actorEmail?: string;
+    actorUid?: string;
+    ipAddress?: string;
+  }): Promise<boolean> {
+    const { studentId, assessmentId, eventType, metadata, ipAddress } = params;
+    if (!studentId || !assessmentId) return false;
+
+    const details = {
+      anomaly: eventType,
+      assessmentId,
+      metadata: metadata || {},
+    };
+
+    this.logger.warn(
+      `[CHEATING_RADAR] Critical security event ${eventType} for student ${studentId} in assessment ${assessmentId}`,
+    );
+
+    this.activityLogService.log({
+      action: `CHEATING_RADAR_${eventType}`,
+      actorId: studentId,
+      actorName: params.actorName,
+      actorEmail: params.actorEmail,
+      actorUid: params.actorUid,
+      studentId,
+      assessmentId,
+      target: `Assessment ${assessmentId}`,
+      targetType: 'Assessment',
+      riskWeight: 4, // Critical
+      ipAddress,
+      metadata: details,
+    });
+
+    void this.alertWebhookService.sendAlert({
+      action: `CHEATING_RADAR_${eventType}`,
+      severity: 'CRITICAL',
+      riskWeight: 4,
+      actorName: params.actorName,
+      actorEmail: params.actorEmail,
+      actorUid: params.actorUid,
+      target: `Assessment ${assessmentId}`,
+      targetType: 'Assessment',
+      ipAddress,
+      details,
+    });
+
+    return true;
+  }
 }

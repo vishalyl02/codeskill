@@ -7,6 +7,7 @@ import { applyAssessmentProctoringModesMigration } from './migrations/assessment
 import { applyAssessmentResumeLimitMigration } from './migrations/assessment-resume-limit';
 import { applyLearningModuleMigration } from './migrations/learning-module';
 import { applyFacultyAssignmentsMigration } from './migrations/faculty-assignments';
+import { applyAssessmentVdiOverrideMigration } from './migrations/assessment-vdi-override';
 import { applyContestSubmissionScopeMigration, migrateContestSubmissionShards } from './migrations/contest-submission-scope';
 import { parseSubmissionShardingConfig } from './sharding/sharding.config';
 import { readShardingState, validateShardingState } from './sharding/sharding-state';
@@ -32,6 +33,7 @@ export async function runAssessmentSchemaMigrations(): Promise<void> {
         await applyAssessmentResumeLimitMigration(runner);
         await applyLearningModuleMigration(runner);
         await applyFacultyAssignmentsMigration(runner);
+        await applyAssessmentVdiOverrideMigration(runner);
         if (!sharding) await applyContestSubmissionScopeMigration(runner);
         await runner.commitTransaction();
       } catch (error) {

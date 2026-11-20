@@ -6,6 +6,7 @@ import { getBrowserApiBaseURL } from "@/lib/api-base-url";
 import { normalizeProblemQuery } from "@/lib/public-problems";
 import { logger } from "@/lib/logger";
 import { notifyMutationFailure, notifyMutationSuccess } from "@/lib/api-mutation-notifications";
+import { isLockdownClient, signLockdownRequest, signExamRequest, computeSha256 } from "@/lib/lockdown-bridge";
 
 // Dynamically determine the correct API base URL
 const getDynamicBaseURL = (): string => {
@@ -21,7 +22,7 @@ const api = axios.create({
 });
 
 // Attach JWT token to every request and ensure correct baseURL/URL formatting
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   // Dynamically update baseURL in browser to prevent stale baked build URLs
   if (typeof window !== "undefined") {
     config.baseURL = getDynamicBaseURL();
@@ -44,6 +45,53 @@ api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = authStorage.getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
+
+    if (isLockdownClient()) {
+      try {
+        const method = (config.method || "get").toUpperCase();
+        let pathPart = (config.url || "").split("?")[0];
+        if (pathPart.startsWith("/api/")) {
+          pathPart = pathPart.slice(5);
+        } else if (pathPart.startsWith("api/")) {
+          pathPart = pathPart.slice(4);
+        } else if (pathPart.startsWith("/")) {
+          pathPart = pathPart.slice(1);
+        }
+        const formattedPath = `/api/${pathPart}`;
+        const bodyStr = config.data
+          ? typeof config.data === "string"
+            ? config.data
+            : JSON.stringify(config.data)
+          : "";
+
+        // 1. Continuous per-request hardware HMAC signature (X-Lockdown-*)
+        try {
+          const bodySha256 = await computeSha256(bodyStr);
+          const signedExamHeaders = await signExamRequest(method, formattedPath, bodySha256);
+          if (signedExamHeaders && signedExamHeaders["X-Lockdown-Session-Id"]) {
+            Object.assign(config.headers, signedExamHeaders);
+          }
+        } catch {
+          // Continue to ECDSA signer
+        }
+
+        // 2. ECDSA attestation headers (X-CodeSkill-*)
+        try {
+          const signedHeaders = await signLockdownRequest(method, formattedPath, bodyStr);
+          if (signedHeaders && (signedHeaders["X-CodeSkill-Session-Id"] || (signedHeaders as any).session_id)) {
+            config.headers["X-CodeSkill-Session-Id"] = signedHeaders["X-CodeSkill-Session-Id"] || (signedHeaders as any).session_id;
+            config.headers["X-CodeSkill-Timestamp"] = signedHeaders["X-CodeSkill-Timestamp"] || (signedHeaders as any).timestamp;
+            config.headers["X-CodeSkill-Nonce"] = signedHeaders["X-CodeSkill-Nonce"] || (signedHeaders as any).nonce;
+            config.headers["X-CodeSkill-Signature"] = signedHeaders["X-CodeSkill-Signature"] || (signedHeaders as any).signature;
+            config.headers["X-CodeSkill-Client"] = signedHeaders["X-CodeSkill-Client"] || (signedHeaders as any).client || "CodeSkill-LockDown/1.0.0";
+          }
+        } catch {
+          // Silently proceed
+        }
+      } catch {
+        // Silently proceed if attestation session is not yet established
+      }
+    }
   }
   return config;
 });
@@ -737,9 +785,12 @@ export const studentAssessmentsAPI = {
   getMyAssessments: (signal?: AbortSignal) => api.get("/assessments/my-assessments", { signal }),
   getOverview: (id: string) => api.get(`/assessments/${id}/overview`),
   startAttempt: (id: string) => api.post(`/assessments/${id}/start`),
-  saveProgress: (id: string, data: any) => api.post(`/assessments/${id}/save-progress`, data),
-  submitAttempt: (id: string, data: any) => api.post(`/assessments/${id}/submit`, data),
+  saveProgress: (id: string, data: any, config?: any) => api.post(`/assessments/${id}/save-progress`, data, config),
+  submitAttempt: (id: string, data: any, config?: any) => api.post(`/assessments/${id}/submit`, data, config),
   getResult: (id: string) => api.get(`/assessments/${id}/result`),
+  getResumeState: (id: string) => api.get(`/assessments/${id}/resume-state`),
+  submitLockdownFeedback: (id: string, data: { rating: number; technicalIssues?: string[]; comments?: string; kioskMode?: string }) =>
+    api.post(`/assessments/${id}/lockdown-feedback`, data),
   retakeAttempt: (id: string) => api.post(`/assessments/${id}/retake`),
   recordProctorCapture: (id: string, data: { type: string; image: string; filename: string; timestamp: string }) =>
     api.post(`/assessments/${id}/proctor-capture`, data),

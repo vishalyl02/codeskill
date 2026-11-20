@@ -145,6 +145,22 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  async rpush(key: string, value: string): Promise<number> {
+    try {
+      return await (this.client as any).rpush(key, value);
+    } catch {
+      return 0;
+    }
+  }
+
+  async lpop(key: string): Promise<string | null> {
+    try {
+      return await (this.client as any).lpop(key);
+    } catch {
+      return null;
+    }
+  }
+
   createSubscriberClient(): Redis | Cluster {
     if (typeof (this.client as any).duplicate === 'function') {
       return (this.client as any).duplicate();

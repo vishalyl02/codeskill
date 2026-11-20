@@ -13,7 +13,7 @@ The backend operates as both an HTTP REST / Socket.IO API server and a decoupled
 - **Contest Engine (`src/contests/`):** Real-time competitive programming arena with live leaderboards, penalty calculations, and Socket.IO cluster broadcast.
 - **Submission Sharding (`src/database/sharding/`):** `SubmissionStore` providing 128-bucket deterministic MD5 user hash routing across independent PostgreSQL shards.
 - **Execution & Sandboxing (`src/execution/`):** BullMQ queue processor executing multi-language code (Python, C++, Java, C, TypeScript) inside isolated Docker containers or remote Piston microservices with strict CPU/memory cgroups and network disabling.
-- **AI Anti-Cheat & Security (`src/exam-security/`):** Heartbeat tracking, Safe Exam Browser (SEB) verification, and timestamped proctoring violation ingestion.
+- **AI Anti-Cheat & Security (`src/exam-security/`):** Heartbeat tracking, CodeSkill LockDown cryptographic attestation, hardware HMAC verification, and timestamped proctoring violation ingestion.
 - **Student Onboarding (`src/students/`):** Streamed CSV/Excel bulk upload, cross-table deduplication, transactional insertion, and BullMQ AWS SES credential dispatch.
 - **Learning Paths & Certification (`src/learning/`):** Structured curriculum paths, lessons without video dependency, embedded practice exercises, automated XP/badge gamification, and digital credentials with public verification (`/certificates/verify/:credentialId`).
 - **Bug Reporting & Tracking (`src/bugs/`):** Admin bug triage studio supporting S3 screenshot evidence, status lifecycles, comments, and activity logs.

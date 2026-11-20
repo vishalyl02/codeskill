@@ -82,6 +82,10 @@ export const authStorage = {
     return 'session';
   },
 
+  setAccessToken(accessToken: string): void {
+    this.setTokens(accessToken);
+  },
+
   setTokens(accessToken: string, refreshToken?: string, rememberMe?: boolean): void {
     if (typeof window === 'undefined') return;
 

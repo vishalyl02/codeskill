@@ -20,6 +20,7 @@ import { applyProblemConfigDefaultLanguageMigration } from './migrations/problem
 import { applyAnalyticsOptimizationIndexesMigration } from './migrations/analytics-optimization-indexes';
 import { applyQuestionHideMainMethodMigration } from './migrations/question-hide-main-method';
 import { applyAssessmentSequentialSectionsMigration } from './migrations/assessment-sequential-sections';
+import { applyAssessmentVdiOverrideMigration } from './migrations/assessment-vdi-override';
 import { applyContestSubmissionScopeMigration, migrateContestSubmissionShards } from './migrations/contest-submission-scope';
 
 export function practiceSubmissionMigrationOptions(): DataSourceOptions {
@@ -77,6 +78,7 @@ export async function runPracticeSubmissionSourceMigration(): Promise<void> {
         await applyAnalyticsOptimizationIndexesMigration(queryRunner);
         await applyQuestionHideMainMethodMigration(queryRunner);
         await applyAssessmentSequentialSectionsMigration(queryRunner);
+        await applyAssessmentVdiOverrideMigration(queryRunner);
         if (!sharding) await applyContestSubmissionScopeMigration(queryRunner);
         await queryRunner.commitTransaction();
       } catch (error) {

@@ -173,6 +173,15 @@ export class AssessmentAttempt {
   @Column({ name: 'radar_flags_cleared', type: 'boolean', default: false, nullable: true })
   radarFlagsCleared?: boolean;
 
+  @Column({ name: 'extra_time_granted_minutes', type: 'int', default: 0, nullable: true })
+  extraTimeGrantedMinutes?: number;
+
+  @Column({ name: 'grade_held', type: 'boolean', default: false, nullable: true })
+  gradeHeld?: boolean;
+
+  @Column({ name: 'grade_hold_reason', type: 'text', nullable: true })
+  gradeHoldReason?: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

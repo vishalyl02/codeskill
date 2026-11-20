@@ -7,9 +7,10 @@
 
 ## 1. Scope & Monorepo Topology
 
-- Two independent application packages (no npm workspace orchestrator):
+- Application packages (independent packages, decoupled dependencies):
   - `backend-nestjs/`: NestJS 11 API, Apollo GraphQL, Socket.IO WebSockets, BullMQ Judge.
   - `frontend-v2/`: Next.js 16 App Router (React 19, Webpack).
+  - `codeskill-lockdown/`: Cross-platform desktop kiosk exam browser (Tauri v2, Rust) for Windows, macOS, and Linux. Completely decoupled from web/backend runtimes.
 - Infrastructure and ops code:
   - `terraform/`: AWS infrastructure definitions (`dev`, `production`, `judges` environments and 22 child modules).
   - `deployment/`: Docker compose files, Nginx reverse proxies, Piston/Judge0 runner configs.
@@ -18,6 +19,7 @@
   - Backend API: `backend-nestjs/src/main.ts` (`dist/main.js`), Port 5001, Global prefix `/api`.
   - Backend Judge Worker: `backend-nestjs/src/worker.ts` (`dist/worker.js`).
   - Frontend Next.js: `frontend-v2/src/app/layout.tsx`, Port 3000.
+  - Desktop Kiosk: `codeskill-lockdown/src-tauri/src/main.rs`.
   - Process Manager: `ecosystem.config.js` (PM2).
 
 ---
@@ -30,15 +32,20 @@ All commands below assume the repository root directory unless wrapped in subshe
 ```bash
 (cd backend-nestjs && npm ci --legacy-peer-deps)
 (cd frontend-v2 && npm ci --legacy-peer-deps)
+# Optional desktop kiosk packaging
+(cd codeskill-lockdown && npm install)
 ```
 
-### Static Type Checking (Without Emitted Output)
+### Static Type Checking & Code Verification (Without Emitted Output)
 ```bash
 # Backend TypeScript verification
 (cd backend-nestjs && npx --no-install tsc -p tsconfig.build.json --noEmit --incremental false)
 
 # Frontend TypeScript verification
 (cd frontend-v2 && npx --no-install tsc --noEmit --incremental false)
+
+# Optional Rust verification for CodeSkill LockDown (when Cargo/Rust is installed)
+cargo check --manifest-path codeskill-lockdown/src-tauri/Cargo.toml
 ```
 
 ### Production Compiles & Builds

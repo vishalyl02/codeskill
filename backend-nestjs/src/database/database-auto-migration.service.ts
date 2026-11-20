@@ -14,6 +14,13 @@ import { applyLearningModuleMigration } from './migrations/learning-module';
 import { applyQuestionHideMainMethodMigration } from './migrations/question-hide-main-method';
 import { applyFacultyAssignmentsMigration } from './migrations/faculty-assignments';
 import { applyAssessmentInProgressUniqueIndexMigration } from './migrations/assessment-in-progress-unique-index';
+import { applyAssessmentVdiOverrideMigration } from './migrations/assessment-vdi-override';
+import { applyAssessmentLockdownEnforcementMigration } from './migrations/assessment-lockdown-enforcement';
+import { applyAssessmentDockToolsMigration } from './migrations/assessment-dock-tools';
+import { applyAssessmentEnterpriseHardeningMigration } from './migrations/assessment-enterprise-hardening';
+import { applyExamSecurityCompositeIndexesMigration } from './migrations/exam-security-composite-indexes';
+import { applyAssessmentForensicWatermarkMigration } from './migrations/assessment-forensic-watermark';
+import { applyCandidateExamAccommodationsMigration } from './migrations/candidate-exam-accommodations';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -136,6 +143,41 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       // 16. Assessment in_progress unique index (AUD-CON-008)
       await this.executeStep('assessment-in-progress-unique-index', () =>
         applyAssessmentInProgressUniqueIndexMigration(queryRunner),
+      );
+
+      // 17. Assessment allowVirtualMachine VDI override column
+      await this.executeStep('assessment-vdi-override', () =>
+        applyAssessmentVdiOverrideMigration(queryRunner),
+      );
+
+      // 18. Assessment requireLockdown column
+      await this.executeStep('assessment-lockdown-enforcement', () =>
+        applyAssessmentLockdownEnforcementMigration(queryRunner),
+      );
+
+      // 19. Assessment lockdown dock tools (quit password, calculators, reference PDF)
+      await this.executeStep('assessment-dock-tools', () =>
+        applyAssessmentDockToolsMigration(queryRunner),
+      );
+
+      // 20. Assessment enterprise hardening (close other apps, spellcheck, find on page, url patterns, screen capture)
+      await this.executeStep('assessment-enterprise-hardening', () =>
+        applyAssessmentEnterpriseHardeningMigration(queryRunner),
+      );
+
+      // 21. Exam security composite indexes
+      await this.executeStep('exam-security-composite-indexes', () =>
+        applyExamSecurityCompositeIndexesMigration(queryRunner),
+      );
+
+      // 22. Assessment forensic screen watermark
+      await this.executeStep('assessment-forensic-watermark', () =>
+        applyAssessmentForensicWatermarkMigration(queryRunner),
+      );
+
+      // 23. Candidate exam accommodations table
+      await this.executeStep('candidate-exam-accommodations', () =>
+        applyCandidateExamAccommodationsMigration(queryRunner),
       );
     } finally {
       await queryRunner.release();

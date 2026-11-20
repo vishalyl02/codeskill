@@ -10,6 +10,9 @@ import {
   XCircle,
   Clock,
   ShieldAlert,
+  ShieldCheck,
+  Star,
+  AlertTriangle,
   Download,
   Search,
   RefreshCw,
@@ -31,6 +34,8 @@ import toast from "react-hot-toast";
 import { formatIndianDateTime } from "@/lib/indian-time";
 import { assessmentResultsCSV } from "@/lib/assessment-results-export";
 import { Spinner } from "@/components/ui/spinner";
+import QuestionFrictionHeatmap from "@/components/assessment/QuestionFrictionHeatmap";
+import IntegrityReviewCard from "@/components/assessment/IntegrityReviewCard";
 
 export default function FacultyAssessmentResultsPage({
   params,
@@ -46,7 +51,7 @@ export default function FacultyAssessmentResultsPage({
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"candidates" | "all_attempts">("candidates");
   const [selectedCandidate, setSelectedCandidate] = useState<any | null>(null);
-  const [modalTab, setModalTab] = useState<"proctoring" | "grading" | "code" | "attempts">("proctoring");
+  const [modalTab, setModalTab] = useState<"proctoring" | "grading" | "code" | "attempts" | "integrity_replay">("proctoring");
 
   // Snapshots state
   const [snapshots, setSnapshots] = useState<any[]>([]);
@@ -492,6 +497,9 @@ export default function FacultyAssessmentResultsPage({
         )}
       </div>
 
+      {/* Per-Question Friction & Candidate Struggle Heatmap */}
+      <QuestionFrictionHeatmap assessmentId={id} />
+
       {/* Proctoring, Snapshots & Grading Modal */}
       {selectedCandidate && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -541,6 +549,32 @@ export default function FacultyAssessmentResultsPage({
               </div>
             </div>
 
+            {/* Candidate Kiosk & Security Attestation Badge */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-muted/20 border border-border text-xs">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                <span className="font-semibold text-foreground">Client Environment:</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
+                  {selectedCandidate.kioskMode === "macos_aac_enforced"
+                    ? "macOS AAC Hardware Enclave"
+                    : selectedCandidate.kioskMode === "windows_isolated_desktop"
+                    ? "Windows Isolated Desktop (TPM)"
+                    : selectedCandidate.kioskMode === "linux_wayland_cage"
+                    ? "Linux Wayland Cage"
+                    : selectedCandidate.attestationTier === "hardware_tpm_enclave"
+                    ? "Hardware TPM / Secure Enclave"
+                    : selectedCandidate.requireLockdown
+                    ? "CodeSkill LockDown (Standard)"
+                    : "Standard Web Session"}
+                </span>
+              </div>
+              {selectedCandidate.clientBinaryHash && (
+                <div className="text-[10px] font-mono text-muted-foreground">
+                  Binary: {selectedCandidate.clientBinaryHash.slice(0, 12)}...
+                </div>
+              )}
+            </div>
+
             {/* Navigation Tabs */}
             <div className="flex items-center gap-2 border-b border-border pb-2 text-xs">
               <button
@@ -587,6 +621,17 @@ export default function FacultyAssessmentResultsPage({
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Attempts ({selectedCandidate.allAttempts?.length || 1})
               </button>
+              <button
+                type="button"
+                onClick={() => setModalTab("integrity_replay")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                  modalTab === "integrity_replay"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5" /> Integrity & Code Replay
+              </button>
             </div>
 
             {/* Modal Body */}
@@ -631,6 +676,53 @@ export default function FacultyAssessmentResultsPage({
                       </div>
                     )}
                   </div>
+
+                  {/* Camera & Mic Disconnect Outages Alert Chip */}
+                  {(() => {
+                    const disconnects = (selectedCandidate.violations || []).filter(
+                      (v: any) => v.type === 'CAMERA_OR_MIC_DISCONNECTED' || v.type === 'CAMERA_OR_MIC_RESTORED'
+                    );
+                    if (disconnects.length === 0) return null;
+                    const cameraOutages = disconnects.filter((v: any) => v.metadata?.deviceKind === 'videoinput' || v.type === 'CAMERA_OR_MIC_DISCONNECTED');
+                    const totalDurationMs = disconnects.reduce((acc: number, v: any) => acc + (v.metadata?.outageDurationMs || 0), 0);
+                    const totalSecs = Math.round(totalDurationMs / 1000);
+                    return (
+                      <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-semibold">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>
+                          Hardware Outage Alert: Camera/Mic disconnected ({cameraOutages.length} incidents{totalSecs > 0 ? `, ~${totalSecs}s total outage` : ''})
+                        </span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Post-Exam Candidate Feedback Section */}
+                  {selectedCandidate.feedback && (
+                    <div className="p-3.5 rounded-xl bg-card border border-border space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                          <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> Candidate Post-Exam Feedback
+                        </h4>
+                        <div className="flex items-center gap-1 text-xs font-bold text-amber-400">
+                          {selectedCandidate.feedback.rating} / 5 Stars
+                        </div>
+                      </div>
+                      {Array.isArray(selectedCandidate.feedback.technicalIssues) && selectedCandidate.feedback.technicalIssues.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {selectedCandidate.feedback.technicalIssues.map((tag: string, i: number) => (
+                            <span key={i} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {selectedCandidate.feedback.comments && (
+                        <p className="text-xs text-muted-foreground italic bg-muted/30 p-2 rounded-lg border border-border/50">
+                          &ldquo;{selectedCandidate.feedback.comments}&rdquo;
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Violations Feed */}
                   <div>
@@ -786,6 +878,22 @@ export default function FacultyAssessmentResultsPage({
                     </div>
                   ))}
                 </div>
+              )}
+
+              {modalTab === "integrity_replay" && (
+                <IntegrityReviewCard
+                  candidateName={selectedCandidate.studentName}
+                  candidateId={selectedCandidate.studentId || selectedCandidate.studentUid}
+                  assessmentId={id}
+                  gradeHeld={selectedCandidate.gradeHeld}
+                  gradeHoldReason={selectedCandidate.gradeHoldReason}
+                  violations={selectedCandidate.violations}
+                  onDecisionChange={(newHold, reason) => {
+                    setSelectedCandidate((prev: any) =>
+                      prev ? { ...prev, gradeHeld: newHold, gradeHoldReason: reason } : prev,
+                    );
+                  }}
+                />
               )}
             </div>
 

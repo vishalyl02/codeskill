@@ -281,6 +281,59 @@ export class CreateAssessmentDto {
   @IsOptional()
   lockSectionsSequentially?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  allowVirtualMachine?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  requireLockdown?: boolean;
+
+  @IsString()
+  @IsOptional()
+  lockdownQuitPassword?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  allowCalculators?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  allowScratchpad?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  allowReferenceDoc?: boolean;
+
+  @IsString()
+  @IsOptional()
+  referencePdfUrl?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  requireCloseOtherApps?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  allowSpellCheck?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  allowFindOnPage?: boolean;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  allowedUrlPatterns?: string[];
+
+  @IsBoolean()
+  @IsOptional()
+  enableScreenCaptureSnapshots?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  enableForensicWatermark?: boolean;
+
   @IsOptional()
   @ValidateNested()
   @Type(() => AssessmentResultDisplayDto)

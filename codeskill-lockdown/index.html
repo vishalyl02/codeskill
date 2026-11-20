@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeSkill LockDown</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      user-select: none;
+    }
+    .card {
+      text-align: center;
+      max-width: 460px;
+      padding: 32px;
+      background: #1e293b;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+      color: #38bdf8;
+    }
+    p {
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .spinner {
+      margin: 20px auto;
+      width: 40px;
+      height: 40px;
+      border: 4px solid rgba(255,255,255,0.1);
+      border-left-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h1>CodeSkill LockDown Browser</h1>
+    <p>Secure exam environment active. Initializing attestation and connecting to exam session...</p>
+    <div id="diagnosticActions" style="display: none; margin-top: 20px;">
+      <button id="systemCheckBtn" style="background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+        Test My LockDown Setup (Diagnostics)
+      </button>
+    </div>
+  </div>
+  <script>
+    (function() {
+      var redirected = false;
+      var defaultOrigin = 'http://localhost:3000';
+
+      function navigateTo(url) {
+        if (!redirected) {
+          redirected = true;
+          window.location.href = url;
+        }
+      }
+
+      function resolveOrigin(cb) {
+        var invoker = null;
+        if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+          invoker = window.__TAURI_INTERNALS__.invoke;
+        } else if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
+          invoker = window.__TAURI__.core.invoke;
+        }
+
+        if (invoker) {
+          invoker('get_frontend_origin')
+            .then(function(origin) {
+              cb(origin || defaultOrigin);
+            })
+            .catch(function() {
+              cb(defaultOrigin);
+            });
+        } else {
+          cb(defaultOrigin);
+        }
+      }
+
+      // Check if Tauri events are available
+      if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
+        window.__TAURI__.event.listen('exam:system-check-launch', function() {
+          resolveOrigin(function(origin) {
+            navigateTo(origin.replace(/\/+$/, '') + '/lockdown-system-check');
+          });
+        });
+
+        window.__TAURI__.event.listen('exam:deep-link-launch', function(e) {
+          if (e && e.payload && e.payload.examId) {
+            var tok = e.payload.token ? '?lockdownToken=' + encodeURIComponent(e.payload.token) : '';
+            resolveOrigin(function(origin) {
+              navigateTo(origin.replace(/\/+$/, '') + '/assessments/' + encodeURIComponent(e.payload.examId) + '/take' + tok);
+            });
+          }
+        });
+      }
+
+      // Standalone Launch: do NOT redirect to /assessments. Show diagnostic button so candidate can test setup.
+      setTimeout(function() {
+        if (!redirected) {
+          var p = document.querySelector('p');
+          if (p) {
+            p.innerText = "Single-Assessment Isolation Active. Click 'Launch in CodeSkill LockDown' from your exam portal, or test your setup below.";
+          }
+          var actions = document.getElementById('diagnosticActions');
+          if (actions) {
+            actions.style.display = 'block';
+          }
+          var btn = document.getElementById('systemCheckBtn');
+          if (btn) {
+            btn.onclick = function() {
+              resolveOrigin(function(origin) {
+                navigateTo(origin.replace(/\/+$/, '') + '/lockdown-system-check');
+              });
+            };
+          }
+        }
+      }, 800);
+    })();
+  </script>
+</body>
+</html>

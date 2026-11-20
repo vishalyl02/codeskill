@@ -82,8 +82,9 @@ export function Navbar() {
   const isPortalPage = pathname ? pathname.startsWith("/admin") || pathname.startsWith("/teacher") : false;
   const isWorkspacePage = pathname ? pathname.match(/^\/(problems|contest)\/[^/]+$/) : false;
   const isExamTakingPage = pathname ? (pathname.includes("/take") || pathname.endsWith("/attempt")) : false;
+  const isLockdownPage = pathname ? pathname.startsWith("/lockdown-") : false;
 
-  if (!mounted || isAuthPage || isPortalPage || isWorkspacePage || isExamTakingPage) {
+  if (!mounted || isAuthPage || isPortalPage || isWorkspacePage || isExamTakingPage || isLockdownPage) {
     return null;
   }
 

@@ -10,7 +10,8 @@ import QuestionPicker from "./_components/QuestionPicker";
 import {
   ArrowLeft, CheckCircle2, Clock, Plus, Trash2, Shield, ShieldAlert,
   ShieldOff, AlertTriangle, GripVertical, Settings, Save, Sparkles, X, GraduationCap,
-  Lock, Search, UserCheck, Eye, EyeOff
+  Lock, Search, UserCheck, Eye, EyeOff, Laptop, Monitor, KeyRound, Calculator, BookOpen, FileText,
+  ShieldCheck, Globe, Camera, Fingerprint
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { ToastProvider, useToast } from "../../questions/create/_components/Toast"; // Reuse toast
@@ -65,6 +66,15 @@ type AssessmentApiData = {
   targetGroups?: string[];
   targetStudentIds?: string[];
   lockSectionsSequentially?: boolean;
+  requireLockdown?: boolean;
+  allowVirtualMachine?: boolean;
+  requireCloseOtherApps?: boolean;
+  allowSpellCheck?: boolean;
+  allowFindOnPage?: boolean;
+  allowedUrlPatterns?: string[];
+  enableScreenCaptureSnapshots?: boolean;
+  enableForensicWatermark?: boolean;
+  securityPolicy?: any;
   showResultImmediately?: boolean;
   allowReview?: boolean;
   resultDisplaySettings?: any;
@@ -205,6 +215,14 @@ function AssessmentBuilder() {
           status: assessment.status === "published" ? "published" : "draft",
           targetStudentIds: Array.isArray(assessment.targetStudentIds) ? assessment.targetStudentIds : [],
           lockSectionsSequentially: Boolean(assessment.lockSectionsSequentially),
+          requireLockdown: Boolean(assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB),
+          allowVirtualMachine: Boolean(assessment.allowVirtualMachine),
+          requireCloseOtherApps: assessment.requireCloseOtherApps ?? assessment.securityPolicy?.requireCloseOtherApps ?? true,
+          allowSpellCheck: assessment.allowSpellCheck ?? assessment.securityPolicy?.allowSpellCheck ?? false,
+          allowFindOnPage: assessment.allowFindOnPage ?? assessment.securityPolicy?.allowFindOnPage ?? true,
+          allowedUrlPatterns: assessment.allowedUrlPatterns ?? assessment.securityPolicy?.allowedUrlPatterns ?? [],
+          enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
+          enableForensicWatermark: Boolean(assessment.enableForensicWatermark ?? assessment.securityPolicy?.enableForensicWatermark),
           showResultImmediately: assessment.showResultImmediately !== false,
           allowReview: assessment.allowReview !== false,
           resultDisplaySettings: assessment.resultDisplaySettings || {},
@@ -359,6 +377,51 @@ function AssessmentBuilder() {
   const updateGroup = (group: "a" | "b" | "both") => {
     setTargetGroup(group);
   };
+
+  const applySecurityProfile = (profile: "STANDARD_CLASSROOM_QUIZ" | "PROCTORED_MIDFINAL" | "PROCTORED_MIDTERM_FINAL" | "HIGH_STAKES_CERTIFICATION") => {
+    store.setRequireLockdown(true);
+    if (profile === "STANDARD_CLASSROOM_QUIZ") {
+      store.setAllowCalculators(true);
+      store.setAllowScratchpad(true);
+      store.setAllowVirtualMachine(true);
+      store.setRequireCloseOtherApps(true);
+      store.setEnableForensicWatermark(false);
+      store.setProctoring({
+        useCamera: false,
+        enforceFullscreen: true,
+        blockCopyPaste: true,
+        detectTabSwitch: true,
+      });
+    } else if (profile === "PROCTORED_MIDTERM_FINAL" || profile === "PROCTORED_MIDFINAL") {
+      store.setAllowCalculators(true);
+      store.setAllowScratchpad(true);
+      store.setAllowReferenceDoc(false);
+      store.setAllowVirtualMachine(false);
+      store.setRequireCloseOtherApps(true);
+      store.setEnableForensicWatermark(false);
+      store.setProctoring({
+        mode: 'fully_proctored',
+        useCamera: true,
+        enforceFullscreen: true,
+        blockCopyPaste: true,
+        detectTabSwitch: true,
+      });
+    } else if (profile === "HIGH_STAKES_CERTIFICATION") {
+      store.setAllowCalculators(false);
+      store.setAllowScratchpad(false);
+      store.setAllowReferenceDoc(false);
+      store.setAllowVirtualMachine(false);
+      store.setRequireCloseOtherApps(true);
+      store.setEnableForensicWatermark(true);
+      store.setProctoring({
+        mode: 'fully_proctored',
+        useCamera: true,
+        enforceFullscreen: true,
+        blockCopyPaste: true,
+        detectTabSwitch: true,
+      });
+    }
+  };
   const clearAutoSelection = (sectionId: string) => {
     setAutoSelections((current) => {
       const next = { ...current };
@@ -431,6 +494,19 @@ function AssessmentBuilder() {
         targetGroups: targetGroup === "both" ? ["A", "B"] : targetGroup ? [targetGroup.toUpperCase()] : [],
         targetStudentIds,
         lockSectionsSequentially: store.lockSectionsSequentially,
+        requireLockdown: store.requireLockdown,
+        allowVirtualMachine: store.allowVirtualMachine,
+        lockdownQuitPassword: store.lockdownQuitPassword || undefined,
+        allowCalculators: store.allowCalculators,
+        allowScratchpad: store.allowScratchpad,
+        allowReferenceDoc: store.allowReferenceDoc,
+        referencePdfUrl: store.allowReferenceDoc ? (store.referencePdfUrl || undefined) : undefined,
+        requireCloseOtherApps: store.requireCloseOtherApps,
+        allowSpellCheck: store.allowSpellCheck,
+        allowFindOnPage: store.allowFindOnPage,
+        allowedUrlPatterns: store.allowedUrlPatterns,
+        enableScreenCaptureSnapshots: store.enableScreenCaptureSnapshots,
+        enableForensicWatermark: store.enableForensicWatermark,
         showResultImmediately: store.showResultImmediately,
         allowReview: store.resultDisplaySettings.showQuestionReview,
         resultDisplaySettings: store.resultDisplaySettings,
@@ -804,6 +880,406 @@ function AssessmentBuilder() {
               </p>
             </div>
           )}
+        </section>
+
+        {/* Desktop Security & LockDown Browser */}
+        <section className="bg-card border border-border rounded-2xl p-6 space-y-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold flex items-center gap-2">
+                <Shield className="w-4 h-4 text-primary" /> Desktop Security & LockDown Browser
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Configure client-side desktop kiosk protection and university lab hardware overrides.
+              </p>
+            </div>
+            {store.requireLockdown && (
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+                LockDown Required
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            {/* Require CodeSkill LockDown Toggle */}
+            <div className="p-4 rounded-xl border border-border bg-background flex items-center justify-between gap-4 shadow-xs">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <Laptop className="w-4 h-4 text-primary" />
+                  Require CodeSkill LockDown App
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground uppercase tracking-wider">
+                    Desktop Kiosk
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Students must launch this exam in the CodeSkill LockDown desktop app (Windows, macOS, Linux). Blocks screen sharing, OS shortcuts, second monitors, and unauthorized apps.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={store.requireLockdown}
+                  onChange={(e) => store.setRequireLockdown(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+              </label>
+            </div>
+
+            {/* One-Click Security Profiles Preset Selector */}
+            {store.requireLockdown && (
+              <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    One-Click Security Profiles
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">Select a baseline profile or customize toggles below</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => applySecurityProfile("STANDARD_CLASSROOM_QUIZ")}
+                    className={`p-3 rounded-lg border text-left text-xs transition-all cursor-pointer ${
+                      store.allowCalculators && store.allowScratchpad && store.allowVirtualMachine && !store.requireCloseOtherApps
+                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
+                        : "border-border bg-background hover:bg-muted/50 text-foreground"
+                    }`}
+                  >
+                    <div className="font-semibold text-xs mb-1">Standard Quiz</div>
+                    <div className="text-[11px] text-muted-foreground line-clamp-2">In-dock tools & whiteboard allowed, VDI enabled.</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applySecurityProfile("PROCTORED_MIDTERM_FINAL")}
+                    className={`p-3 rounded-lg border text-left text-xs transition-all cursor-pointer ${
+                      store.allowCalculators && store.allowScratchpad && !store.allowVirtualMachine && store.requireCloseOtherApps
+                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
+                        : "border-border bg-background hover:bg-muted/50 text-foreground"
+                    }`}
+                  >
+                    <div className="font-semibold text-xs mb-1">Proctored Midterm</div>
+                    <div className="text-[11px] text-muted-foreground line-clamp-2">Tools allowed, third-party apps closed, VM blocked.</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applySecurityProfile("HIGH_STAKES_CERTIFICATION")}
+                    className={`p-3 rounded-lg border text-left text-xs transition-all cursor-pointer ${
+                      !store.allowCalculators && !store.allowScratchpad && !store.allowVirtualMachine && store.requireCloseOtherApps
+                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
+                        : "border-border bg-background hover:bg-muted/50 text-foreground"
+                    }`}
+                  >
+                    <div className="font-semibold text-xs mb-1">High-Stakes Strict</div>
+                    <div className="text-[11px] text-muted-foreground line-clamp-2">Zero dock tools, VM blocked, forensic watermark.</div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Allow Virtual Machines (University VDI Labs) Toggle - Conditionally Rendered */}
+            {store.requireLockdown && (
+              <div className="p-4 rounded-xl border border-border bg-background/50 flex items-center justify-between gap-4 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                    <Monitor className="w-4 h-4 text-amber-500" />
+                    Allow Virtual Machines (University VDI Labs)
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider">
+                      Lab Override
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Enable only if students are taking this exam on university Citrix, VMware, or cloud-hosted virtual lab computers.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={store.allowVirtualMachine}
+                    onChange={(e) => store.setAllowVirtualMachine(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
+            )}
+
+            {/* Allowed In-Dock Tools & Proctor Emergency Password (When LockDown is enabled) */}
+            {store.requireLockdown && (
+              <>
+                {/* Allow In-Dock Scientific Calculator */}
+                <div className="p-4 rounded-xl border border-border bg-background/50 flex items-center justify-between gap-4 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <Calculator className="w-4 h-4 text-amber-500" />
+                      Allow In-Dock Scientific Calculator
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider">
+                        Allowed Tool
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Permit candidates to open the in-app scientific calculator from the bottom utility dock without external windows.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={store.allowCalculators}
+                      onChange={(e) => store.setAllowCalculators(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                  </label>
+                </div>
+
+                {/* Rough Scratchpad Toggle */}
+                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <FileText className="w-4 h-4 text-sky-500" />
+                      Allow In-Dock Rough Scratchpad
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 uppercase tracking-wider">
+                        Rough Pad
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Permit candidates to draft notes and rough work on a sandboxed whiteboard directly from the utility dock.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={store.allowScratchpad}
+                      onChange={(e) => store.setAllowScratchpad(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
+                  </label>
+                </div>
+
+                {/* Reference Document Toggle */}
+                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <BookOpen className="w-4 h-4 text-emerald-500" />
+                      Allow Reference Document
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                        Reference PDF
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Enable an in-dock viewer for candidates to consult approved reference literature, formula sheets, or cheat sheets.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={store.allowReferenceDoc}
+                      onChange={(e) => store.setAllowReferenceDoc(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                  </label>
+                </div>
+
+                {/* Approved Reference Material PDF URL (shown when allowReferenceDoc is true) */}
+                {store.allowReferenceDoc && (
+                  <div className="p-4 rounded-xl border border-border bg-background/50 space-y-2 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <BookOpen className="w-4 h-4 text-emerald-500" />
+                      Approved Reference PDF URL
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                        In-App Viewer
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      URL to an approved reference PDF document (e.g. formula sheet, code reference). Accessible in a sandboxed dock viewer.
+                    </p>
+                    <input
+                      type="url"
+                      value={store.referencePdfUrl}
+                      onChange={(e) => store.setReferencePdfUrl(e.target.value)}
+                      placeholder="https://.../reference-sheet.pdf"
+                      className="w-full bg-background border border-border rounded-xl px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:border-primary"
+                    />
+                  </div>
+                )}
+
+                {/* Proctor Emergency Quit Password */}
+                <div className="p-4 rounded-xl border border-border bg-background/50 space-y-2 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                    <KeyRound className="w-4 h-4 text-rose-500" />
+                    Proctor Quit Password
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 uppercase tracking-wider">
+                      Emergency Exit
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Optional password required by invigilators/proctors to unlock and exit LockDown before student submission.
+                  </p>
+                  <input
+                    type="password"
+                    value={store.lockdownQuitPassword}
+                    onChange={(e) => store.setLockdownQuitPassword(e.target.value)}
+                    placeholder="Enter proctor quit password (optional)"
+                    className="w-full bg-background border border-border rounded-xl px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:border-rose-500"
+                  />
+                </div>
+
+                {/* Pre-Exam Close Non-Essential Apps Gate */}
+                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                      Close Other Applications Before Exam
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                        Pre-Exam Gate
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Scans and requires students to close third-party desktop applications before fullscreen lockdown engages.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={store.requireCloseOtherApps}
+                      onChange={(e) => store.setRequireCloseOtherApps(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                  </label>
+                </div>
+
+                {/* Spell Check & AI Writing Tools */}
+                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <FileText className="w-4 h-4 text-indigo-500" />
+                      Allow Spellcheck & AI Writing Tools
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase tracking-wider">
+                        Input Hygiene
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      When disabled, OS dictionary lookups, spellcheck squiggles, and autocorrect are strictly suppressed.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={store.allowSpellCheck}
+                      onChange={(e) => store.setAllowSpellCheck(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500"></div>
+                  </label>
+                </div>
+
+                {/* Find on Page (Ctrl/Cmd+F) */}
+                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <Search className="w-4 h-4 text-amber-500" />
+                      Allow Find on Page (Ctrl / Cmd + F)
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider">
+                        Search
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Allow candidates to search text in long question statements or problem descriptions.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={store.allowFindOnPage}
+                      onChange={(e) => store.setAllowFindOnPage(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                  </label>
+                </div>
+
+                {/* Allowed External URLs */}
+                <div className="p-4 rounded-xl border border-border bg-background/50 space-y-2 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                    <Globe className="w-4 h-4 text-blue-500" />
+                    Allowed External URL Patterns
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider">
+                      URL Allowlist
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Comma-separated domain patterns candidates can navigate to during the exam (e.g. docs.python.org, en.cppreference.com).
+                  </p>
+                  <input
+                    type="text"
+                    value={store.allowedUrlPatterns.join(', ')}
+                    onChange={(e) => {
+                      const list = e.target.value
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                      store.setAllowedUrlPatterns(list);
+                    }}
+                    placeholder="docs.python.org, en.cppreference.com"
+                    className="w-full bg-background border border-border rounded-xl px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Periodic Screen Capture Snapshots */}
+                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <Camera className="w-4 h-4 text-purple-500" />
+                      Periodic Screen Capture Snapshots
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase tracking-wider">
+                        Proctor Audit
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Periodically logs lightweight webview viewport captures during testing for academic integrity review.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={store.enableScreenCaptureSnapshots}
+                      onChange={(e) => store.setEnableScreenCaptureSnapshots(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
+                  </label>
+                </div>
+
+                {/* Subtle Forensic Screen Watermark */}
+                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <Fingerprint className="w-4 h-4 text-emerald-500" />
+                      Enable Subtle Forensic Screen Watermark
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                        Anti-Leak
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Renders a high-DPI, low-opacity forensic canvas pattern encoding candidate and session identifiers to deter and trace smartphone screen photography.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={store.enableForensicWatermark}
+                      onChange={(e) => store.setEnableForensicWatermark(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                  </label>
+                </div>
+              </>
+            )}
+          </div>
         </section>
 
         {/* Audience and availability */}

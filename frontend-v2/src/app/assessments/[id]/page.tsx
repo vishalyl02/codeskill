@@ -47,9 +47,11 @@ import {
   Video,
   Camera,
   RefreshCw,
-  BarChart3
+  BarChart3,
+  ExternalLink,
+  Settings,
 } from "lucide-react";
-import { studentAssessmentsAPI } from "@/config/api";
+import api, { studentAssessmentsAPI } from "@/config/api";
 import { useAuth } from "@/context/AuthContext";
 import { formatAssessmentTimeLeft } from "@/lib/assessment-cards";
 import { handoffAssessmentStream, releaseAssessmentStream, setPreferredAssessmentCamera } from "@/lib/assessment-media-session";
@@ -60,6 +62,10 @@ import {
   setAssessmentFaceReference,
 } from "@/lib/assessment-face-verification";
 import { formatAssessmentDateTime, getAssessmentScheduleState } from "@/lib/assessment-schedule";
+import LockdownLaunchGate from "@/components/assessment/LockdownLaunchGate";
+import LockdownAppBlockerGate from "@/components/assessment/LockdownAppBlockerGate";
+import { isLockdownClient, initializeLockdownAttestation, openSystemPrivacySettings } from "@/lib/lockdown-bridge";
+import { resolveAssessmentMediaRequirements } from "@/lib/assessment-media-policy";
 
 export default function AssessmentBriefingPage({
   params,
@@ -91,13 +97,22 @@ export default function AssessmentBriefingPage({
   const [isCapturingSelfie, setIsCapturingSelfie] = useState(false);
   const [selfieError, setSelfieError] = useState<string | null>(null);
   const [selfieCaptured, setSelfieCaptured] = useState(false);
+  const [isAppsGatePassed, setIsAppsGatePassed] = useState<boolean>(!isLockdownClient());
   const cameraPreviewRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const streamHandedOffRef = useRef(false);
   const cameraRequestIdRef = useRef(0);
 
+  const assessment = data?.assessment;
+  const mediaRequirements = resolveAssessmentMediaRequirements(assessment);
+
   useEffect(() => {
     clearAssessmentFaceReference(id);
+    if (isLockdownClient() && id) {
+      void initializeLockdownAttestation(api, id).catch((err) => {
+        console.warn("[Lockdown] Briefing page attestation warm-up failed:", err);
+      });
+    }
   }, [id]);
 
   useEffect(() => {
@@ -128,12 +143,14 @@ export default function AssessmentBriefingPage({
       }
       const systemDefaultCamera = assessment?.proctoring?.cameraSelectionPolicy === 'system_default';
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: systemDefaultCamera
-          ? true
-          : deviceId
-            ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
-            : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: true,
+        video: mediaRequirements.requireCamera
+          ? (systemDefaultCamera
+              ? true
+              : deviceId
+                ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
+                : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } })
+          : false,
+        audio: mediaRequirements.requireMicrophone,
       });
       if (requestId !== cameraRequestIdRef.current) {
         stream.getTracks().forEach((track) => track.stop());
@@ -143,7 +160,7 @@ export default function AssessmentBriefingPage({
       cameraStreamRef.current = stream;
       setCameraStream(stream);
       const [devices, settings] = await Promise.all([
-        systemDefaultCamera ? Promise.resolve([] as MediaDeviceInfo[]) : navigator.mediaDevices.enumerateDevices(),
+        systemDefaultCamera || !mediaRequirements.requireCamera ? Promise.resolve([] as MediaDeviceInfo[]) : navigator.mediaDevices.enumerateDevices(),
         Promise.resolve(stream.getVideoTracks()[0]?.getSettings()),
       ]);
       const cameras = devices.filter((device) => device.kind === "videoinput");
@@ -156,7 +173,7 @@ export default function AssessmentBriefingPage({
       const activeCameraId = cameraStreamRef.current?.getVideoTracks()[0]?.getSettings().deviceId;
       if (activeCameraId) setSelectedCamera(activeCameraId);
       setMediaError(error instanceof Error && error.name === "NotAllowedError"
-        ? "Allow camera and microphone access in your browser to continue."
+        ? "Allow camera and microphone access in your browser or operating system settings to continue."
         : error instanceof Error ? error.message : "Camera and microphone could not be started.");
     } finally {
       if (requestId === cameraRequestIdRef.current) setIsCheckingMedia(false);
@@ -219,7 +236,6 @@ export default function AssessmentBriefingPage({
     return () => window.clearInterval(timer);
   }, []);
 
-  const assessment = data?.assessment;
   const activeAttempt = data?.attempt?.status === "in_progress";
   const resumesLeft = data?.attempt?.resumeAttemptsRemaining ?? 3;
   const resumeExpired = Boolean(activeAttempt && data?.attempt?.attemptExpiresAt && new Date(data.attempt.attemptExpiresAt).getTime() <= now);
@@ -252,9 +268,22 @@ export default function AssessmentBriefingPage({
 
   const handleStartExam = async () => {
     if (!canStartInWindow) return;
-    const cameraRequired = assessment?.proctoring?.useCamera !== false;
-    if (!agreedToRules || resumeUnavailable || (cameraRequired && (!cameraStreamRef.current || !getAssessmentFaceReference(id)))) return;
+    const cameraRequired = mediaRequirements.requireCamera;
+    const micRequired = mediaRequirements.requireMicrophone;
+    if (
+      !agreedToRules ||
+      resumeUnavailable ||
+      (cameraRequired && (!cameraStreamRef.current || !getAssessmentFaceReference(id))) ||
+      (micRequired && !cameraStreamRef.current?.getAudioTracks().some((track) => track.readyState === "live"))
+    ) {
+      return;
+    }
     setIsStarting(true);
+
+    if (cameraStreamRef.current) {
+      streamHandedOffRef.current = true;
+      handoffAssessmentStream(id, cameraStreamRef.current);
+    }
 
     const attemptToken = Date.now();
     const retake = data?.completedAttemptsCount > 0 && !activeAttempt;
@@ -318,6 +347,25 @@ export default function AssessmentBriefingPage({
           </Link>
         </div>
       </div>
+    );
+  }
+
+  const securityPolicy = assessment?.securityPolicy || {};
+  const requiresLockdown = Boolean(
+    assessment?.requireLockdown ||
+    securityPolicy.requireSEB ||
+    securityPolicy.requireLockdown ||
+    securityPolicy.secureExamMode === "STRICT" ||
+    securityPolicy.secureExamMode === "STANDARD"
+  );
+
+  if (requiresLockdown && !isLockdownClient()) {
+    return (
+      <LockdownLaunchGate
+        examId={id}
+        examTitle={assessment.title}
+        onClientDetected={() => router.refresh()}
+      />
     );
   }
 
@@ -525,51 +573,177 @@ export default function AssessmentBriefingPage({
           </div>
 
           {/* Camera and microphone check before the test starts */}
-          {assessment.proctoring?.useCamera !== false ? <section aria-labelledby="assessment-media-heading" className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 id="assessment-media-heading" className="text-sm font-bold text-foreground">Camera &amp; microphone check</h3>
-                <p className="mt-1 text-xs text-muted-foreground">{assessment.proctoring?.cameraSelectionPolicy === 'system_default' ? "Your browser's default camera and microphone will be used for the secure assessment." : 'Choose your camera and confirm your devices before entering the secure assessment.'}</p>
-              </div>
-              {cameraStream ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> Devices ready</span> : <span className="text-xs text-muted-foreground">Camera access required</span>}
-            </div>
-            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(220px,0.85fr)] sm:items-center">
-              <div className="relative aspect-video overflow-hidden rounded-xl bg-slate-950">
-                <video ref={cameraPreviewRef} autoPlay muted playsInline className={`h-full w-full object-cover ${cameraStream ? "" : "hidden"}`} />
-                {!cameraStream && <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300"><ShieldAlert className="h-8 w-8 text-slate-400" /><span className="text-xs">Camera preview will appear here</span></div>}
-              </div>
-              <div className="space-y-3">
-                {assessment.proctoring?.cameraSelectionPolicy !== 'system_default' && cameraDevices.length > 0 && <label className="block space-y-1.5 text-xs font-medium text-foreground">Choose camera
-                  <select aria-label="Choose camera" value={selectedCamera} disabled={isCheckingMedia} onChange={(event) => { clearAssessmentFaceReference(id); setSelfieCaptured(false); setSelfiePreview(null); setSelfieError(null); setSelectedCamera(event.target.value); void enableCamera(event.target.value); }} className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm">
-                    {cameraDevices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
-                  </select>
-                </label>}
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 ${cameraStream?.getVideoTracks().some((track) => track.readyState === "live") ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-700" : "border-border text-muted-foreground"}`}><Video className="h-3.5 w-3.5" />Camera</span>
-                  <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 ${cameraStream?.getAudioTracks().some((track) => track.readyState === "live") ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-700" : "border-border text-muted-foreground"}`}><Mic className="h-3.5 w-3.5" />Microphone</span>
+          {mediaRequirements.needsMediaGate ? (
+            <section aria-labelledby="assessment-media-heading" className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 id="assessment-media-heading" className="text-sm font-bold text-foreground">
+                    {mediaRequirements.requireCamera && mediaRequirements.requireMicrophone
+                      ? "Camera & microphone check"
+                      : mediaRequirements.requireCamera
+                      ? "Camera check"
+                      : "Microphone check"}
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {assessment.proctoring?.cameraSelectionPolicy === 'system_default'
+                      ? "Your browser's default camera and microphone will be used for the secure assessment."
+                      : mediaRequirements.requireCamera
+                      ? "Choose your camera and confirm your devices before entering the secure assessment."
+                      : "Confirm your microphone before entering the secure assessment."}
+                  </p>
                 </div>
-                {cameraStream && <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
-                  <div>
-                    <p className="text-xs font-semibold text-foreground">Identity selfie required</p>
-                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Center your face alone in the frame. We’ll compare this selfie with your camera during the assessment.</p>
-                  </div>
-                  <button type="button" onClick={() => void captureSelfie()} disabled={isCapturingSelfie || isCheckingMedia} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60">
-                    {isCapturingSelfie ? <><RefreshCw className="h-4 w-4 animate-spin" /> Preparing face check…</> : selfieCaptured ? <><CheckCircle2 className="h-4 w-4" /> Retake identity selfie</> : <><Camera className="h-4 w-4" /> Take identity selfie</>}
-                  </button>
-                  {selfiePreview && <div className="flex items-center gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2">
-                    <img src={selfiePreview} alt="Captured identity selfie" className="h-14 w-14 rounded-md object-cover" />
-                    <div className="text-xs"><p className="font-semibold text-emerald-700">Selfie captured</p><p className="mt-0.5 text-muted-foreground">Face matching will stay on during your test.</p></div>
-                  </div>}
-                </div>}
-                {!cameraStream && <button type="button" onClick={() => void enableCamera()} disabled={isCheckingMedia} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 px-3 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/5 disabled:opacity-60">
-                  {isCheckingMedia ? <><RefreshCw className="h-4 w-4 animate-spin" /> Checking devices…</> : "Enable camera & microphone"}
-                </button>}
+                {cameraStream ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Devices ready
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    {mediaRequirements.requireCamera ? "Camera access required" : "Microphone access required"}
+                  </span>
+                )}
               </div>
-            </div>
-            {mediaError && <p role="alert" className="text-xs font-medium text-destructive">{mediaError}</p>}
-            {selfieError && <p role="alert" className="text-xs font-medium text-destructive">{selfieError}</p>}
-            {startError && <p role="alert" className="text-xs font-medium text-destructive">{startError}</p>}
-          </section> : <section className="rounded-2xl border border-border bg-card p-4 sm:p-5"><p className="text-sm font-semibold text-foreground">Camera and microphone are not required for this assessment.</p><p className="mt-1 text-xs text-muted-foreground">You can begin without enabling either device.</p>{startError && <p role="alert" className="mt-3 text-xs font-medium text-destructive">{startError}</p>}</section>}
+
+              <div className={`grid gap-4 ${mediaRequirements.requireCamera ? "sm:grid-cols-[minmax(0,1fr)_minmax(220px,0.85fr)] sm:items-center" : ""}`}>
+                {mediaRequirements.requireCamera && (
+                  <div className="relative aspect-video overflow-hidden rounded-xl bg-slate-950">
+                    <video ref={cameraPreviewRef} autoPlay muted playsInline className={`h-full w-full object-cover ${cameraStream ? "" : "hidden"}`} />
+                    {!cameraStream && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300">
+                        <ShieldAlert className="h-8 w-8 text-slate-400" />
+                        <span className="text-xs">Camera preview will appear here</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {mediaRequirements.requireCamera && assessment.proctoring?.cameraSelectionPolicy !== 'system_default' && cameraDevices.length > 0 && (
+                    <label className="block space-y-1.5 text-xs font-medium text-foreground">
+                      Choose camera
+                      <select
+                        aria-label="Choose camera"
+                        value={selectedCamera}
+                        disabled={isCheckingMedia}
+                        onChange={(event) => {
+                          clearAssessmentFaceReference(id);
+                          setSelfieCaptured(false);
+                          setSelfiePreview(null);
+                          setSelfieError(null);
+                          setSelectedCamera(event.target.value);
+                          void enableCamera(event.target.value);
+                        }}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm"
+                      >
+                        {cameraDevices.map((device, index) => (
+                          <option key={device.deviceId} value={device.deviceId}>
+                            {device.label || `Camera ${index + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {mediaRequirements.requireCamera && (
+                      <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 ${cameraStream?.getVideoTracks().some((track) => track.readyState === "live") ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-700" : "border-border text-muted-foreground"}`}>
+                        <Video className="h-3.5 w-3.5" />Camera
+                      </span>
+                    )}
+                    {mediaRequirements.requireMicrophone && (
+                      <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 ${cameraStream?.getAudioTracks().some((track) => track.readyState === "live") ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-700" : "border-border text-muted-foreground"}`}>
+                        <Mic className="h-3.5 w-3.5" />Microphone
+                      </span>
+                    )}
+                  </div>
+
+                  {mediaRequirements.requireCamera && cameraStream && (
+                    <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Identity selfie required</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Center your face alone in the frame. We’ll compare this selfie with your camera during the assessment.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void captureSelfie()}
+                        disabled={isCapturingSelfie || isCheckingMedia}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+                      >
+                        {isCapturingSelfie ? (
+                          <><RefreshCw className="h-4 w-4 animate-spin" /> Preparing face check…</>
+                        ) : selfieCaptured ? (
+                          <><CheckCircle2 className="h-4 w-4" /> Retake identity selfie</>
+                        ) : (
+                          <><Camera className="h-4 w-4" /> Take identity selfie</>
+                        )}
+                      </button>
+                      {selfiePreview && (
+                        <div className="flex items-center gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2">
+                          <img src={selfiePreview} alt="Captured identity selfie" className="h-14 w-14 rounded-md object-cover" />
+                          <div className="text-xs">
+                            <p className="font-semibold text-emerald-700">Selfie captured</p>
+                            <p className="mt-0.5 text-muted-foreground">Face matching will stay on during your test.</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {(!cameraStream ||
+                    (mediaRequirements.requireCamera && !cameraStream.getVideoTracks().some((track) => track.readyState === "live")) ||
+                    (mediaRequirements.requireMicrophone && !cameraStream.getAudioTracks().some((track) => track.readyState === "live"))) && (
+                    <button
+                      type="button"
+                      onClick={() => void enableCamera()}
+                      disabled={isCheckingMedia}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 px-3 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/5 disabled:opacity-60"
+                    >
+                      {isCheckingMedia ? (
+                        <><RefreshCw className="h-4 w-4 animate-spin" /> Checking devices…</>
+                      ) : (
+                        `Enable ${mediaRequirements.requireCamera && mediaRequirements.requireMicrophone ? "camera & microphone" : mediaRequirements.requireCamera ? "camera" : "microphone"}`
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {mediaError && (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs space-y-2.5">
+                  <p role="alert" className="font-medium text-destructive">{mediaError}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    If permissions are blocked at the operating system or browser level, open your system settings:
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-0.5">
+                    {mediaRequirements.requireCamera && (
+                      <button
+                        type="button"
+                        onClick={() => void openSystemPrivacySettings("camera")}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 bg-background/90 px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-background transition shadow-xs"
+                      >
+                        <Settings className="h-3.5 w-3.5 text-destructive" /> Open OS Camera Settings
+                      </button>
+                    )}
+                    {mediaRequirements.requireMicrophone && (
+                      <button
+                        type="button"
+                        onClick={() => void openSystemPrivacySettings("microphone")}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 bg-background/90 px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-background transition shadow-xs"
+                      >
+                        <Settings className="h-3.5 w-3.5 text-destructive" /> Open OS Microphone Settings
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {selfieError && <p role="alert" className="text-xs font-medium text-destructive">{selfieError}</p>}
+              {startError && <p role="alert" className="text-xs font-medium text-destructive">{startError}</p>}
+            </section>
+          ) : (
+            <section className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+              <p className="text-sm font-semibold text-foreground">Camera and microphone are not required for this assessment.</p>
+              <p className="mt-1 text-xs text-muted-foreground">You can begin without enabling either device.</p>
+              {startError && <p role="alert" className="mt-3 text-xs font-medium text-destructive">{startError}</p>}
+            </section>
+          )}
 
           {/* System Check & Anti-Cheat Consent */}
           <div className="p-4 rounded-xl bg-card border border-border space-y-3">
@@ -581,7 +755,7 @@ export default function AssessmentBriefingPage({
                 className="mt-0.5 rounded border-border text-primary focus:ring-primary h-4 w-4"
               />
               <span className="text-xs text-foreground font-medium leading-relaxed">
-                I acknowledge that I am attempting this assessment independently without external assistance.{assessment.proctoring?.useCamera !== false ? " I agree to camera/microphone proctoring." : ""} Periodic assessment snapshots may be captured.
+                I acknowledge that I am attempting this assessment independently without external assistance.{mediaRequirements.needsMediaGate ? " I agree to camera/microphone proctoring." : ""} Periodic assessment snapshots may be captured.
               </span>
             </label>
           </div>
@@ -637,6 +811,14 @@ export default function AssessmentBriefingPage({
                   ? resumeExpired ? "This attempt has run out of time." : "All three resume opportunities have been used."
                   : !canStartInWindow
                   ? "This assessment is currently not accepting new attempts."
+                  : !agreedToRules
+                  ? "Please check the acknowledgment box above to enable starting the test."
+                  : mediaRequirements.requireCamera && !cameraStream
+                  ? "Please enable your camera above to proceed."
+                  : mediaRequirements.requireCamera && !selfieCaptured
+                  ? "Please take your identity selfie above to proceed."
+                  : mediaRequirements.requireMicrophone && !cameraStream?.getAudioTracks().some((track) => track.readyState === "live")
+                  ? "Please enable your microphone above to proceed."
                   : data?.completedAttemptsCount > 0
                     ? "Starting a new attempt will allow you to improve your score. The highest score is permanently saved."
                     : "Review your devices and rules before entering the secure assessment."}
@@ -644,7 +826,14 @@ export default function AssessmentBriefingPage({
 
               <button
                 onClick={handleStartExam}
-                disabled={!agreedToRules || resumeUnavailable || (assessment.proctoring?.useCamera !== false && (!cameraStream || !selfieCaptured || isCheckingMedia || isCapturingSelfie)) || isStarting || !canStartInWindow}
+                disabled={
+                  !agreedToRules ||
+                  resumeUnavailable ||
+                  (mediaRequirements.requireCamera && (!cameraStream || !selfieCaptured || isCheckingMedia || isCapturingSelfie)) ||
+                  (mediaRequirements.requireMicrophone && !cameraStream?.getAudioTracks().some((track) => track.readyState === "live")) ||
+                  isStarting ||
+                  !canStartInWindow
+                }
                 className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-primary hover:bg-primary/90 active:bg-primary/80 text-white font-semibold rounded-md text-xs sm:text-sm uppercase tracking-wider transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Maximize2 className="w-4 h-4" />
@@ -662,6 +851,13 @@ export default function AssessmentBriefingPage({
           )}
         </div>
       </div>
+
+      {isLockdownClient() && !isAppsGatePassed && (
+        <LockdownAppBlockerGate
+          requireCloseOtherApps={assessment?.requireCloseOtherApps !== false}
+          onReady={() => setIsAppsGatePassed(true)}
+        />
+      )}
     </div>
   );
 }

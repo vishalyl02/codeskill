@@ -2,7 +2,7 @@
 
 import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { ResizableAssessmentPanels } from "./ResizableAssessmentPanels";
 import { useTheme } from "@/context/ThemeContext";
@@ -159,6 +159,16 @@ interface TestCase {
   isHidden?: boolean;
 }
 
+export interface CodingExecutionControls {
+  isRunning: boolean;
+  isSubmitting: boolean;
+  runCooldown: number;
+  submitCooldown: number;
+  isSaved: boolean;
+  runTest: () => void;
+  submitSolution: () => void;
+}
+
 interface DSAAssessmentEditorProps {
   assessmentId: string;
   readingScale?: number;
@@ -192,6 +202,7 @@ interface DSAAssessmentEditorProps {
   };
   onDraftChange?: (code: string, language: string, codeByLanguage?: Record<string, string>) => void;
   onSave: (code: string, language: string, testCasesPassed: number, totalTestCases: number) => void | Promise<void>;
+  onControlsChange?: (controls: CodingExecutionControls) => void;
   onNext?: () => void;
   isLastQuestion?: boolean;
   blockCopyPaste?: boolean;
@@ -204,6 +215,7 @@ export default function DSAAssessmentEditor({
   savedResponse,
   onSave,
   onDraftChange,
+  onControlsChange,
   onNext,
   isLastQuestion = false,
   blockCopyPaste = true,
@@ -703,6 +715,51 @@ export default function DSAAssessmentEditor({
     }
   };
 
+  const runTestRef = useRef(handleRunTest);
+  runTestRef.current = handleRunTest;
+
+  const submitSolutionRef = useRef(handleSubmitSolution);
+  submitSolutionRef.current = handleSubmitSolution;
+
+  const runTestStable = useCallback(() => {
+    runTestRef.current();
+  }, []);
+
+  const submitSolutionStable = useCallback(() => {
+    submitSolutionRef.current();
+  }, []);
+
+  const onControlsChangeRef = useRef(onControlsChange);
+  onControlsChangeRef.current = onControlsChange;
+
+  useEffect(() => {
+    onControlsChangeRef.current?.({
+      isRunning,
+      isSubmitting,
+      runCooldown,
+      submitCooldown,
+      isSaved: savedResponse?.status === "answered",
+      runTest: runTestStable,
+      submitSolution: submitSolutionStable,
+    });
+  }, [isRunning, isSubmitting, runCooldown, submitCooldown, savedResponse?.status, runTestStable, submitSolutionStable]);
+
+  // Keyboard shortcut listener for running and submitting code (Cmd/Ctrl + Enter / Shift + Enter)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          submitSolutionStable();
+        } else {
+          runTestStable();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [runTestStable, submitSolutionStable]);
+
   const resultsList = runResult?.results || (runResult?.result ? [runResult.result] : []);
   const allPassed =
     resultsList.length > 0 && resultsList.every((r: any) => r.passed || r.status === "accepted" || r.status === "success");
@@ -1106,65 +1163,67 @@ export default function DSAAssessmentEditor({
             )}
           </div>
 
-          {/* Action Button Bar */}
-          <div className="shrink-0 px-4 py-3 bg-card border-t border-border flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-muted-foreground hidden sm:inline">
-                {savedResponse?.status === "answered" ? (
-                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5" /> Solution Saved
-                  </span>
-                ) : (
-                  "Not submitted yet"
-                )}
-              </span>
-            </div>
+          {/* Action Button Bar - only rendered inside editor when parent does not supply an external controls dock */}
+          {!onControlsChange && (
+            <div className="shrink-0 px-4 py-3 bg-card border-t border-border flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground hidden sm:inline">
+                  {savedResponse?.status === "answered" ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> Solution Saved
+                    </span>
+                  ) : (
+                    "Not submitted yet"
+                  )}
+                </span>
+              </div>
 
-            <div className="flex items-center gap-2.5">
-              {/* Run Code / Run Test */}
-              <button
-                type="button"
-                aria-label="Run Code"
-                onClick={handleRunTest}
-                disabled={isRunning || isSubmitting || runCooldown > 0}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-background hover:bg-muted text-foreground text-xs font-bold border border-border shadow-xs transition-all disabled:opacity-50"
-              >
-                {isRunning ? (
-                  <Spinner className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Play className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 fill-amber-600 dark:fill-amber-400" />
-                )}
-                <span>{runCooldown > 0 ? `Run Code (${runCooldown}s)` : "Run Code"}</span>
-              </button>
-
-              {/* Submit Solution / Save Answer */}
-              <button
-                type="button"
-                aria-label="Submit Solution"
-                onClick={handleSubmitSolution}
-                disabled={isRunning || isSubmitting || submitCooldown > 0}
-                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 disabled:opacity-50"
-              >
-                {isSubmitting ? (
-                  <Spinner className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                )}
-                <span>{submitCooldown > 0 ? `Submit Solution (${submitCooldown}s)` : "Submit Solution"}</span>
-              </button>
-
-              {/* Next Question (Optional shortcut) */}
-              {onNext && !isLastQuestion && (
+              <div className="flex items-center gap-2.5">
+                {/* Run Code / Run Test */}
                 <button
                   type="button"
-                  onClick={onNext}
-                  className="inline-flex items-center gap-1 px-3.5 py-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold border border-border transition-colors"
+                  aria-label="Run Code"
+                  onClick={handleRunTest}
+                  disabled={isRunning || isSubmitting || runCooldown > 0}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-background hover:bg-muted text-foreground text-xs font-bold border border-border shadow-xs transition-all disabled:opacity-50"
                 >
-                  <span>Next</span>
+                  {isRunning ? (
+                    <Spinner className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 fill-amber-600 dark:fill-amber-400" />
+                  )}
+                  <span>{runCooldown > 0 ? `Run Code (${runCooldown}s)` : "Run Code"}</span>
                 </button>
-              )}
+
+                {/* Submit Solution / Save Answer */}
+                <button
+                  type="button"
+                  aria-label="Submit Solution"
+                  onClick={handleSubmitSolution}
+                  disabled={isRunning || isSubmitting || submitCooldown > 0}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <Spinner className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>{submitCooldown > 0 ? `Submit Solution (${submitCooldown}s)` : "Submit Solution"}</span>
+                </button>
+
+                {/* Next Question (Optional shortcut) */}
+                {onNext && !isLastQuestion && (
+                  <button
+                    type="button"
+                    onClick={onNext}
+                    className="inline-flex items-center gap-1 px-3.5 py-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold border border-border transition-colors"
+                  >
+                    <span>Next</span>
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </ResizableAssessmentPanels>

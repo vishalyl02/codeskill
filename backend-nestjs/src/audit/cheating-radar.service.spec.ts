@@ -153,4 +153,85 @@ describe('CheatingRadarService', () => {
       );
     });
   });
+
+  describe('Heuristic 4: Desktop Client Relaunch', () => {
+    it('should log relaunch with LOW severity on first relaunch', async () => {
+      const recorded = await service.recordClientRelaunch({
+        studentId: 'student-1',
+        assessmentId: 'exam-1',
+        relaunchCount: 1,
+      });
+      expect(recorded).toBe(true);
+      expect(mockActivityLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'CHEATING_RADAR_CLIENT_RELAUNCHED',
+          riskWeight: 1,
+        }),
+      );
+      expect(mockAlertWebhookService.sendAlert).not.toHaveBeenCalled();
+    });
+
+    it('should trigger alert with CRITICAL severity on excessive relaunch (> 2)', async () => {
+      const recorded = await service.recordClientRelaunch({
+        studentId: 'student-1',
+        assessmentId: 'exam-1',
+        relaunchCount: 3,
+      });
+      expect(recorded).toBe(true);
+      expect(mockActivityLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'CHEATING_RADAR_CLIENT_RELAUNCHED',
+          riskWeight: 3,
+        }),
+      );
+      expect(mockAlertWebhookService.sendAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'CHEATING_RADAR_CLIENT_RELAUNCHED',
+          severity: 'CRITICAL',
+        }),
+      );
+    });
+  });
+
+  describe('Heuristic 5: Media Disconnect Outage', () => {
+    it('should log outage without critical alert for brief disconnect (< 30s)', async () => {
+      const recorded = await service.recordMediaDisconnectOutage({
+        studentId: 'student-1',
+        assessmentId: 'exam-1',
+        deviceKind: 'videoinput',
+        outageDurationMs: 12000,
+      });
+      expect(recorded).toBe(true);
+      expect(mockActivityLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'CHEATING_RADAR_MEDIA_DISCONNECT_OUTAGE',
+          riskWeight: 2,
+        }),
+      );
+      expect(mockAlertWebhookService.sendAlert).not.toHaveBeenCalled();
+    });
+
+    it('should alert with HIGH severity when outage exceeds 30 seconds', async () => {
+      const recorded = await service.recordMediaDisconnectOutage({
+        studentId: 'student-1',
+        assessmentId: 'exam-1',
+        deviceKind: 'videoinput',
+        outageDurationMs: 45000,
+        reason: 'unplugged',
+      });
+      expect(recorded).toBe(true);
+      expect(mockActivityLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'CHEATING_RADAR_MEDIA_DISCONNECT_OUTAGE',
+          riskWeight: 3,
+        }),
+      );
+      expect(mockAlertWebhookService.sendAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'CHEATING_RADAR_MEDIA_DISCONNECT_OUTAGE',
+          severity: 'CRITICAL',
+        }),
+      );
+    });
+  });
 });
