@@ -105,9 +105,9 @@ it('merges sharded contest results, keeps zero-score participants, and ranks tie
   };
   const { service, attempts } = setup(submissions);
   attempts.query.mockResolvedValueOnce([
-    { id: userId, name: 'First', username: 'first', ...windows },
-    { id: second, name: 'Second', username: 'second', ...windows },
-    { id: third, name: 'Third', username: 'third', start: null, end: null },
+    { id: userId, name: 'First', username: 'first', attemptId: id, ...windows },
+    { id: second, name: 'Second', username: 'second', attemptId: second, ...windows },
+    { id: third, name: 'Third', username: 'third', attemptId: null, start: null, end: null },
   ]);
   const result = await service.leaderboard('real-contest');
   expect(result.leaderboard.map((row) => [row.name, row.solved])).toEqual([
@@ -118,8 +118,8 @@ it('merges sharded contest results, keeps zero-score participants, and ranks tie
   expect(submissions.contestSolvedProblems).toHaveBeenCalledWith(
     [id],
     [
-      { userId, ...windows },
-      { userId: second, ...windows },
+      { userId, attemptId: id, ...windows },
+      { userId: second, attemptId: second, ...windows },
     ],
   );
   expect(attempts.query.mock.calls[0][0]).not.toContain('JOIN submissions');
@@ -354,7 +354,7 @@ it('scores contest submission from the owning shard and does not query the prima
   );
   expect(submissions.contestSolvedProblems).toHaveBeenCalledWith(
     [id],
-    [expect.objectContaining({ userId, start: contest.startTime })],
+    [expect.objectContaining({ userId, attemptId: id, start: contest.startTime })],
   );
   expect(attempts.query).not.toHaveBeenCalled();
   expect(builder.set).toHaveBeenCalledWith(
@@ -380,11 +380,26 @@ it('loads contest security settings without creating an attempt or exposing priv
   const { service, attempts, builder, problems } = setup();
   const result = await service.getStartContext(id, userId);
   expect(result.contest.title).toBe('Real Contest');
-  expect(result.antiCheatConfig).toEqual(contest.antiCheatConfig);
+  expect(result.antiCheatConfig).toEqual(expect.objectContaining({
+    warningLimit: 3, enableFullscreen: true, enableTabSwitchDetect: true,
+  }));
   expect(JSON.stringify(result)).not.toContain('SECRET-PASSWORD');
   expect(attempts.findOne).not.toHaveBeenCalled();
   expect(builder.insert).not.toHaveBeenCalled();
   expect(problems.getExecutionProblem).not.toHaveBeenCalled();
+});
+it('uses the admin fullscreen and tab-monitoring settings at the start gate', async () => {
+  const { service, contests } = setup();
+  contests.findOne.mockResolvedValue({ ...contest, antiCheatConfig: {
+    enableFullscreenCheck: false, enableTabSwitchDetection: false,
+    maxTabSwitchViolations: 3, actionOnMaxViolations: 'flag_review',
+  } });
+  const result = await service.getStartContext(id, userId);
+  expect(result.antiCheatConfig).toEqual(expect.objectContaining({
+    enableFullscreen: false,
+    enableTabSwitchDetect: false,
+    autoSubmitOnViolation: false,
+  }));
 });
 it('requires registration before exposing start security settings', async () => {
   const { service, contests } = setup();

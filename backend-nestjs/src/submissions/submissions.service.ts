@@ -12,10 +12,12 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { isUUID } from 'class-validator';
 import { SubmissionStore } from '../database/sharding/submission-store';
 import { User } from '../database/entities/user.entity';
+import { Contest } from '../database/entities/contest.entity';
+import { ContestAttempt } from '../database/entities/contest-attempt.entity';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { AppGateway } from '../gateway/app.gateway';
@@ -59,7 +61,38 @@ export class SubmissionsService {
     private readonly problemsService: ProblemsService,
     @Optional() private readonly executionService?: ExecutionService,
     @Optional() private readonly admission?: ExecutionAdmissionService,
+    @Optional() @InjectRepository(ContestAttempt)
+    private readonly contestAttemptRepo?: Repository<ContestAttempt>,
+    @Optional() @InjectRepository(Contest)
+    private readonly contestRepo?: Repository<Contest>,
   ) {}
+
+  private async contestAttemptForSubmission(
+    userId: string,
+    payload: Record<string, unknown>,
+    problemId: string,
+  ): Promise<string | null> {
+    const contestId = payload.contestId;
+    const sessionId = payload.sessionId;
+    if (contestId === undefined && sessionId === undefined) return null;
+    if (
+      typeof contestId !== 'string' || !isUUID(contestId) ||
+      typeof sessionId !== 'string' || !sessionId ||
+      !this.contestAttemptRepo || !this.contestRepo
+    ) throw new ForbiddenException('Invalid contest session');
+
+    const attempt = await this.contestAttemptRepo.findOne({
+      where: { contest_id: contestId, user_id: userId, sessionId, status: 'InProgress' },
+    });
+    if (!attempt) throw new ForbiddenException('Invalid contest session');
+    const contest = await this.contestRepo.findOne({ where: { id: contestId, isPublished: true } });
+    if (
+      !contest || !contest.problems?.includes(problemId) ||
+      Date.now() < new Date(contest.startTime).getTime() ||
+      Date.now() > new Date(contest.endTime).getTime()
+    ) throw new ForbiddenException('Problem is not available in this contest attempt');
+    return attempt.id;
+  }
 
   async createSubmission(userId: string, data: unknown) {
     if (!data || typeof data !== 'object') {
@@ -83,6 +116,10 @@ export class SubmissionsService {
         ['single_choice', 'multiple_choice', 'mcq', 'true_false'].includes(
           (question.questionType || '').toLowerCase(),
         ));
+
+    const contestAttemptId = await this.contestAttemptForSubmission(
+      userId, payload, isMcq ? question.id : trimmedProblemId,
+    );
 
     if (isMcq) {
       let selectedAnswer: number | undefined =
@@ -183,6 +220,7 @@ export class SubmissionsService {
       const submission = this.submissionRepo.create({
         id: submissionId,
         userId,
+        contestAttemptId,
         user: { id: userId },
         problemId: question.id,
         problemSource: 'question',
@@ -285,6 +323,7 @@ export class SubmissionsService {
     const submission = this.submissionRepo.create({
       id: admissionId,
       userId,
+      contestAttemptId,
       user: { id: userId },
       problemId: problem.id,
       problemSource: problem.source,
@@ -501,9 +540,12 @@ export class SubmissionsService {
     return { data: ids.length ? await this.submissionRepo.problemProgress(userId, ids) : [] };
   }
 
-  async getSubmissionsByProblem(userId: string, problemId: string) {
+  async getSubmissionsByProblem(userId: string, problemId: string, contestId?: string, sessionId?: string) {
+    const contestAttemptId = await this.contestAttemptForSubmission(
+      userId, { contestId, sessionId }, problemId,
+    );
     const list = await this.submissionRepo.find({
-      where: { userId, problemId },
+      where: { userId, problemId, contestAttemptId: contestAttemptId ?? IsNull() },
       order: { createdAt: 'DESC' },
       take: 20,
     });

@@ -14,6 +14,7 @@ import { SubmissionConfirmationDialog } from "./_components/SubmissionConfirmati
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { type PublicContest } from "@/lib/contests";
+import { exitDocumentFullscreen } from "@/lib/fullscreen";
 
 interface AttemptContext {
   contest: PublicContest; sessionId: string; startedAt: string;
@@ -44,6 +45,7 @@ function ContestSession({ id }: { id: string }) {
   const [result, setResult] = useState<{ key: string; context?: AttemptContext; preview?: Pick<AttemptContext, "contest" | "antiCheatConfig">; error?: string }>();
   const [submissionError, setSubmissionError] = useState(""); const [retry, setRetry] = useState(0);
   const [hasStarted, setHasStarted] = useState(false); const [busy, setBusy] = useState(false); const [ended, setEnded] = useState(false);
+  const [finalized, setFinalized] = useState(false);
   const [confirm, setConfirm] = useState(false); const [selected, setSelected] = useState(0); const [now, setNow] = useState(Date.now);
   const submission = useRef(false);
   const startRequest = useRef<AbortController | null>(null);
@@ -91,10 +93,10 @@ function ContestSession({ id }: { id: string }) {
       await api.post(`/contests/${encodeURIComponent(id)}/submit`, { sessionId: context.sessionId }, { signal: controller.signal });
       if (controller.signal.aborted) return;
       setEnded(true);
-      router.replace(`/contests/${encodeURIComponent(id)}/results`);
+      setFinalized(true);
     } catch { if (!controller.signal.aborted) { setSubmissionError("Your contest could not be finalized. Please retry submission."); submission.current = false; } }
     finally { if (!controller.signal.aborted) setBusy(false); }
-  }, [id, context, router]);
+  }, [id, context]);
   const autoSubmit = useCallback(() => { void finish(true); }, [finish]);
   const proctor = useAntiCheatMaster(
     id,
@@ -111,6 +113,15 @@ function ContestSession({ id }: { id: string }) {
     autoSubmit,
     hasStarted && !ended,
   );
+  useEffect(() => {
+    if (!finalized) return;
+    let active = true;
+    // Wait for proctoring to stop before exiting fullscreen after submission.
+    void exitDocumentFullscreen().catch(() => {}).then(() => {
+      if (active) router.replace(`/contests/${encodeURIComponent(id)}/results`);
+    });
+    return () => { active = false; };
+  }, [finalized, id, router]);
   const hasExpiredRef = useRef(false);
   useEffect(() => {
     if (!context || ended) return;
@@ -205,10 +216,11 @@ function ContestSession({ id }: { id: string }) {
                 problem={problem}
                 contestId={id}
                 sessionId={context.sessionId}
+                userId={user.id || user._id || ""}
                 embedded
               />
             ) : (
-              <ProblemWorkspace key={problem.id} params={workspaceParams} contestId={id} embedded onPrevious={() => setSelected(index => Math.max(0, index - 1))} onNext={() => setSelected(index => Math.min(context.problems.length - 1, index + 1))} isFirstQuestion={selected === 0} isLastQuestion={selected === context.problems.length - 1} />
+              <ProblemWorkspace key={problem.id} params={workspaceParams} contestId={id} contestSessionId={context.sessionId} contestUserId={user.id || user._id || ""} embedded onPrevious={() => setSelected(index => Math.max(0, index - 1))} onNext={() => setSelected(index => Math.min(context.problems.length - 1, index + 1))} isFirstQuestion={selected === 0} isLastQuestion={selected === context.problems.length - 1} />
             )}
           </Suspense>
         </div>

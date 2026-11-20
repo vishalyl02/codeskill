@@ -399,7 +399,8 @@ export const submissionAPI = {
     api.get<{ data: { problemId: string; status: 'solved' | 'attempted' }[] }>("/submissions/progress", { params: { problemIds: problemIds.join(',') }, signal }),
   submit: (data: any) =>
     api.post("/submissions", data),
-  getSubmissions: (problemId: number | string) => api.get(`/submissions/problem/${problemId}`),
+  getSubmissions: (problemId: number | string, contest?: { contestId: string; sessionId: string }) =>
+    api.get(`/submissions/problem/${encodeURIComponent(problemId)}`, contest ? { params: contest } : undefined),
   getById: (id: string) => api.get(`/submissions/${id}`),
   getResult: (id: string) => api.get(`/submissions/${id}/result`),
   getProblemStats: (problemId: string) => api.get<ProblemStats>(`/submissions/problem/${problemId}/stats`),

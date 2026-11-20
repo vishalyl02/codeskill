@@ -5,6 +5,7 @@ import { Check, CheckCircle2, XCircle, RotateCcw, Send, History, Clock, FileText
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import api, { problemsAPI, submissionAPI } from "@/config/api";
+import { contestMcqDraftKey } from "@/lib/contest-storage";
 
 const submitAnswer = async (payload: any) => {
   if (typeof submissionAPI?.submit === "function") {
@@ -20,11 +21,12 @@ const getProblemDetails = async (slug: string) => {
   return api.get(`/problems/${encodeURIComponent(slug)}`);
 };
 
-const getProblemSubmissions = async (problemId: string) => {
+const getProblemSubmissions = async (problemId: string, contestId?: string, sessionId?: string) => {
+  const contest = contestId && sessionId ? { contestId, sessionId } : undefined;
   if (typeof submissionAPI?.getSubmissions === "function") {
-    return submissionAPI.getSubmissions(problemId);
+    return submissionAPI.getSubmissions(problemId, contest);
   }
-  return api.get(`/submissions/problem/${encodeURIComponent(problemId)}`);
+  return api.get(`/submissions/problem/${encodeURIComponent(problemId)}`, contest ? { params: contest } : undefined);
 };
 
 export interface ContestMCQProblem {
@@ -52,11 +54,13 @@ export default function ContestMCQWorkspace({
   problem,
   contestId,
   sessionId,
+  userId,
   embedded = false,
 }: {
   problem: ContestMCQProblem;
   contestId?: string;
   sessionId?: string;
+  userId?: string;
   embedded?: boolean;
 }) {
   const [details, setDetails] = useState<any>(null);
@@ -118,7 +122,9 @@ export default function ContestMCQWorkspace({
   }, [problem.slug]);
 
   // Restore draft selection from localStorage
-  const draftKey = `codeskill_mcq_draft_${problem.id}`;
+  const draftKey = contestId && sessionId && userId
+    ? contestMcqDraftKey(userId, contestId, sessionId, problem.id)
+    : `codeskill_mcq_draft_${problem.id}`;
   useEffect(() => {
     try {
       const saved = localStorage.getItem(draftKey);
@@ -144,14 +150,14 @@ export default function ContestMCQWorkspace({
   const loadSubmissions = useCallback(() => {
     if (!problem.id) return;
     setLoadingSubmissions(true);
-    getProblemSubmissions(problem.id)
+    getProblemSubmissions(problem.id, contestId, sessionId)
       .then((res) => {
         const list = res.data?.data || res.data || [];
         setSubmissions(Array.isArray(list) ? list : []);
       })
       .catch(() => setSubmissions([]))
       .finally(() => setLoadingSubmissions(false));
-  }, [problem.id]);
+  }, [problem.id, contestId, sessionId]);
 
   useEffect(() => {
     loadSubmissions();
@@ -204,6 +210,7 @@ export default function ContestMCQWorkspace({
       selectedAnswers: isMultiChoice ? selectedAnswers : undefined,
       code: JSON.stringify(isMultiChoice ? { selectedAnswers } : { selectedAnswer }),
       language: "text",
+      ...(contestId && sessionId ? { contestId, sessionId } : {}),
     };
 
     try {

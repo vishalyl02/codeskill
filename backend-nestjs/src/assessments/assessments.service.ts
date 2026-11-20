@@ -597,19 +597,14 @@ export class AssessmentsService {
       hard: Math.floor(raw.hard),
     };
 
-    let remainder = total - (targets.easy + targets.medium + targets.hard);
+    const remainder = total - (targets.easy + targets.medium + targets.hard);
     const levelOrder: Array<'easy' | 'medium' | 'hard'> = ['easy', 'medium', 'hard'];
     const order = [...levelOrder].sort(
       (left: 'easy' | 'medium' | 'hard', right: 'easy' | 'medium' | 'hard') =>
         (raw[right] - Math.floor(raw[right])) - (raw[left] - Math.floor(raw[left])),
     );
 
-    while (remainder > 0) {
-      const nextLevel =
-        order[(targets.easy + targets.medium + targets.hard + remainder) % order.length] ?? 'medium';
-      targets[nextLevel] += 1;
-      remainder -= 1;
-    }
+    for (const level of order.slice(0, remainder)) targets[level] += 1;
 
     return targets;
   }
@@ -634,6 +629,11 @@ export class AssessmentsService {
       grouped[difficulty].push(question);
     });
 
+    const available = {
+      easy: grouped.easy.length,
+      medium: grouped.medium.length,
+      hard: grouped.hard.length,
+    };
     const targets = this.calculateDifficultyTargets(safeTarget);
     const selected: Array<Pick<Question, 'id' | 'difficulty'>> = [];
 
@@ -641,7 +641,6 @@ export class AssessmentsService {
       const quota = Math.min(targets[level], grouped[level].length);
       const tierChoices = this.shuffleList(grouped[level]).slice(0, quota);
       selected.push(...tierChoices);
-      grouped[level] = grouped[level].filter((question) => !tierChoices.some((choice) => choice.id === question.id));
     });
 
     if (selected.length < safeTarget) {
@@ -660,14 +659,12 @@ export class AssessmentsService {
 
     const targetMatch = counts.easy === targets.easy && counts.medium === targets.medium && counts.hard === targets.hard;
     if (!targetMatch) {
-      console.warn(
-        '[Assessment] Difficulty-balanced question selection could not fully match the 30/40/30 target. ' +
-        `Targeted=${JSON.stringify(targets)} Actual=${JSON.stringify(counts)} Available=${JSON.stringify({
-          easy: grouped.easy.length + counts.easy,
-          medium: grouped.medium.length + counts.medium,
-          hard: grouped.hard.length + counts.hard,
-        })}`,
-      );
+      this.logger.warn({
+        message: 'Filled assessment slots from available difficulty tiers',
+        targets,
+        selected: counts,
+        available,
+      });
     }
 
     return finalSelected.map((question) => question.id);

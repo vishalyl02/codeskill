@@ -38,6 +38,8 @@ describe('practice submission source migration runner', () => {
         return Promise.resolve(dataSource);
       }),
       createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+      transaction: jest.fn(async (work: (manager: { query: typeof queryRunner.query }) => Promise<void>) =>
+        work({ query: queryRunner.query })),
       destroy: jest.fn().mockResolvedValue(undefined),
     };
     DataSourceMock.mockImplementation(
@@ -69,6 +71,9 @@ describe('practice submission source migration runner', () => {
     );
     expect(applyMigration).toHaveBeenCalledWith(queryRunner);
     expect(applyBugsMigration).toHaveBeenCalledWith(queryRunner);
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      'ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS "contestAttemptId" uuid',
+    );
     expect(applyBugsMigration.mock.invocationCallOrder[0]).toBeLessThan(
       queryRunner.commitTransaction.mock.invocationCallOrder[0],
     );
@@ -115,7 +120,7 @@ describe('practice submission source migration runner', () => {
       ]),
     });
     const config = parseSubmissionShardingConfig()!;
-    const { queryRunner } = setup();
+    const { queryRunner, dataSource } = setup();
     queryRunner.query.mockImplementation(async (sql: string) => {
       if (sql.includes('to_regclass')) return [{ present: true }];
       if (sql.includes('SELECT fingerprint'))
@@ -130,6 +135,10 @@ describe('practice submission source migration runner', () => {
       ['submissions'],
     );
     expect(queryRunner.commitTransaction).toHaveBeenCalled();
+    expect(dataSource.transaction).toHaveBeenCalledTimes(2);
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      'ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS "contestAttemptId" uuid',
+    );
   });
 
   it('releases connections if starting the transaction fails', async () => {

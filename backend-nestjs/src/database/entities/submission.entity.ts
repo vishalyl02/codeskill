@@ -20,6 +20,7 @@ export type ProblemSource = 'problem' | 'metadata' | 'question';
   `"problemSource" IN ('problem', 'metadata', 'question')`,
 )
 @Index(['userId', 'problemId', 'status'])
+@Index('IDX_submissions_contest_attempt_problem_status', ['contestAttemptId', 'problemId', 'status'])
 @Index(['createdAt'])
 @Index(['status'])
 @Index(['language'])
@@ -33,6 +34,9 @@ export class Submission {
 
   @Column({ type: 'uuid' })
   userId: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  contestAttemptId?: string | null;
 
   // problemId also identifies metadata-backed practice problems.
   @ManyToOne(() => Problem, { createForeignKeyConstraints: false })

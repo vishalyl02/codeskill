@@ -17,6 +17,7 @@ import { SubmissionShardRegistry } from './shard-registry';
 
 export interface ContestSubmissionWindow {
   userId: string;
+  attemptId: string;
   start: Date | string;
   end: Date | string;
 }
@@ -24,6 +25,16 @@ export interface ContestSolvedProblem {
   userId: string;
   problemId: string;
   solvedAt: string;
+}
+export interface ContestSubmissionRow {
+  id: string;
+  contestAttemptId: string;
+  userId: string;
+  problemId: string;
+  status: string;
+  createdAt: Date;
+  code: string;
+  language: string;
 }
 
 function direction(
@@ -361,13 +372,11 @@ export class SubmissionStore {
     problemIds: string[],
     windows: ContestSubmissionWindow[],
   ): Promise<ContestSolvedProblem[]> {
-    if (!this.isSharded)
-      throw new Error('Sharded contest aggregation requires active shards');
     const groups = new Map<Repository<Submission>, ContestSubmissionWindow[]>();
     for (const window of windows) {
-      const repo = this.registry
-        .forUser(window.userId)
-        .getRepository(Submission);
+      const repo = this.isSharded
+        ? this.registry.forUser(window.userId).getRepository(Submission)
+        : this.primary;
       groups.set(repo, [...(groups.get(repo) || []), window]);
     }
     const results = await Promise.all(
@@ -375,8 +384,8 @@ export class SubmissionStore {
         repo.query<ContestSolvedProblem[]>(
           `SELECT s."userId" AS "userId", s."problemId" AS "problemId", min(s."createdAt") AS "solvedAt"
        FROM public.submissions s
-       JOIN jsonb_to_recordset($2::jsonb) AS w("userId" uuid, start timestamp, "end" timestamp)
-         ON s."userId" = w."userId"
+       JOIN jsonb_to_recordset($2::jsonb) AS w("userId" uuid, "attemptId" uuid, start timestamp, "end" timestamp)
+         ON s."userId" = w."userId" AND s."contestAttemptId" = w."attemptId"
        WHERE s."problemId" = ANY($1::uuid[]) AND lower(s.status) = 'accepted'
          AND s."createdAt" >= w.start AND s."createdAt" <= w."end"
        GROUP BY s."userId", s."problemId"`,
@@ -394,6 +403,34 @@ export class SubmissionStore {
       ),
     );
     return results.flat();
+  }
+
+  async contestSubmissions(problemIds: string[], windows: ContestSubmissionWindow[]): Promise<ContestSubmissionRow[]> {
+    const groups = new Map<Repository<Submission>, ContestSubmissionWindow[]>();
+    for (const window of windows) {
+      const repo = this.isSharded
+        ? this.registry.forUser(window.userId).getRepository(Submission)
+        : this.primary;
+      groups.set(repo, [...(groups.get(repo) || []), window]);
+    }
+    const results = await Promise.all([...groups].map(([repo, scopedWindows]) =>
+      repo.query<ContestSubmissionRow[]>(
+        `SELECT s.id, s."contestAttemptId"::text AS "contestAttemptId", s."userId"::text AS "userId", s."problemId"::text AS "problemId",
+                lower(s.status) AS status, s."createdAt", s.code, s.language
+         FROM public.submissions s
+         JOIN jsonb_to_recordset($2::jsonb) AS w("userId" uuid, "attemptId" uuid, start timestamp, "end" timestamp)
+           ON s."userId" = w."userId" AND s."contestAttemptId" = w."attemptId"
+         WHERE s."problemId" = ANY($1::uuid[])
+           AND s."createdAt" >= w.start AND s."createdAt" <= w."end"
+         ORDER BY s."createdAt" ASC`,
+        [problemIds, JSON.stringify(scopedWindows.map((window) => ({
+          ...window,
+          start: this.databaseTimestamp(window.start),
+          end: this.databaseTimestamp(window.end),
+        })))],
+      ),
+    ));
+    return results.flat().sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
   private databaseTimestamp(value: Date | string): string {

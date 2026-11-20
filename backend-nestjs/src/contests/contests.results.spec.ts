@@ -110,6 +110,7 @@ describe('ContestsService - Results & Editorials', () => {
     const submissions = [
       {
         id: 'sub-1',
+        contestAttemptId: 'att-1',
         userId: userAliceId,
         problemId: probAId,
         status: 'wrong answer',
@@ -119,6 +120,7 @@ describe('ContestsService - Results & Editorials', () => {
       },
       {
         id: 'sub-2',
+        contestAttemptId: 'att-1',
         userId: userAliceId,
         problemId: probAId,
         status: 'accepted',
@@ -128,6 +130,7 @@ describe('ContestsService - Results & Editorials', () => {
       },
       {
         id: 'sub-3',
+        contestAttemptId: 'att-1',
         userId: userAliceId,
         problemId: probBId,
         status: 'accepted',
@@ -137,6 +140,7 @@ describe('ContestsService - Results & Editorials', () => {
       },
       {
         id: 'sub-4',
+        contestAttemptId: 'att-2',
         userId: userBobId,
         problemId: probAId,
         status: 'accepted',
@@ -146,12 +150,19 @@ describe('ContestsService - Results & Editorials', () => {
       },
       {
         id: 'sub-5',
+        contestAttemptId: 'att-3',
         userId: userCharlieId,
         problemId: probAId,
         status: 'accepted',
         createdAt: new Date(customContest.startTime.getTime() + 300000),
         code: 'def solve(): return True',
         language: 'python',
+      },
+      {
+        id: 'other-contest-solve', contestAttemptId: 'other-attempt',
+        userId: userBobId, problemId: probBId, status: 'accepted',
+        createdAt: new Date(customContest.startTime.getTime() + 500000),
+        code: 'unrelated contest answer', language: 'python',
       },
     ];
 
@@ -230,10 +241,21 @@ describe('ContestsService - Results & Editorials', () => {
       metadataRepo as any,
     );
 
-    return { service, contestRepo, attemptRepo, problemsService, metadataRepo };
+    return { service, contestRepo, attemptRepo, problemsService, metadataRepo, attempts };
   }
 
   describe('getResults', () => {
+    it('retains the saved aggregate for a completed pre-migration attempt', async () => {
+      const { service, attemptRepo, attempts } = setupService();
+      (attempts[0] as any).problemsSolved = 2;
+      (attempts[0] as any).score = 200;
+      attemptRepo.query.mockResolvedValue([]);
+      const result = await service.getResults(contestId, {});
+      expect(result.standings[0]).toEqual(expect.objectContaining({
+        userId: userAliceId, problemsSolved: 2, totalScore: 200,
+        legacyResultsIncomplete: true,
+      }));
+    });
     it('throws NotFoundException if contest does not exist', async () => {
       const { service } = setupService();
       await expect(service.getResults('non-existent-contest', {})).rejects.toThrow(
@@ -242,8 +264,10 @@ describe('ContestsService - Results & Editorials', () => {
     });
 
     it('correctly ranks competitive candidates using ICPC rules', async () => {
-      const { service } = setupService();
+      const { service, attemptRepo } = setupService();
       const res = await service.getResults(contestId, {});
+
+      expect(attemptRepo.query.mock.calls[0][0]).toContain('s."contestAttemptId" = ANY');
 
       expect(res.contest.id).toBe(contestId);
       expect(res.problems).toHaveLength(2);

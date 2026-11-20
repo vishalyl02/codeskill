@@ -329,6 +329,19 @@ describe('Assessment Integrity & Server-Side Scoring (AUD-002, NEW-001, NEW-002,
     expect(counts.hard).toBe(3);
   });
 
+  it('rounds a two-question assessment across the highest fractional difficulty quotas', () => {
+    const bank = [
+      { id: 'easy', difficulty: 'easy' },
+      { id: 'medium', difficulty: 'medium' },
+      { id: 'hard-1', difficulty: 'hard' },
+      { id: 'hard-2', difficulty: 'hard' },
+    ];
+
+    const selected: string[] = (service as any).buildDifficultyBalancedQuestionIds(bank, 2);
+
+    expect(selected.sort()).toEqual(['easy', 'medium']);
+  });
+
   it('keeps question and option order fixed per attempt while remapping selected answers to canonical indices', async () => {
     const seededRandom = [0.85, 0.15, 0.75, 0.25, 0.65, 0.35, 0.9, 0.1];
     const randomSpy = jest.spyOn(Math, 'random');

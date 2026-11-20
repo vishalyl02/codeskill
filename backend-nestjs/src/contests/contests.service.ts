@@ -127,6 +127,19 @@ export class ContestsService {
     };
   }
 
+  private contestSecurityConfig(contest: Contest): Record<string, unknown> {
+    const raw = (contest.antiCheatConfig || {}) as Record<string, unknown>;
+    return {
+      ...raw,
+      enableFullscreen: raw.enableFullscreenCheck ?? raw.enableFullscreen ?? true,
+      enableTabSwitchDetect: raw.enableTabSwitchDetection ?? raw.enableTabSwitchDetect ?? true,
+      enableCopyProtect: raw.enableCopyProtect ?? true,
+      enablePasteProtect: raw.enablePasteProtect ?? true,
+      enableDevToolsDetect: raw.enableDevToolsDetect ?? true,
+      autoSubmitOnViolation: raw.autoSubmitOnViolation ?? raw.actionOnMaxViolations !== 'flag_review',
+    };
+  }
+
   async registration(contestId: string, userId: string) {
     const validId =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -204,19 +217,28 @@ export class ContestsService {
     }
     const rows: Array<{ name: string; username: string; solved: string }> =
       await this.attemptRepo.query(
-        `WITH accepted AS (
+        `WITH latest AS (
+          SELECT DISTINCT ON (user_id) * FROM contest_attempts
+          WHERE contest_id = $5
+          ORDER BY user_id, "attemptNumber" DESC, "createdAt" DESC
+        ), accepted AS (
           SELECT a.user_id, s."problemId", min(s."createdAt") AS solved_at
-          FROM contest_attempts a JOIN submissions s ON s."userId"::text = a.user_id::text
-          WHERE a.contest_id = $5 AND s."problemId" = ANY($1::uuid[]) AND lower(s.status) = 'accepted'
+          FROM latest a JOIN submissions s ON s."contestAttemptId" = a.id
+          WHERE s."problemId" = ANY($1::uuid[]) AND lower(s.status) = 'accepted'
             AND s."createdAt" >= greatest(a."startedAt", $2::timestamp)
             AND s."createdAt" <= least(coalesce(a."submittedAt", $3::timestamp), $3::timestamp)
           GROUP BY a.user_id, s."problemId"
         )
-        SELECT u.name, u.username, count(accepted."problemId") AS solved
-        FROM users u LEFT JOIN accepted ON accepted.user_id::text = u.id::text
+        SELECT u.name, u.username,
+          CASE WHEN count(accepted."problemId") = 0
+            THEN coalesce(max(latest."problemsSolved"), 0)
+            ELSE count(accepted."problemId") END AS solved
+        FROM users u
+        LEFT JOIN latest ON latest.user_id::text = u.id::text
+        LEFT JOIN accepted ON accepted.user_id::text = u.id::text
         WHERE u.id::text = ANY($4::text[])
         GROUP BY u.id, u.name, u.username
-        ORDER BY count(accepted."problemId") DESC, max(accepted.solved_at) ASC NULLS LAST, u.id ASC
+        ORDER BY solved DESC, max(accepted.solved_at) ASC NULLS LAST, u.id ASC
         LIMIT 100`,
         [
           problemIds,
@@ -246,11 +268,17 @@ export class ContestsService {
       username: string;
       start: string | null;
       end: string | null;
+      attemptId: string | null;
+      legacySolved: number | string | null;
     }> = await this.attemptRepo.query(
-      `SELECT u.id, u.name, u.username,
+      `SELECT u.id, u.name, u.username, a.id AS "attemptId", a."problemsSolved" AS "legacySolved",
               CASE WHEN a.id IS NOT NULL THEN to_char(greatest(a."startedAt", $2::timestamp), 'YYYY-MM-DD"T"HH24:MI:SS.US') END AS start,
               CASE WHEN a.id IS NOT NULL THEN to_char(least(coalesce(a."submittedAt", $3::timestamp), $3::timestamp), 'YYYY-MM-DD"T"HH24:MI:SS.US') END AS "end"
-       FROM users u LEFT JOIN contest_attempts a ON a.user_id::text = u.id::text AND a.contest_id = $1
+       FROM users u LEFT JOIN LATERAL (
+         SELECT * FROM contest_attempts a
+         WHERE a.user_id::text = u.id::text AND a.contest_id = $1
+         ORDER BY a."attemptNumber" DESC, a."createdAt" DESC LIMIT 1
+       ) a ON true
        WHERE u.id::text = ANY($4::text[])`,
       [
         contest.id,
@@ -260,8 +288,8 @@ export class ContestsService {
       ],
     );
     const windows = participants
-      .filter((row) => row.start && row.end)
-      .map((row) => ({ userId: row.id, start: row.start!, end: row.end! }));
+      .filter((row) => row.attemptId && row.start && row.end)
+      .map((row) => ({ userId: row.id, attemptId: row.attemptId!, start: row.start!, end: row.end! }));
     const solved = await this.submissions!.contestSolvedProblems(
       problemIds,
       windows,
@@ -274,6 +302,7 @@ export class ContestsService {
         username: string;
         problems: Set<string>;
         lastSolve: number | null;
+        legacySolved: number | string | null;
       }
     >();
     for (const participant of participants)
@@ -294,7 +323,7 @@ export class ContestsService {
     const ordered = [...scores.values()]
       .sort(
         (a, b) =>
-          b.problems.size - a.problems.size ||
+          (b.problems.size || Number(b.legacySolved || 0)) - (a.problems.size || Number(a.legacySolved || 0)) ||
           (a.lastSolve ?? Infinity) - (b.lastSolve ?? Infinity) ||
           a.id.localeCompare(b.id),
       )
@@ -305,7 +334,7 @@ export class ContestsService {
         rank: index + 1,
         name: row.name,
         username: row.username,
-        solved: row.problems.size,
+        solved: row.problems.size || Number(row.legacySolved || 0),
         totalProblems: problemIds.length,
       })),
     };
@@ -340,7 +369,7 @@ export class ContestsService {
       throw new ForbiddenException('Register for this contest first');
     return {
       contest: this.safeContest(contest),
-      antiCheatConfig: contest.antiCheatConfig as Record<string, unknown>,
+      antiCheatConfig: this.contestSecurityConfig(contest),
     };
   }
 
@@ -593,7 +622,7 @@ export class ContestsService {
       problems,
       sessionId: attempt.sessionId,
       startedAt: attempt.startedAt,
-      antiCheatConfig: contest.antiCheatConfig as Record<string, unknown>,
+      antiCheatConfig: this.contestSecurityConfig(contest),
       attemptNumber: attempt.attemptNumber || 1,
     };
   }
@@ -613,18 +642,18 @@ export class ContestsService {
     let problemsSolved = 0;
     if (problemIds.length > 0) {
       try {
-        if (this.submissions?.isSharded) {
+        if (this.submissions) {
           const solved = await this.submissions.contestSolvedProblems(problemIds, [
-            { userId, start: attempt.startedAt, end: new Date() },
+            { userId, attemptId: attempt.id, start: attempt.startedAt, end: new Date() },
           ]);
           problemsSolved = new Set(solved.map((row) => row.problemId)).size;
         } else {
           const solved = await this.attemptRepo.query(
             `SELECT count(DISTINCT "problemId") as count 
              FROM submissions 
-             WHERE "userId"::text = $1 AND "problemId" = ANY($2::uuid[]) AND lower(status) = 'accepted'
+             WHERE "userId"::text = $1 AND "contestAttemptId" = $4 AND "problemId" = ANY($2::uuid[]) AND lower(status) = 'accepted'
                AND "createdAt" >= $3`,
-            [userId, problemIds, attempt.startedAt],
+            [userId, problemIds, attempt.startedAt, attempt.id],
           );
           problemsSolved = Number(solved[0]?.count || 0);
         }
@@ -904,6 +933,7 @@ export class ContestsService {
 
     let submissions: Array<{
       id: string;
+      contestAttemptId: string;
       userId: string;
       problemId: string;
       status: string;
@@ -912,14 +942,23 @@ export class ContestsService {
       language?: string;
     }> = [];
 
-    if (validProblemUuids.length > 0 && participantIds.length > 0) {
+    if (validProblemUuids.length > 0 && attempts.length > 0) {
       try {
-        submissions = await this.attemptRepo.query(
-          `SELECT s.id, s."userId"::text as "userId", s."problemId"::text as "problemId",
+        if (this.submissions) {
+          submissions = await this.submissions.contestSubmissions(validProblemUuids, attempts.map((attempt) => ({
+            userId: attempt.user_id,
+            attemptId: attempt.id,
+            start: attempt.startedAt,
+            end: attempt.submittedAt || contest.endTime,
+          })));
+        } else {
+          submissions = await this.attemptRepo.query(
+          `SELECT s.id, s."contestAttemptId"::text as "contestAttemptId", s."userId"::text as "userId", s."problemId"::text as "problemId",
                   lower(s.status) as status, s."createdAt", s.code, s.language
            FROM submissions s
            WHERE s."problemId" = ANY($1::uuid[])
              AND s."userId"::text = ANY($2::text[])
+             AND s."contestAttemptId" = ANY($5::uuid[])
              AND s."createdAt" >= $3::timestamp
              AND s."createdAt" <= $4::timestamp
            ORDER BY s."createdAt" ASC`,
@@ -930,8 +969,10 @@ export class ContestsService {
             new Date(
               Math.max(Date.now(), new Date(contest.endTime).getTime()),
             ),
+            attempts.map((attempt) => attempt.id),
           ],
         );
+        }
       } catch (err: any) {
         this.logger.warn(
           `Failed to query submissions for contest results: ${err?.message || err}`,
@@ -990,6 +1031,7 @@ export class ContestsService {
       startedAt?: Date;
       submittedAt?: Date;
       problemsSolved: number;
+      legacyResultsIncomplete?: boolean;
       totalScore: number;
       totalPenaltyMinutes: number;
       lastSolveTime: number | null;
@@ -1054,7 +1096,9 @@ export class ContestsService {
         continue;
       }
 
-      const userSubs = userSubmissionsMap.get(userId) || [];
+      const userSubs = (userSubmissionsMap.get(userId) || []).filter(
+        (submission) => submission.contestAttemptId === attempt?.id,
+      );
       const startTime = attempt?.startedAt
         ? Math.max(new Date(attempt.startedAt).getTime(), contestStartMs)
         : contestStartMs;
@@ -1150,6 +1194,15 @@ export class ContestsService {
         }
       }
 
+      // Old completed attempts predate contestAttemptId. Their saved aggregate is
+      // authoritative when individual submissions cannot be attributed safely.
+      const legacyResultsIncomplete = userSubs.length === 0 && !!attempt?.submittedAt &&
+        Number(attempt.problemsSolved || 0) > 0;
+      if (legacyResultsIncomplete) {
+        problemsSolved = Number(attempt.problemsSolved);
+        totalScore = Number(attempt.score || 0);
+      }
+
       competitiveCandidates.push({
         userId,
         name: user?.name || 'Anonymous',
@@ -1165,6 +1218,7 @@ export class ContestsService {
         startedAt: attempt?.startedAt,
         submittedAt: attempt?.submittedAt,
         problemsSolved,
+        legacyResultsIncomplete,
         totalScore,
         totalPenaltyMinutes,
         lastSolveTime,
