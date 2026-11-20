@@ -30,15 +30,36 @@ export default function LockdownLaunchGate({
     }
   }, [onClientDetected]);
 
+  const getPortalOrigin = () => {
+    if (typeof window !== "undefined" && window.location && window.location.origin) {
+      return window.location.origin;
+    }
+    return (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/+$/, "");
+  };
+
+  const portalOrigin = getPortalOrigin();
+  const originParam = portalOrigin ? `&origin=${encodeURIComponent(portalOrigin)}` : "";
+
   const deepLinkUrl = `codeskill-exam://start?examId=${encodeURIComponent(
     examId
-  )}&token=${encodeURIComponent(token)}`;
+  )}&token=${encodeURIComponent(token)}${originParam}`;
+
+  const diagnosticsDeepLink = `codeskill-lockdown://system-check${
+    portalOrigin ? `?origin=${encodeURIComponent(portalOrigin)}` : ""
+  }`;
 
   const cdnBase = (process.env.NEXT_PUBLIC_LOCKDOWN_CDN_URL || '/downloads').replace(/\/+$/, '');
 
   const handleLaunchClick = () => {
     if (typeof window !== "undefined") {
-      window.location.href = deepLinkUrl;
+      window.location.assign(deepLinkUrl);
+    }
+  };
+
+  const handleDiagnosticsClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (typeof window !== "undefined") {
+      window.location.assign(diagnosticsDeepLink);
     }
   };
 
@@ -89,13 +110,8 @@ export default function LockdownLaunchGate({
           </button>
 
           <a
-            href="codeskill-lockdown://system-check"
-            onClick={(e) => {
-              e.preventDefault();
-              if (typeof window !== "undefined") {
-                window.location.href = "codeskill-lockdown://system-check";
-              }
-            }}
+            href={diagnosticsDeepLink}
+            onClick={handleDiagnosticsClick}
             className="w-full py-2.5 px-4 rounded-xl border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
           >
             <Monitor className="w-4 h-4" />
