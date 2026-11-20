@@ -57,7 +57,6 @@ int main() {
   javascript: `// TODO: Implement your logic
 `,
   sql: `-- TODO: Write your SQL query here
-SELECT 1;
 `,
 };
 
@@ -75,12 +74,14 @@ interface IndependentQuestionCompilerProps {
   exercise: ExerciseData;
   onPassed?: (exerciseId: string, result: any) => void;
   defaultOpen?: boolean;
+  userId?: string;
 }
 
 export function IndependentQuestionCompiler({
   exercise,
   onPassed,
   defaultOpen = true,
+  userId,
 }: IndependentQuestionCompilerProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -104,7 +105,11 @@ export function IndependentQuestionCompiler({
 
   const [language, setLanguage] = useState<string>(initialLang);
 
-  // Preserve student-written code across language switches
+  const storageKey = useMemo(() => {
+    return `codeskill_code_${userId || "guest"}_${exercise.id}_${language}`;
+  }, [userId, exercise.id, language]);
+
+  // Preserve student-written code across language switches and browser refreshes
   const [codeByLang, setCodeByLang] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {};
     if (exercise.starterCode) {
@@ -116,6 +121,16 @@ export function IndependentQuestionCompiler({
   });
 
   const [code, setCode] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(
+          `codeskill_code_${userId || "guest"}_${exercise.id}_${initialLang}`
+        );
+        if (saved) return saved;
+      } catch (e) {
+        console.error("Failed to read saved code draft", e);
+      }
+    }
     return (
       codeByLang[initialLang] ||
       exercise.starterCode?.[initialLang] ||
@@ -149,6 +164,20 @@ export function IndependentQuestionCompiler({
   const activeExecutionIdRef = useRef<string | null>(null);
   const isExecutingRef = useRef(false);
 
+  // Handle student code changes with automatic persistent saving
+  const handleCodeChange = useCallback(
+    (newVal: string) => {
+      setCode(newVal);
+      setCodeByLang((prev) => ({ ...prev, [language]: newVal }));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(storageKey, newVal);
+        } catch (e) {}
+      }
+    },
+    [language, storageKey]
+  );
+
   // Switch language while preserving user's typed code in the previous language
   const handleLanguageChange = useCallback(
     (newLang: string) => {
@@ -156,18 +185,34 @@ export function IndependentQuestionCompiler({
         ...prev,
         [language]: code,
       }));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(storageKey, code);
+        } catch (e) {}
+      }
+
       setLanguage(newLang);
-      const nextCode =
-        codeByLang[newLang] ||
-        exercise.starterCode?.[newLang] ||
-        MINIMAL_STARTER_CODES[newLang] ||
-        "// Write your code here\n";
+      const nextStorageKey = `codeskill_code_${userId || "guest"}_${exercise.id}_${newLang}`;
+      let nextCode = "";
+      if (typeof window !== "undefined") {
+        try {
+          nextCode = localStorage.getItem(nextStorageKey) || "";
+        } catch (e) {}
+      }
+
+      if (!nextCode) {
+        nextCode =
+          codeByLang[newLang] ||
+          exercise.starterCode?.[newLang] ||
+          MINIMAL_STARTER_CODES[newLang] ||
+          "// Write your code here\n";
+      }
       setCode(nextCode);
     },
-    [code, language, codeByLang, exercise.starterCode]
+    [code, language, codeByLang, exercise.starterCode, storageKey, userId, exercise.id]
   );
 
-  // Reset to initial minimal template
+  // Reset to initial minimal template and clear stored draft
   const handleReset = useCallback(() => {
     const defaultCode =
       exercise.starterCode?.[language] ||
@@ -175,11 +220,16 @@ export function IndependentQuestionCompiler({
       "// Write your code here\n";
     setCode(defaultCode);
     setCodeByLang((prev) => ({ ...prev, [language]: defaultCode }));
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch (e) {}
+    }
     setTerminalLogs([]);
     setSqlResult(null);
     setTestResults(null);
     setSubmissionFeedback(null);
-  }, [exercise.starterCode, language]);
+  }, [exercise.starterCode, language, storageKey]);
 
   // 1. RUN CODE (Live Playground): Never awards XP or marks completion
   const handleRunCode = async () => {
@@ -524,7 +574,7 @@ export function IndependentQuestionCompiler({
               }
               theme={isDark ? "vs-dark" : "light"}
               value={code}
-              onChange={(val) => setCode(val || "")}
+              onChange={(val) => handleCodeChange(val || "")}
               options={{
                 minimap: { enabled: false },
                 fontSize: 13,

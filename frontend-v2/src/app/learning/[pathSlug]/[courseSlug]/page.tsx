@@ -40,6 +40,7 @@ import {
   IndependentQuestionCompiler,
   MINIMAL_STARTER_CODES,
 } from "@/components/learning/IndependentQuestionCompiler";
+import { IndependentQuizRunner } from "@/components/learning/IndependentQuizRunner";
 import { learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
@@ -2280,196 +2281,34 @@ export default function CourseWorkspacePage({
                           </span>
                         </div>
 
-                        {/* Quiz Runner */}
+                        {/* Independent Quiz Runner with Draft Persistence & Retakes */}
                         {ex.type === "quiz" && ex.quizConfig?.questions && (
-                          <div className="space-y-6">
-                            {/* Quiz Progress & Question Quick-Jump Stepper */}
-                            <div className="bg-muted/40 border border-border rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-foreground">
-                                  {ex.quizConfig.questions.length} Practice MCQs
-                                </span>
-                                <span className="text-[11px] text-muted-foreground">
-                                  · {Object.keys(selectedAnswers).length} of {ex.quizConfig.questions.length} answered
-                                </span>
-                              </div>
-
-                              {/* Question Quick Jump Pills */}
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {ex.quizConfig.questions.map((q, qIdx) => {
-                                  const isAnswered = selectedAnswers[q.id] !== undefined;
-                                  const qResult = quizResults?.results?.find(
-                                    (r: any) => r.questionId === q.id,
-                                  );
-                                  return (
-                                    <button
-                                      key={q.id}
-                                      type="button"
-                                      onClick={() => {
-                                        const el = document.getElementById(`quiz-q-${q.id}`);
-                                        el?.scrollIntoView({ behavior: "smooth", block: "center" });
-                                      }}
-                                      className={`w-7 h-7 rounded-lg text-xs font-bold transition-all flex items-center justify-center cursor-pointer ${
-                                        qResult
-                                          ? qResult.isCorrect
-                                            ? "bg-emerald-500 text-white shadow-xs"
-                                            : "bg-destructive text-destructive-foreground shadow-xs"
-                                          : isAnswered
-                                          ? "bg-primary text-primary-foreground shadow-xs"
-                                          : "bg-card border border-border text-muted-foreground hover:border-foreground/30"
-                                      }`}
-                                      title={`Jump to Question ${qIdx + 1}`}
-                                    >
-                                      {qIdx + 1}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            {ex.quizConfig.questions.map((q, qIdx) => (
-                              <div
-                                key={q.id}
-                                id={`quiz-q-${q.id}`}
-                                className="p-5 rounded-xl border border-border bg-card/60 space-y-3.5 shadow-xs"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary px-2 py-0.5 rounded bg-primary/10 border border-primary/20">
-                                    Question {qIdx + 1} of {ex.quizConfig?.questions?.length || 0}
-                                  </span>
-                                  {selectedAnswers[q.id] !== undefined && (
-                                    <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                      ✓ Option Selected
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-base font-bold text-foreground leading-snug">
-                                  {q.question}
-                                </p>
-                                
-                                <div className="space-y-2.5">
-                                  {q.options.map((opt, optIdx) => {
-                                    const isSelected = selectedAnswers[q.id] === optIdx;
-                                    const qResult = quizResults?.results?.find(
-                                      (r: any) => r.questionId === q.id,
-                                    );
-
-                                    let containerStyle =
-                                      "border-slate-200 dark:border-border bg-white dark:bg-card text-slate-900 dark:text-foreground hover:bg-slate-50 dark:hover:bg-muted/60 hover:border-primary/50 shadow-xs";
-                                    let letterBadgeStyle =
-                                      "bg-slate-100 dark:bg-muted text-slate-800 dark:text-foreground border border-slate-300 dark:border-border";
-
-                                    if (qResult) {
-                                      if (optIdx === qResult.correctAnswer) {
-                                        containerStyle =
-                                          "border-emerald-500 bg-emerald-500/15 text-emerald-950 dark:text-emerald-100 font-bold ring-2 ring-emerald-500/40 shadow-sm";
-                                        letterBadgeStyle = "bg-emerald-600 text-white font-bold";
-                                      } else if (isSelected && !qResult.isCorrect) {
-                                        containerStyle =
-                                          "border-rose-500 bg-rose-500/15 text-rose-950 dark:text-rose-100 font-bold ring-2 ring-rose-500/40 shadow-sm";
-                                        letterBadgeStyle =
-                                          "bg-rose-600 text-white font-bold";
-                                      }
-                                    } else if (isSelected) {
-                                      containerStyle =
-                                        "border-primary bg-primary/10 text-slate-950 dark:text-foreground font-bold ring-2 ring-primary/40 shadow-sm";
-                                      letterBadgeStyle =
-                                        "bg-primary text-primary-foreground font-bold";
-                                    }
-
-                                    return (
-                                      <button
-                                        key={optIdx}
-                                        type="button"
-                                        onClick={() =>
-                                          setSelectedAnswers({
-                                            ...selectedAnswers,
-                                            [q.id]: optIdx,
-                                          })
-                                        }
-                                        className={`w-full text-left px-4 py-3.5 rounded-xl text-sm font-semibold border-2 transition-all duration-150 cursor-pointer flex items-center justify-between ${containerStyle}`}
-                                      >
-                                        <div className="flex items-center gap-3">
-                                          <span
-                                            className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 transition-colors ${letterBadgeStyle}`}
-                                          >
-                                            {qResult && optIdx === qResult.correctAnswer
-                                              ? "✓"
-                                              : qResult && isSelected && !qResult.isCorrect
-                                              ? "✗"
-                                              : String.fromCharCode(65 + optIdx)}
-                                          </span>
-                                          <span className="leading-snug">{opt}</span>
-                                        </div>
-                                        {isSelected && !qResult && (
-                                          <span className="w-2.5 h-2.5 rounded-full bg-primary flex-shrink-0 animate-pulse" />
-                                        )}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-
-                                {/* Question Explanation Callout */}
-                                {quizResults?.results?.find((r: any) => r.questionId === q.id) && (
-                                  <div
-                                    className={`mt-3 p-4 rounded-xl border text-xs leading-relaxed ${
-                                      quizResults.results.find((r: any) => r.questionId === q.id)
-                                        ?.isCorrect
-                                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
-                                        : "bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-200"
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-1.5 font-bold mb-1">
-                                      <Lightbulb className="w-4 h-4 text-amber-500" />
-                                      <span>
-                                        {quizResults.results.find(
-                                          (r: any) => r.questionId === q.id,
-                                        )?.isCorrect
-                                          ? "Correct Concept Verified"
-                                          : "Explanation & In-Depth Review"}
-                                      </span>
-                                    </div>
-                                    <p className="mt-1 text-foreground text-xs leading-relaxed font-medium">
-                                      {
-                                        quizResults.results.find(
-                                          (r: any) => r.questionId === q.id,
-                                        )?.explanation
-                                      }
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-
-                            {/* Quiz Outcome Banner */}
-                            {quizResults && (
-                              <div
-                                className={`p-4 rounded-xl border text-xs ${
-                                  quizResults.passed
-                                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
-                                    : "bg-destructive/10 border-destructive/30 text-destructive"
-                                }`}
-                              >
-                                <div className="font-bold mb-1">
-                                  {quizResults.passed
-                                    ? "✓ Quiz Passed Successfully!"
-                                    : "✗ Review Incorrect Answers Above"}
-                                </div>
-                                <div>
-                                  Score: {quizResults.score}% (Required:{" "}
-                                  {quizResults.passThreshold}%)
-                                </div>
-                              </div>
-                            )}
-
-                            <Button
-                              onClick={() => handleQuizSubmit(ex.id)}
-                              disabled={submittingExercise}
-                              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs h-9 px-5 shadow-xs cursor-pointer"
-                            >
-                              {submittingExercise ? "Evaluating..." : "Check Answers"}
-                            </Button>
-                          </div>
+                          <IndependentQuizRunner
+                            key={ex.id}
+                            exerciseId={ex.id}
+                            title={ex.title}
+                            quizConfig={ex.quizConfig}
+                            marks={ex.marks}
+                            userId={user?.id}
+                            onPassed={(exerciseId, result) => {
+                              if (result?.xpAwarded > 0) {
+                                setXpCelebration(result.xpAwarded);
+                              }
+                              // Update sidebar without unmounting or reloading lesson
+                              setCourse((prev) => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  modules: prev.modules.map((m) => ({
+                                    ...m,
+                                    lessons: m.lessons.map((l) =>
+                                      l.id === activeLessonId ? { ...l, isCompleted: true } : l
+                                    ),
+                                  })),
+                                };
+                              });
+                            }}
+                          />
                         )}
 
                         {/* Independent Isolated Coding Compiler for Every Question */}
@@ -2477,12 +2316,23 @@ export default function CourseWorkspacePage({
                           <IndependentQuestionCompiler
                             key={ex.id}
                             exercise={ex}
+                            userId={user?.id}
                             onPassed={(exerciseId, result) => {
                               if (result?.xpAwarded > 0) {
                                 setXpCelebration(result.xpAwarded);
                               }
-                              loadLesson(activeLessonId!);
-                              loadCourse();
+                              setCourse((prev) => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  modules: prev.modules.map((m) => ({
+                                    ...m,
+                                    lessons: m.lessons.map((l) =>
+                                      l.id === activeLessonId ? { ...l, isCompleted: true } : l
+                                    ),
+                                  })),
+                                };
+                              });
                             }}
                           />
                         )}
