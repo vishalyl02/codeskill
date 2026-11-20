@@ -67,14 +67,16 @@ export class OperationalHealthService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    this.monitorTimer = setInterval(async () => {
-      try {
-        await this.checkHealth();
-      } catch (err: any) {
-        this.logger.warn(
-          `Operational health background monitor check failed: ${err?.message}`,
-        );
-      }
+    this.monitorTimer = setInterval(() => {
+      void (async () => {
+        try {
+          await this.checkHealth();
+        } catch (err: any) {
+          this.logger.warn(
+            `Operational health background monitor check failed: ${err?.message}`,
+          );
+        }
+      })();
     }, 30_000);
 
     if (this.monitorTimer?.unref) {

@@ -117,7 +117,9 @@ export class SebGuard implements CanActivate {
             this.assessmentLockdownCache.set(assessmentId, { requireLockdown: required, exp: now + 60000 });
             return required;
           }
-        } catch {}
+        } catch {
+          /* ignore redis cache lookup failure */
+        }
       }
 
       // Query database for requireLockdown and securityPolicy
@@ -144,7 +146,9 @@ export class SebGuard implements CanActivate {
       if (this.redisService) {
         try {
           await this.redisService.set(redisKey, isRequired ? '1' : '0', 60);
-        } catch {}
+        } catch {
+          /* ignore redis cache write error */
+        }
       }
 
       return isRequired;
@@ -188,7 +192,9 @@ export class SebGuard implements CanActivate {
         this.attemptAssessmentCache.set(attemptId, { assessmentId, exp: now + 120000 });
         return assessmentId;
       }
-    } catch {}
+    } catch {
+      /* ignore attempt assessment lookup failure */
+    }
 
     return null;
   }

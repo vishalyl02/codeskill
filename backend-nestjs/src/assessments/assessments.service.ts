@@ -2955,7 +2955,9 @@ export class AssessmentsService {
             'NX',
           );
         }
-      } catch {}
+      } catch {
+        /* ignore redis idempotency registration error */
+      }
     }
 
     const hasCode = dto.responses?.some(
@@ -3501,7 +3503,9 @@ export class AssessmentsService {
           if (cached && cached.status === 'IN_FLIGHT') {
             await this.redisService.del(`idempotency:exam:${idempotencyKey}`);
           }
-        } catch {}
+        } catch {
+          /* ignore redis idempotency cleanup error */
+        }
       }
       if (attempt.status === 'evaluating') {
         try {
