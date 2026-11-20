@@ -27,6 +27,7 @@ import {
   killBlockingApp,
   killAllBlockingApps,
   isLockdownClient,
+  logoutAndExitLockdown,
   exitLockdownApp,
   BlockingAppInfo,
 } from "@/lib/lockdown-bridge";
@@ -340,7 +341,7 @@ export default function LockdownSystemCheckPage() {
 
           {isClient && (
             <button
-              onClick={() => exitLockdownApp()}
+              onClick={() => void logoutAndExitLockdown()}
               className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-xs font-medium text-rose-300 transition-colors cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />

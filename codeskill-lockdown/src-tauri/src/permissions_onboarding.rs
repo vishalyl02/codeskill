@@ -206,14 +206,7 @@ mod macos_impl {
         }
         let status = check_camera_status();
         if status != "granted" {
-            let _ = std::process::Command::new("/usr/bin/open")
-                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")
-                .spawn()
-                .or_else(|_| {
-                    std::process::Command::new("open")
-                        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")
-                        .spawn()
-                });
+            let _ = crate::security::open_macos_privacy_pane("camera");
         }
         check_camera_status()
     }
@@ -257,14 +250,7 @@ mod macos_impl {
         }
         let status = check_microphone_status();
         if status != "granted" {
-            let _ = std::process::Command::new("/usr/bin/open")
-                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
-                .spawn()
-                .or_else(|_| {
-                    std::process::Command::new("open")
-                        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
-                        .spawn()
-                });
+            let _ = crate::security::open_macos_privacy_pane("microphone");
         }
         check_microphone_status()
     }
@@ -301,14 +287,7 @@ mod macos_impl {
             let _ =
                 AXIsProcessTrustedWithOptions(dict.as_concrete_TypeRef() as *const std::ffi::c_void);
         }
-        let _ = std::process::Command::new("/usr/bin/open")
-            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-            .spawn()
-            .or_else(|_| {
-                std::process::Command::new("open")
-                    .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-                    .spawn()
-            });
+        let _ = crate::security::open_macos_privacy_pane("accessibility");
         check_accessibility_status()
     }
 
@@ -326,14 +305,7 @@ mod macos_impl {
         unsafe {
             let _ = CGRequestScreenCaptureAccess();
         }
-        let _ = std::process::Command::new("/usr/bin/open")
-            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
-            .spawn()
-            .or_else(|_| {
-                std::process::Command::new("open")
-                    .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
-                    .spawn()
-            });
+        let _ = crate::security::open_macos_privacy_pane("screen_capture");
         check_screen_capture_status()
     }
 }

@@ -375,6 +375,33 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             let state = webview.state::<AttestationState>();
             let url_str = url.as_str();
 
+            // 0. Intercept native OS system settings / privacy deep links
+            if url.scheme() == "x-apple.systempreferences"
+                || url.scheme() == "ms-settings"
+                || url_str.starts_with("x-apple.systempreferences:")
+                || url_str.starts_with("ms-settings:")
+            {
+                security::log_diagnostic_entry(
+                    "INFO",
+                    "SYSTEM_SETTINGS",
+                    &format!("Native OS settings protocol intercepted: {}", url_str),
+                );
+
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = security::open_macos_privacy_pane(url_str);
+                }
+
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("cmd")
+                        .args(&["/c", "start", url_str])
+                        .spawn();
+                }
+
+                return false;
+            }
+
             // 1. Allow local / tauri internal resources and splash screen
             if url.scheme() == "tauri" || url.scheme() == "about" || url_str.starts_with("data:") {
                 return true;
@@ -454,25 +481,57 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 return false;
             }
 
-            // If no assessment locked yet, allow navigation to frontend origin and localhost
-            let frontend = config::get_frontend_origin();
-            if let Ok(frontend_url) = url::Url::parse(&frontend) {
-                if url.host_str() == frontend_url.host_str() {
-                    return true;
-                }
+            // If no assessment locked yet, enforce allowed LockDown path boundary
+            let path = url.path();
+
+            // CodeSkill LockDown must NEVER allow browsing the general website (homepage, dashboard, problem catalog, etc.)
+            let is_general_website_path = path == "/"
+                || path == "/dashboard"
+                || path.starts_with("/problems")
+                || path.starts_with("/learning")
+                || path.starts_with("/contests")
+                || path.starts_with("/leaderboard");
+
+            if is_general_website_path {
+                security::log_diagnostic_entry(
+                    "WARN",
+                    "SECURITY",
+                    &format!("General website navigation blocked inside CodeSkill LockDown: {}", path),
+                );
+                kiosk_os::exit_lockdown_app(webview.app_handle().clone());
+                return false;
             }
 
-            if let Some(host) = url.host_str() {
-                if host == "localhost"
-                    || host == "127.0.0.1"
-                    || host == "tauri.localhost"
-                    || host.ends_with(".localhost")
-                    || host == "codeskill.novaserve.cloud"
-                    || host.ends_with(".novaserve.cloud")
-                    || host.ends_with(".codeskill.com")
-                    || host == "codeskill.com"
-                {
-                    return true;
+            // Only allow designated LockDown paths
+            let is_allowed_lockdown_path = path.starts_with("/assessments")
+                || path == "/login"
+                || path.starts_with("/auth/")
+                || path.starts_with("/(auth)/")
+                || path == "/lockdown-startup-permissions"
+                || path == "/lockdown-system-check"
+                || path.starts_with("/_next/")
+                || path.starts_with("/api/");
+
+            if is_allowed_lockdown_path {
+                let frontend = config::get_frontend_origin();
+                if let Ok(frontend_url) = url::Url::parse(&frontend) {
+                    if url.host_str() == frontend_url.host_str() {
+                        return true;
+                    }
+                }
+
+                if let Some(host) = url.host_str() {
+                    if host == "localhost"
+                        || host == "127.0.0.1"
+                        || host == "tauri.localhost"
+                        || host.ends_with(".localhost")
+                        || host == "codeskill.novaserve.cloud"
+                        || host.ends_with(".novaserve.cloud")
+                        || host.ends_with(".codeskill.com")
+                        || host == "codeskill.com"
+                    {
+                        return true;
+                    }
                 }
             }
 

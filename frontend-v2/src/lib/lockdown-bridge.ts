@@ -1085,6 +1085,16 @@ export async function logoutAndExitLockdown(): Promise<void> {
 
   // 2. Release OS kiosk and exit desktop app
   await exitLockdownApp();
+
+  // 3. Browser fallback only (if not running inside desktop client)
+  if (typeof window !== 'undefined' && !isLockdownClient()) {
+    try {
+      window.close();
+    } catch {
+      // ignore
+    }
+    window.location.href = '/login';
+  }
 }
 
 /**

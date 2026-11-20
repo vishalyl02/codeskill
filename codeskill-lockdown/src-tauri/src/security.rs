@@ -1482,40 +1482,76 @@ pub fn check_and_request_media_permissions(
     })
 }
 
+#[cfg(target_os = "macos")]
+pub fn open_macos_privacy_pane(target_or_url: &str) -> Result<bool, String> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSString, NSURL};
+
+    let normalized = target_or_url.trim().to_lowercase();
+    let url_str = if normalized.starts_with("x-apple.systempreferences:") {
+        target_or_url.trim()
+    } else {
+        match normalized.as_str() {
+            "camera" | "webcam" | "video" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            "microphone" | "mic" | "audio" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            "accessibility" | "kiosk" | "kiosk_guard" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            "screen_capture" | "screencapture" | "screen" | "display" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+            _ => "x-apple.systempreferences:com.apple.preference.security",
+        }
+    };
+
+    let mut opened = false;
+
+    // 1. Try native Cocoa NSWorkspace openURL
+    unsafe {
+        let workspace = NSWorkspace::sharedWorkspace();
+        let ns_str = NSString::from_str(url_str);
+        if let Some(ns_url) = NSURL::URLWithString(&ns_str) {
+            opened = workspace.openURL(&ns_url);
+        }
+    }
+
+    // 2. Also try /usr/bin/open with the URL
+    if !opened {
+        let cmd_res = std::process::Command::new("/usr/bin/open")
+            .arg(url_str)
+            .status()
+            .or_else(|_| std::process::Command::new("open").arg(url_str).status());
+
+        if let Ok(status) = cmd_res {
+            if status.success() {
+                opened = true;
+            }
+        }
+    }
+
+    // 3. Fallback: activate System Settings application directly
+    if !opened {
+        let _ = std::process::Command::new("/usr/bin/open")
+            .arg("/System/Applications/System Settings.app")
+            .spawn()
+            .or_else(|_| {
+                std::process::Command::new("/usr/bin/open")
+                    .arg("/System/Applications/System Preferences.app")
+                    .spawn()
+            });
+    }
+
+    Ok(true)
+}
+
 #[tauri::command]
 pub fn open_system_privacy_settings(target: String) -> Result<bool, String> {
     eprintln!("[CodeSkill LockDown IPC] open_system_privacy_settings invoked for: {}", target);
-    let normalized = target.trim().to_lowercase();
 
     #[cfg(target_os = "macos")]
     {
-        let url = if normalized.starts_with("x-apple.systempreferences:") {
-            target.trim()
-        } else {
-            match normalized.as_str() {
-                "camera" | "webcam" | "video" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
-                "microphone" | "mic" | "audio" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
-                "accessibility" | "kiosk" | "kiosk_guard" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-                "screen_capture" | "screencapture" | "screen" | "display" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-                _ => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
-            }
-        };
-
-        let res = std::process::Command::new("/usr/bin/open")
-            .arg(url)
-            .spawn()
-            .or_else(|_| {
-                std::process::Command::new("open")
-                    .arg(url)
-                    .spawn()
-            });
-
-        res.map_err(|e| format!("Failed to open macOS System Settings: {}", e))?;
-        Ok(true)
+        open_macos_privacy_pane(&target)
     }
 
     #[cfg(target_os = "windows")]
     {
+        let normalized = target.trim().to_lowercase();
         let uri = if normalized.starts_with("ms-settings:") {
             target.trim()
         } else {
@@ -1536,6 +1572,7 @@ pub fn open_system_privacy_settings(target: String) -> Result<bool, String> {
 
     #[cfg(target_os = "linux")]
     {
+        let normalized = target.trim().to_lowercase();
         let res = match normalized.as_str() {
             "microphone" | "mic" | "audio" => {
                 std::process::Command::new("pavucontrol").spawn()

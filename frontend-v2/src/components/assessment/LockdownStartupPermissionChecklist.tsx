@@ -27,6 +27,7 @@ import {
   requestOsPermission,
   openSystemPrivacySettings,
   completePermissionOnboarding,
+  logoutAndExitLockdown,
   exitLockdownApp,
   isLockdownClient,
   detectClientPlatform,
@@ -148,7 +149,11 @@ export default function LockdownStartupPermissionChecklist({
       if (destination && typeof window !== "undefined") {
         window.location.href = destination;
       } else if (typeof window !== "undefined") {
-        window.location.href = "/";
+        if (isLockdownClient()) {
+          window.location.href = "/lockdown-system-check";
+        } else {
+          window.location.href = "/";
+        }
       }
     } catch (err) {
       console.error("Failed to complete permission onboarding:", err);
@@ -159,15 +164,15 @@ export default function LockdownStartupPermissionChecklist({
   const handleExitApp = async () => {
     console.log("[Checklist] User clicked Exit App");
     try {
-      await exitLockdownApp();
+      await logoutAndExitLockdown();
     } catch (err) {
-      console.warn("Failed to exit CodeSkill LockDown via IPC:", err);
+      console.warn("Failed to logout and exit CodeSkill LockDown via IPC:", err);
     }
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && !isLockdownClient()) {
       try {
         window.close();
       } catch {}
-      window.location.href = "/";
+      window.location.href = "/login";
     }
   };
 
