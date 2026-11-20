@@ -89,6 +89,14 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useGSAP(
     () => {
@@ -111,20 +119,32 @@ export default function AdminDashboardPage() {
 
   const fetchStats = useCallback(async (isRefreshCall = false) => {
     if (isTeacher) {
-      setLoading(false);
-      setIsRefreshing(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
       return;
     }
     if (isRefreshCall) setIsRefreshing(true);
     else setLoading(true);
 
     try {
+      const statsPromise = (typeof adminDashboardAPI !== "undefined" && adminDashboardAPI?.getStats)
+        ? adminDashboardAPI.getStats()
+        : Promise.resolve({ data: { success: false, stats: null } });
+
+      const learningPromise = (typeof adminLearningAPI !== "undefined" && adminLearningAPI?.getOverview)
+        ? adminLearningAPI.getOverview()
+        : Promise.resolve({ data: { success: true, data: { totalCertificates: 0, totalPaths: 0 } } });
+
       const [res, learningRes] = await Promise.allSettled([
-        adminDashboardAPI.getStats(),
-        adminLearningAPI.getOverview(),
+        statsPromise,
+        learningPromise,
       ]);
 
-      if (res.status === "fulfilled" && (res.value.data.success || res.value.data.stats)) {
+      if (!isMountedRef.current) return;
+
+      if (res.status === "fulfilled" && res.value?.data && (res.value.data.success || res.value.data.stats)) {
         setStats((prev) => ({
           ...prev,
           ...(res.value.data.stats || {}),
@@ -136,23 +156,29 @@ export default function AdminDashboardPage() {
             assessments: res.value.data.recentActivity.assessments || [],
           });
         }
+      } else if (res.status === "rejected") {
+        console.error("Failed to fetch dashboard stats:", res.reason);
       }
 
-      if (learningRes.status === "fulfilled") {
-        const lData = learningRes.value?.data?.data || learningRes.value?.data;
-        if (lData) {
+      if (learningRes.status === "fulfilled" && learningRes.value?.data) {
+        const lData = learningRes.value.data?.data || learningRes.value.data;
+        if (lData && typeof lData === "object") {
           setStats((prev) => ({
             ...prev,
-            totalCertificates: lData.totalCertificates || 0,
-            totalLearningPaths: lData.totalPaths || 0,
+            totalCertificates: Number(lData.totalCertificates) || 0,
+            totalLearningPaths: Number(lData.totalPaths) || 0,
           }));
         }
       }
     } catch (error) {
-      console.error("Failed to fetch dashboard stats:", error);
+      if (isMountedRef.current) {
+        console.error("Failed to fetch dashboard stats:", error);
+      }
     } finally {
-      setLoading(false);
-      setIsRefreshing(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [isTeacher]);
 
