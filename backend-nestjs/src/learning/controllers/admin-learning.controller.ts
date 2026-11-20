@@ -96,6 +96,12 @@ export class AdminLearningController {
     return this.adminService.getAllCourses();
   }
 
+  @Get('courses/:id')
+  @ApiOperation({ summary: 'Get course details with modules, lessons and exercises' })
+  async getCourseById(@Param('id') id: string) {
+    return this.adminService.getCourseById(id);
+  }
+
   @Post('courses')
   @ApiOperation({ summary: 'Create a new course' })
   async createCourse(@Body() dto: CreateCourseDto) {
@@ -181,6 +187,15 @@ export class AdminLearningController {
     @Body() dto: CreateCourseExerciseDto,
   ) {
     return this.adminService.createExercise(lessonId, dto);
+  }
+
+  @Patch('exercises/:id')
+  @ApiOperation({ summary: 'Update a practice exercise' })
+  async updateExercise(
+    @Param('id') id: string,
+    @Body() dto: Partial<CreateCourseExerciseDto>,
+  ) {
+    return this.adminService.updateExercise(id, dto);
   }
 
   @Delete('exercises/:id')

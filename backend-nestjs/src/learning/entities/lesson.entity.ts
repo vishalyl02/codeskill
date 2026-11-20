@@ -51,6 +51,9 @@ export class Lesson {
   @Column({ type: 'int', default: 0 })
   passingScore: number;
 
+  @Column({ type: 'boolean', default: true })
+  isMandatory: boolean;
+
   @OneToMany(() => CourseExercise, (ce) => ce.lesson, { cascade: true })
   exercises: CourseExercise[];
 

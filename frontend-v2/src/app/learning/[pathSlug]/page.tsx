@@ -378,9 +378,21 @@ export default function LearningPathDetailPage({
                           </span>
                           <span className="text-muted-foreground">·</span>
                           <span className="text-xs text-muted-foreground capitalize">{course.difficulty}</span>
+                          <span className="text-muted-foreground">·</span>
+                          <span
+                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+                              course.isMandatory !== false
+                                ? "bg-primary/10 text-primary border-primary/20"
+                                : "bg-muted text-muted-foreground border-border"
+                            }`}
+                          >
+                            {course.isMandatory !== false ? "Required" : "Optional"}
+                          </span>
                         </div>
                         <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors">
-                          {course.title}
+                          <Link href={`/learning/${path.slug}/${course.slug}`} className="hover:underline">
+                            {course.title}
+                          </Link>
                         </h3>
                         <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
                           {course.description}

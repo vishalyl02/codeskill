@@ -153,16 +153,20 @@ export function ChandigarhUniversityCertificate({
   }, [data.credentialId, verificationUrl]);
 
   // University signatories as specified by leadership
+  // Left: Ishdeep Singla, Head - Technical Training (CSE) with authentic blue handwritten signature
   const sigLeft = {
-    name: data.signatoryLeft?.name || "Prof. (Dr.) Satbir Singh Sehgal",
-    title: data.signatoryLeft?.title || "Vice-Chancellor",
-    subtext: data.signatoryLeft?.subtext || "E18146 · vc@cumail.in",
+    name: data.signatoryLeft?.name || "Ishdeep Singla",
+    title: data.signatoryLeft?.title || "Head - Technical Training (CSE)",
+    subtext: data.signatoryLeft?.subtext || "E16430 · ad.skill@cumail.in",
+    signatureUrl: data.signatoryLeft?.signatureSvg || "/signatures/blue-signature.svg",
   };
 
+  // Right: Prof. (Dr.) Satbir Singh Sehgal, Vice-Chancellor
   const sigRight = {
-    name: data.signatoryRight?.name || "Ishdeep Singla",
-    title: data.signatoryRight?.title || "Head - Technical Training (CSE)",
-    subtext: data.signatoryRight?.subtext || "E16430 · ad.skill@cumail.in",
+    name: data.signatoryRight?.name || "Prof. (Dr.) Satbir Singh Sehgal",
+    title: data.signatoryRight?.title || "Vice-Chancellor",
+    subtext: data.signatoryRight?.subtext || "E18146 · vc@cumail.in",
+    signatureUrl: data.signatoryRight?.signatureSvg || "/signatures/sehgal-signature.svg",
   };
 
   const certTitle = data.certificateTitle || "CERTIFICATE OF COMPLETION";
@@ -320,17 +324,25 @@ export function ChandigarhUniversityCertificate({
           {/* BOTTOM SIGNATORIES & GOLDEN ROSETTE MEDALLION */}
           <div className="w-full pt-2">
             <div className="grid grid-cols-3 items-end">
-              {/* Left Column: Vice-Chancellor */}
+              {/* Left Column: Head - Technical Training (CSE) with Blue Handwritten Signature */}
               <div className="flex flex-col items-center text-center">
                 <div className="w-36 sm:w-48 md:w-56">
-                  {/* Handwritten Signature Curve */}
-                  <div className="h-7 sm:h-8 flex items-end justify-center mb-0.5">
-                    <svg
-                      viewBox="0 0 160 30"
-                      className="w-24 sm:w-28 h-6 text-slate-900 fill-none stroke-current stroke-[2]"
-                    >
-                      <path d="M10 24 Q 28 6, 45 22 T 85 16 T 115 12 T 145 22 M 30 14 L 70 12" />
-                    </svg>
+                  {/* Handwritten Blue Signature */}
+                  <div className="h-8 sm:h-9 flex items-end justify-center mb-0.5">
+                    {sigLeft.signatureUrl ? (
+                      <img
+                        src={sigLeft.signatureUrl}
+                        alt="Signature Ishdeep Singla"
+                        className="h-8 sm:h-9 w-auto max-w-[140px] sm:max-w-[170px] object-contain block drop-shadow-2xs"
+                      />
+                    ) : (
+                      <svg
+                        viewBox="0 0 160 30"
+                        className="w-24 sm:w-28 h-6 text-blue-700 fill-none stroke-current stroke-[2]"
+                      >
+                        <path d="M10 24 Q 28 6, 45 22 T 85 16 T 115 12 T 145 22 M 30 14 L 70 12" />
+                      </svg>
+                    )}
                   </div>
                   {/* Signature Line */}
                   <div className="border-t border-slate-900 pt-1">
@@ -354,17 +366,25 @@ export function ChandigarhUniversityCertificate({
                 <GoldenRosette className="w-16 h-20 sm:w-20 sm:h-24 md:w-22 md:h-26" />
               </div>
 
-              {/* Right Column: Head - Technical Training (CSE) */}
+              {/* Right Column: Vice-Chancellor with Sehgal Sir's Executive Signature */}
               <div className="flex flex-col items-center text-center">
                 <div className="w-36 sm:w-48 md:w-56">
-                  {/* Handwritten Signature Curve */}
-                  <div className="h-7 sm:h-8 flex items-end justify-center mb-0.5">
-                    <svg
-                      viewBox="0 0 160 30"
-                      className="w-24 sm:w-28 h-6 text-slate-900 fill-none stroke-current stroke-[2]"
-                    >
-                      <path d="M12 22 Q 38 7, 60 20 T 100 14 T 132 22 M 45 15 Q 75 6, 105 18" />
-                    </svg>
+                  {/* Handwritten Executive Signature */}
+                  <div className="h-8 sm:h-9 flex items-end justify-center mb-0.5">
+                    {sigRight.signatureUrl ? (
+                      <img
+                        src={sigRight.signatureUrl}
+                        alt="Signature Prof. (Dr.) Satbir Singh Sehgal"
+                        className="h-8 sm:h-9 w-auto max-w-[140px] sm:max-w-[170px] object-contain block drop-shadow-2xs"
+                      />
+                    ) : (
+                      <svg
+                        viewBox="0 0 160 30"
+                        className="w-24 sm:w-28 h-6 text-slate-900 fill-none stroke-current stroke-[2]"
+                      >
+                        <path d="M12 22 Q 38 7, 60 20 T 100 14 T 132 22 M 45 15 Q 75 6, 105 18" />
+                      </svg>
+                    )}
                   </div>
                   {/* Signature Line */}
                   <div className="border-t border-slate-900 pt-1">

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -13,6 +14,7 @@ import { LearningPath } from '../entities/learning-path.entity';
 import { PathProgress } from '../entities/path-progress.entity';
 import { User } from '../../database/entities/user.entity';
 import { S3Service } from '../../s3/s3.service';
+import { EmailService } from '../../emails/email.service';
 import { randomBytes } from 'crypto';
 
 @Injectable()
@@ -33,6 +35,8 @@ export class CertificationService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly s3Service: S3Service,
+    @Optional()
+    private readonly emailService?: EmailService,
   ) {}
 
   /**
@@ -115,6 +119,21 @@ export class CertificationService {
     // Update path progress isCertified flag
     pathProgress.isCertified = true;
     await this.pathProgressRepo.save(pathProgress);
+
+    // Dispatch automated certificate notification email to student
+    try {
+      if (this.emailService && student.email) {
+        await this.emailService.sendCertificateIssuedEmail(
+          student.email,
+          savedCert.recipientName,
+          savedCert.pathTitle,
+          savedCert.credentialId,
+          `http://localhost:3000/verify/${savedCert.credentialId}`,
+        );
+      }
+    } catch (mailErr: any) {
+      this.logger.warn(`Failed to dispatch certificate issuance email: ${mailErr?.message}`);
+    }
 
     return savedCert;
   }

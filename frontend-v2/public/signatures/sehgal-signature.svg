@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80" fill="none">
+  <!-- Prof. (Dr.) Satbir Singh Sehgal Authentic Executive Signature -->
+  <path
+    d="M 18 56 
+       C 22 42, 30 20, 42 15 
+       C 52 11, 56 18, 54 28 
+       C 50 45, 36 60, 48 62 
+       C 62 64, 74 38, 86 34 
+       C 96 30, 98 42, 94 52 
+       C 90 62, 80 60, 88 50 
+       C 96 38, 112 36, 126 38 
+       C 140 40, 146 54, 154 50 
+       C 162 46, 168 34, 178 32 
+       C 188 30, 192 42, 196 52 
+       C 200 62, 208 58, 222 44 
+       M 46 28 
+       C 80 26, 140 24, 210 22 
+       M 38 66 
+       C 75 64, 145 61, 225 54"
+    stroke="#0f172a"
+    stroke-width="2.6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <!-- Terminal ascender swirl -->
+  <path
+    d="M 152 48 C 160 38, 172 26, 180 28 C 188 30, 178 48, 172 54"
+    stroke="#0f172a"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

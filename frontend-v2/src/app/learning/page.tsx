@@ -36,6 +36,7 @@ interface LearningPathItem {
   tags: string[];
   iconUrl?: string;
   courseCount: number;
+  courses?: Array<{ id: string; title: string; slug: string }>;
   isEnrolled: boolean;
   progressPercent: number;
   completedCourses: number;
@@ -315,6 +316,11 @@ export default function LearningPathsCatalogPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {paginatedPaths.map((path) => {
                   const iconSrc = getPathTechIcon(path);
+                  const primaryCourseSlug = path.courses && path.courses.length > 0 ? path.courses[0].slug : null;
+                  const targetCourseUrl = primaryCourseSlug
+                    ? `/learning/${path.slug}/${primaryCourseSlug}`
+                    : `/learning/${path.slug}`;
+
                   return (
                     <div
                       key={path.id}
@@ -347,7 +353,9 @@ export default function LearningPathsCatalogPage() {
                         </div>
 
                         <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors leading-snug">
-                          {path.title}
+                          <Link href={targetCourseUrl} className="hover:underline">
+                            {path.title}
+                          </Link>
                         </h3>
 
                         <p className="mt-2 text-sm text-muted-foreground line-clamp-3 leading-relaxed">
@@ -386,10 +394,14 @@ export default function LearningPathsCatalogPage() {
                           </div>
                         ) : (
                           <div className="flex items-center justify-between text-xs text-muted-foreground mb-4">
-                            <div className="flex items-center gap-1.5">
+                            <Link
+                              href={`/learning/${path.slug}`}
+                              className="flex items-center gap-1.5 hover:text-foreground hover:underline transition-colors"
+                              title="Inspect full path syllabus and milestones"
+                            >
                               <Layers className="w-4 h-4 text-muted-foreground" />
-                              <span>{path.courseCount} Courses</span>
-                            </div>
+                              <span>{path.courseCount} Courses (Syllabus)</span>
+                            </Link>
                             <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
                               <Sparkles className="w-3 h-3" />
                               <span>Verified Certificate</span>
@@ -398,14 +410,10 @@ export default function LearningPathsCatalogPage() {
                         )}
 
                         <Link
-                          href={`/learning/${path.slug}`}
-                          className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm ${
-                            path.isEnrolled
-                              ? "bg-primary hover:bg-primary/90 text-primary-foreground"
-                              : "bg-muted hover:bg-muted/80 text-foreground border border-border"
-                          }`}
+                          href={targetCourseUrl}
+                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm bg-primary hover:bg-primary/90 text-primary-foreground"
                         >
-                          <span>{path.isEnrolled ? "Continue Learning" : "View Curriculum"}</span>
+                          <span>{path.isEnrolled ? "Continue Learning" : "Start Course"}</span>
                           <ArrowRight className="w-4 h-4" />
                         </Link>
                       </div>

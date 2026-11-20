@@ -537,6 +537,19 @@ function getW3ExercisesForCourse(courseSlug: string, pathSlug: string): W3Exerci
 }
 
 const DEFAULT_STARTER_CODES: Record<string, string> = {
+  c: `#include <stdio.h>
+
+int main() {
+    printf("Hello from CodeSkill C Sandbox!\\n");
+    int a = 10, b = 5;
+    printf("Result: %d\\n", a * b + 42);
+    return 0;
+}
+`,
+  sql: `-- CodeSkill Interactive SQL Sandbox (PostgreSQL)
+-- Available sandbox tables: customers, orders, students, products
+SELECT * FROM customers LIMIT 10;
+`,
   javascript: `// CodeSkill Real-Time JavaScript Sandbox
 console.log("Hello from CodeSkill Real-Time Sandbox!");
 
@@ -626,7 +639,13 @@ export default function CourseWorkspacePage({
       time: "--:--:--",
     },
   ]);
-  const [terminalTab, setTerminalTab] = useState<"output" | "tests">("output");
+  const [terminalTab, setTerminalTab] = useState<"output" | "table" | "tests">("output");
+  const [sqlResult, setSqlResult] = useState<{
+    columns: string[];
+    rows: any[];
+    rowCount: number;
+    durationMs?: number;
+  } | null>(null);
   const [isExecutingRealtime, setIsExecutingRealtime] = useState(false);
 
   // Chandigarh University Practice Exercises state
@@ -724,6 +743,7 @@ export default function CourseWorkspacePage({
       setExecutionFeedback(null);
       setXpCelebration(null);
       setSelectedAnswers({});
+      setSqlResult(null);
       const res = await learningAPI.getLesson(id);
       const lessonData = res.data?.data || res.data;
       setLesson(lessonData);
@@ -741,7 +761,13 @@ export default function CourseWorkspacePage({
       const codingEx = lessonData?.exercises?.find(
         (e: any) => e.type === "coding" || e.type === "debugging",
       );
-      if (codingEx?.starterCode?.[language]) {
+      if (codingEx?.starterCode?.c) {
+        setLanguage("c");
+        setCode(codingEx.starterCode.c);
+      } else if (codingEx?.starterCode?.sql) {
+        setLanguage("sql");
+        setCode(codingEx.starterCode.sql);
+      } else if (codingEx?.starterCode?.[language]) {
         setCode(codingEx.starterCode[language]);
       } else if (codingEx?.starterCode?.java && !codingEx?.starterCode?.[language]) {
         setLanguage("java");
@@ -760,6 +786,12 @@ export default function CourseWorkspacePage({
         } else {
           setCode(DEFAULT_STARTER_CODES[language] || "// Write your solution below\n");
         }
+      } else if (courseSlug.includes("c-programming") || courseSlug.includes("c-lang")) {
+        setLanguage("c");
+        setCode(DEFAULT_STARTER_CODES.c);
+      } else if (courseSlug.includes("dbms") || courseSlug.includes("sql")) {
+        setLanguage("sql");
+        setCode(DEFAULT_STARTER_CODES.sql);
       } else {
         setCode(DEFAULT_STARTER_CODES[language] || "// Write your solution below\n");
       }
@@ -945,6 +977,18 @@ export default function CourseWorkspacePage({
         if (activeExecutionIdRef.current !== executionId) return;
         const resultData = (res.data as any)?.data || res.data;
         const elapsed = resultData?.durationMs ?? Math.round(performance.now() - startTime);
+
+        if (resultData?.isSql || language === "sql") {
+          if (resultData?.columns && Array.isArray(resultData?.rows)) {
+            setSqlResult({
+              columns: resultData.columns,
+              rows: resultData.rows,
+              rowCount: resultData.rowCount ?? resultData.rows.length,
+              durationMs: elapsed,
+            });
+            setTerminalTab("table");
+          }
+        }
 
         if (resultData?.output) {
           const lines = String(resultData.output).split("\n");
@@ -1274,28 +1318,36 @@ export default function CourseWorkspacePage({
                   className="h-9 bg-card text-foreground text-xs font-semibold rounded-lg px-3 border border-border shadow-xs focus:outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
                 >
                   <option value="javascript">JavaScript (Real-Time Sandbox)</option>
+                  <option value="c">C (GCC 13 / C11)</option>
+                  <option value="cpp">C++ 20</option>
+                  <option value="sql">SQL (PostgreSQL Sandbox)</option>
                   <option value="python">Python 3</option>
                   <option value="java">Java 21</option>
-                  <option value="cpp">C++ 20</option>
                 </select>
 
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    if (ex?.starterCode?.[language]) {
-                      setCode(ex.starterCode[language]);
-                    } else if (DEFAULT_STARTER_CODES[language]) {
-                      setCode(DEFAULT_STARTER_CODES[language]);
-                    } else {
-                      setCode("// Write your solution below\n");
-                    }
+                    const defaultCode =
+                      ex?.starterCode?.[language] ||
+                      DEFAULT_STARTER_CODES[language] ||
+                      "// Write your solution below\n";
+                    setCode(defaultCode);
+                    setSqlResult(null);
+                    setTerminalLogs([
+                      {
+                        type: "system",
+                        text: `> Workspace and execution output cleared. Ready.`,
+                        time: new Date().toLocaleTimeString(),
+                      },
+                    ]);
                   }}
                   className="h-9 text-xs gap-1 border-border text-muted-foreground hover:text-foreground cursor-pointer"
-                  title="Reset to starter code"
+                  title="Reset to starter code and clear output"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Reset Code</span>
+                  <span className="hidden sm:inline">Reset / Clear</span>
                 </Button>
               </div>
 
@@ -1311,7 +1363,7 @@ export default function CourseWorkspacePage({
             <div className="border border-border rounded-xl overflow-hidden h-72 shadow-inner">
               <Editor
                 height="100%"
-                language={language === "cpp" ? "cpp" : language}
+                language={language === "cpp" ? "cpp" : language === "c" ? "c" : language === "sql" ? "sql" : language}
                 theme={isDark ? "vs-dark" : "light"}
                 value={code || DEFAULT_STARTER_CODES[language] || "// Write code here\n"}
                 onChange={(val) => setCode(val || "")}
@@ -1389,6 +1441,22 @@ export default function CourseWorkspacePage({
                     >
                       Console Output
                     </button>
+                    {sqlResult && (
+                      <button
+                        type="button"
+                        onClick={() => setTerminalTab("table")}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          terminalTab === "table"
+                            ? "bg-slate-700 text-white shadow-xs"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        <span>Result Table</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-primary/20 text-primary font-bold">
+                          {sqlResult.rowCount}
+                        </span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setTerminalTab("tests")}
@@ -1404,15 +1472,16 @@ export default function CourseWorkspacePage({
 
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                      setSqlResult(null);
                       setTerminalLogs([
                         {
                           type: "system",
                           text: "> Console cleared.",
                           time: new Date().toLocaleTimeString(),
                         },
-                      ])
-                    }
+                      ]);
+                    }}
                     className="p-1 rounded text-slate-400 hover:text-white transition-colors cursor-pointer"
                     title="Clear Console"
                   >
@@ -1422,7 +1491,48 @@ export default function CourseWorkspacePage({
               </div>
 
               <div className="p-4 max-h-56 overflow-y-auto space-y-1.5 text-slate-200 select-text">
-                {terminalTab === "output" ? (
+                {terminalTab === "table" && sqlResult ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-1 border-b border-slate-700/60 font-mono">
+                      <span>✓ {sqlResult.rowCount} rows returned from sandbox</span>
+                      {sqlResult.durationMs !== undefined && (
+                        <span>Executed in {sqlResult.durationMs}ms</span>
+                      )}
+                    </div>
+                    {sqlResult.columns.length === 0 ? (
+                      <p className="text-slate-400 italic text-xs">Query executed with 0 rows returned.</p>
+                    ) : (
+                      <div className="overflow-x-auto rounded border border-slate-700/80 max-h-44 overflow-y-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead className="sticky top-0 bg-slate-800 text-slate-200 border-b border-slate-700">
+                            <tr>
+                              {sqlResult.columns.map((col) => (
+                                <th key={col} className="px-3 py-1.5 font-bold uppercase tracking-wider text-[10px] whitespace-nowrap">
+                                  {col}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sqlResult.rows.map((row, rIdx) => (
+                              <tr key={rIdx} className="border-b border-slate-800/80 hover:bg-slate-800/40">
+                                {sqlResult.columns.map((col) => (
+                                  <td key={col} className="px-3 py-1 text-slate-300 font-mono text-[11px] whitespace-nowrap">
+                                    {row[col] !== null && row[col] !== undefined ? (
+                                      String(row[col])
+                                    ) : (
+                                      <span className="text-slate-500 italic">NULL</span>
+                                    )}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ) : terminalTab === "output" ? (
                   terminalLogs.map((log, idx) => (
                     <div key={idx} className="flex items-start gap-2.5 leading-relaxed">
                       <span className="text-slate-500 text-[10px] select-none flex-shrink-0 pt-0.5">
@@ -1666,19 +1776,25 @@ export default function CourseWorkspacePage({
         
         {/* Sub-Header Bar (Clear from floating Navbar) */}
         <div className="bg-card border border-border rounded-xl px-5 py-3.5 shadow-xs flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 truncate">
+          <div className="flex items-center gap-2 truncate text-xs">
             <Link
-              href={`/learning/${pathSlug}`}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+              href="/learning"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              title="Return to Learning Paths Overview"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Path Syllabus</span>
+              <span className="hidden sm:inline">Overview</span>
             </Link>
-            <span className="text-border">|</span>
+            <span className="text-border">/</span>
+            <Link
+              href={`/learning/${pathSlug}`}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors truncate max-w-[140px] sm:max-w-xs"
+              title="View Path Syllabus and Milestones"
+            >
+              <span className="truncate">{pathTitle || "Syllabus"}</span>
+            </Link>
+            <span className="text-border">/</span>
             <div className="truncate">
-              <span className="text-xs text-muted-foreground hidden md:inline">
-                {pathTitle} /{" "}
-              </span>
               <span className="text-sm font-bold text-foreground truncate">
                 {course.title}
               </span>

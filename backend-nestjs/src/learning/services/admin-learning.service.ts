@@ -283,6 +283,7 @@ export class AdminLearningService {
       dto.requiredTimeSeconds !== undefined
         ? dto.requiredTimeSeconds
         : requiredTimeMinutes * 60;
+    const isMandatory = dto.isMandatory !== undefined ? dto.isMandatory : true;
 
     const mod = this.moduleRepo.create({
       courseId,
@@ -291,6 +292,7 @@ export class AdminLearningService {
       order,
       requiredTimeMinutes,
       requiredTimeSeconds,
+      isMandatory,
     });
     return this.moduleRepo.save(mod);
   }
@@ -302,6 +304,7 @@ export class AdminLearningService {
     if (dto.title !== undefined) mod.title = dto.title;
     if (dto.description !== undefined) mod.description = dto.description;
     if (dto.order !== undefined) mod.order = dto.order;
+    if (dto.isMandatory !== undefined) mod.isMandatory = dto.isMandatory;
     if (dto.requiredTimeMinutes !== undefined) mod.requiredTimeMinutes = dto.requiredTimeMinutes;
     if (dto.requiredTimeSeconds !== undefined) {
       mod.requiredTimeSeconds = dto.requiredTimeSeconds;
@@ -344,6 +347,7 @@ export class AdminLearningService {
 
     const existingLessons = await this.lessonRepo.find({ where: { moduleId } });
     const order = dto.order || existingLessons.length + 1;
+    const isMandatory = dto.isMandatory !== undefined ? dto.isMandatory : true;
 
     const lesson = this.lessonRepo.create({
       moduleId,
@@ -354,6 +358,7 @@ export class AdminLearningService {
       order,
       type: dto.type || 'reading',
       passingScore: dto.passingScore || 0,
+      isMandatory,
     });
     return this.lessonRepo.save(lesson);
   }
@@ -491,8 +496,45 @@ export class AdminLearningService {
     const path = await this.pathRepo.findOne({ where: { id } });
     if (!path) throw new NotFoundException(`Learning path not found: ${id}`);
     await this.lpcRepo.delete({ pathId: id });
+    await this.enrollmentRepo.delete({ pathId: id });
+    await this.pathRepo.query('DELETE FROM "path_progress" WHERE "pathId" = $1', [id]).catch(() => {});
+    await this.pathRepo.query('DELETE FROM "course_progress" WHERE "pathId" = $1', [id]).catch(() => {});
     await this.pathRepo.remove(path);
     return { success: true };
+  }
+
+  async getCourseById(id: string) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      );
+    const course = await this.courseRepo.findOne({
+      where: isUuid ? [{ id }, { slug: id }] : { slug: id },
+      relations: {
+        modules: {
+          lessons: {
+            exercises: true,
+          },
+        },
+      },
+    });
+    if (!course) {
+      throw new NotFoundException(`Course not found: ${id}`);
+    }
+    if (course.modules) {
+      course.modules.sort((a, b) => a.order - b.order);
+      for (const mod of course.modules) {
+        if (mod.lessons) {
+          mod.lessons.sort((a, b) => a.order - b.order);
+          for (const les of mod.lessons) {
+            if (les.exercises) {
+              les.exercises.sort((a, b) => a.order - b.order);
+            }
+          }
+        }
+      }
+    }
+    return course;
   }
 
   async updateCourse(id: string, dto: Partial<CreateCourseDto>) {
@@ -519,7 +561,23 @@ export class AdminLearningService {
     if (dto.content !== undefined) lesson.content = dto.content;
     if (dto.type) lesson.type = dto.type;
     if (dto.learningObjectives) lesson.learningObjectives = dto.learningObjectives;
+    if (dto.isMandatory !== undefined) lesson.isMandatory = dto.isMandatory;
     return this.lessonRepo.save(lesson);
+  }
+
+  async updateExercise(id: string, dto: Partial<CreateCourseExerciseDto>) {
+    const ex = await this.exerciseRepo.findOne({ where: { id } });
+    if (!ex) throw new NotFoundException(`Exercise not found: ${id}`);
+    if (dto.title) ex.title = dto.title;
+    if (dto.type) ex.type = dto.type;
+    if (dto.problemId !== undefined) ex.problemId = dto.problemId;
+    if (dto.quizConfig !== undefined) ex.quizConfig = dto.quizConfig;
+    if (dto.starterCode !== undefined) ex.starterCode = dto.starterCode;
+    if (dto.hints !== undefined) ex.hints = dto.hints;
+    if (dto.marks !== undefined) ex.marks = dto.marks;
+    if (dto.isMandatory !== undefined) ex.isMandatory = dto.isMandatory;
+    if (dto.order !== undefined) ex.order = dto.order;
+    return this.exerciseRepo.save(ex);
   }
 
   async deleteLesson(id: string) {
