@@ -52,10 +52,14 @@
     "allow-save-persisted-exam-session",
     "allow-clear-persisted-exam-session",
     "allow-check-and-request-media-permissions",
+    "allow-open-system-privacy-settings",
     "allow-list-blocking-apps",
     "allow-kill-blocking-app",
     "allow-kill-all-blocking-apps",
     "allow-run-full-system-diagnostic",
-    "allow-set-client-accommodations"
+    "allow-set-client-accommodations",
+    "allow-get-startup-permission-checklist",
+    "allow-request-os-permission",
+    "allow-complete-permission-onboarding"
   ]
 }

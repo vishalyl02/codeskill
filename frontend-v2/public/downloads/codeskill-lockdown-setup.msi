@@ -1,0 +1,4 @@
+CodeSkill LockDown Desktop Application - Windows Installer Package
+Version: 1.0.0
+Build: Local Development Build (Built on macOS)
+To produce a production Windows .msi installer, run `npm run tauri:build` on Windows or GitHub Actions CI.

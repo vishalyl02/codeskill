@@ -65,16 +65,28 @@ api.interceptors.request.use(async (config) => {
           : "";
 
         // 1. Continuous per-request hardware HMAC signature (X-Lockdown-*)
-        const bodySha256 = await computeSha256(bodyStr);
-        const signedExamHeaders = await signExamRequest(method, formattedPath, bodySha256);
-        if (signedExamHeaders && signedExamHeaders["X-Lockdown-Session-Id"]) {
-          Object.assign(config.headers, signedExamHeaders);
+        try {
+          const bodySha256 = await computeSha256(bodyStr);
+          const signedExamHeaders = await signExamRequest(method, formattedPath, bodySha256);
+          if (signedExamHeaders && signedExamHeaders["X-Lockdown-Session-Id"]) {
+            Object.assign(config.headers, signedExamHeaders);
+          }
+        } catch {
+          // Continue to ECDSA signer
         }
 
-        // 2. Legacy ECDSA attestation headers (X-CodeSkill-*) for backward compatibility
-        const signedHeaders = await signLockdownRequest(method, formattedPath, bodyStr);
-        if (signedHeaders && signedHeaders["X-CodeSkill-Session-Id"]) {
-          Object.assign(config.headers, signedHeaders);
+        // 2. ECDSA attestation headers (X-CodeSkill-*)
+        try {
+          const signedHeaders = await signLockdownRequest(method, formattedPath, bodyStr);
+          if (signedHeaders && (signedHeaders["X-CodeSkill-Session-Id"] || (signedHeaders as any).session_id)) {
+            config.headers["X-CodeSkill-Session-Id"] = signedHeaders["X-CodeSkill-Session-Id"] || (signedHeaders as any).session_id;
+            config.headers["X-CodeSkill-Timestamp"] = signedHeaders["X-CodeSkill-Timestamp"] || (signedHeaders as any).timestamp;
+            config.headers["X-CodeSkill-Nonce"] = signedHeaders["X-CodeSkill-Nonce"] || (signedHeaders as any).nonce;
+            config.headers["X-CodeSkill-Signature"] = signedHeaders["X-CodeSkill-Signature"] || (signedHeaders as any).signature;
+            config.headers["X-CodeSkill-Client"] = signedHeaders["X-CodeSkill-Client"] || (signedHeaders as any).client || "CodeSkill-LockDown/1.0.0";
+          }
+        } catch {
+          // Silently proceed
         }
       } catch {
         // Silently proceed if attestation session is not yet established

@@ -40,6 +40,10 @@ import {
   runFullSystemDiagnostic,
   killBlockingApp,
   killAllBlockingApps,
+  openSystemPrivacySettings,
+  getStartupPermissionChecklist,
+  requestOsPermission,
+  completePermissionOnboarding,
 } from './lockdown-bridge';
 import { authStorage } from '@/lib/auth-storage';
 
@@ -47,6 +51,7 @@ describe('LockDown Desktop Bridge (frontend-v2)', () => {
   afterEach(() => {
     delete (window as any).__TAURI_INTERNALS__;
     delete (window as any).__TAURI__;
+    delete (window as any).__CODESKILL_LOCKDOWN__;
   });
 
   describe('isLockdownClient', () => {
@@ -750,6 +755,92 @@ describe('LockDown Desktop Bridge (frontend-v2)', () => {
       expect(mockInvoke).toHaveBeenCalledWith('kill_all_blocking_apps', { force: true });
       expect(res).toHaveLength(1);
       expect(res[0].name).toBe('Discord');
+    });
+
+    it('openSystemPrivacySettings invokes open_system_privacy_settings with target in LockDown client', async () => {
+      mockInvoke.mockResolvedValue(true);
+      const resCam = await openSystemPrivacySettings('camera');
+      expect(mockInvoke).toHaveBeenCalledWith('open_system_privacy_settings', { target: 'camera' });
+      expect(resCam).toBe(true);
+
+      const resMic = await openSystemPrivacySettings('microphone');
+      expect(mockInvoke).toHaveBeenCalledWith('open_system_privacy_settings', { target: 'microphone' });
+      expect(resMic).toBe(true);
+    });
+
+    it('getStartupPermissionChecklist invokes get_startup_permission_checklist', async () => {
+      const mockState = {
+        platform: 'macos',
+        onboardingCompleted: true,
+        allRequiredGranted: true,
+        items: [
+          { id: 'camera', name: 'Camera', description: 'desc', status: 'granted', required: true, actionType: 'open_settings' },
+        ],
+        verifiedAtMs: 1732089600000,
+        clientVersion: '1.0.0',
+        pendingExamUrl: null,
+      };
+      mockInvoke.mockResolvedValue(mockState);
+      const res = await getStartupPermissionChecklist();
+      expect(mockInvoke).toHaveBeenCalledWith('get_startup_permission_checklist', {});
+      expect(res.platform).toBe('macos');
+      expect(res.onboardingCompleted).toBe(true);
+      expect(res.allRequiredGranted).toBe(true);
+      expect(res.items).toHaveLength(1);
+    });
+
+    it('requestOsPermission invokes request_os_permission with permissionId', async () => {
+      const mockItem = {
+        id: 'accessibility',
+        name: 'Accessibility',
+        description: 'Input guard',
+        status: 'granted',
+        required: true,
+        actionType: 'open_settings',
+      };
+      mockInvoke.mockResolvedValue(mockItem);
+      const res = await requestOsPermission('accessibility');
+      expect(mockInvoke).toHaveBeenCalledWith('request_os_permission', {
+        permissionId: 'accessibility',
+        permission_id: 'accessibility',
+      });
+      expect(res.id).toBe('accessibility');
+      expect(res.status).toBe('granted');
+    });
+
+    it('completePermissionOnboarding invokes complete_permission_onboarding', async () => {
+      mockInvoke.mockResolvedValue({ success: true, targetUrl: 'http://localhost:3000/assessments/test/take' });
+      const res = await completePermissionOnboarding();
+      expect(mockInvoke).toHaveBeenCalledWith('complete_permission_onboarding', {});
+      expect(res.success).toBe(true);
+      expect(res.targetUrl).toBe('http://localhost:3000/assessments/test/take');
+    });
+  });
+
+  describe('startup permission checklist browser fallbacks', () => {
+    beforeEach(() => {
+      delete (window as any).__TAURI_INTERNALS__;
+      delete (window as any).__TAURI__;
+    });
+
+    it('getStartupPermissionChecklist returns mock granted state in standard browser', async () => {
+      const state = await getStartupPermissionChecklist();
+      expect(state.onboardingCompleted).toBe(true);
+      expect(state.allRequiredGranted).toBe(true);
+      expect(state.items.length).toBeGreaterThan(0);
+      expect(state.items.every((i) => i.status === 'granted')).toBe(true);
+    });
+
+    it('requestOsPermission returns granted mock item in standard browser', async () => {
+      const item = await requestOsPermission('camera');
+      expect(item.id).toBe('camera');
+      expect(item.status).toBe('granted');
+    });
+
+    it('completePermissionOnboarding returns success in standard browser', async () => {
+      const res = await completePermissionOnboarding();
+      expect(res.success).toBe(true);
+      expect(res.targetUrl).toBeNull();
     });
   });
 

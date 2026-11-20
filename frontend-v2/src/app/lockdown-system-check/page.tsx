@@ -19,6 +19,7 @@ import {
   LogOut,
   ChevronRight,
   Sparkles,
+  ExternalLink,
 } from "lucide-react";
 import {
   runFullSystemDiagnostic,
@@ -351,6 +352,23 @@ export default function LockdownSystemCheckPage() {
 
       {/* Main Diagnostic Workspace */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+        {!isClient && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-xs text-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0" />
+              <div>
+                <p className="font-semibold text-white">Browser Preview Mode</p>
+                <p className="text-amber-200/80">To run authentic hardware attestation and process isolation, launch inside CodeSkill LockDown.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => { window.location.href = "codeskill-lockdown://system-check"; }}
+              className="px-3.5 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-semibold text-xs shrink-0 hover:bg-amber-400 transition-colors cursor-pointer self-start sm:self-auto"
+            >
+              Launch in LockDown
+            </button>
+          </div>
+        )}
         {/* Readiness Hero Banner */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className={`p-6 rounded-2xl border ${diagnostic ? scoreBg(diagnostic.readinessScore) : "bg-slate-900 border-slate-800"} flex flex-col justify-between`}>

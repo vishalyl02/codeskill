@@ -511,7 +511,7 @@ export default function AdminDashboardPage() {
                 <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-xs font-semibold text-foreground">Safe Exam Browser Integrity</p>
+                    <p className="text-xs font-semibold text-foreground">CodeSkill LockDown Integrity</p>
                     <p className="text-[11px] text-muted-foreground">Fullscreen lock &amp; tab-switch violation guard active.</p>
                   </div>
                 </div>

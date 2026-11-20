@@ -84,7 +84,7 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
     const security = (assessment as any).securityPolicy;
     const isSecureMode = security && security.secureExamMode !== 'DISABLED';
 
-    // Verify SEB request authenticity via genuine SEB headers and user-agent
+    // Verify request authenticity via headers and user-agent
     const sebReqHash =
       (headers?.['x-safeexambrowser-requesthash'] as string) ||
       (headers?.['x-safeexambrowser-confighash'] as string) ||
@@ -96,10 +96,10 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
     const clientType = (hasSebHeader || isSebUserAgent) ? 'SEB' : 'BROWSER';
     const clientVersion = clientBody?.clientVersion || 'UNKNOWN';
 
-    if (security?.requireSEB) {
-      if (clientType !== 'SEB') {
+    if (security?.requireSEB || security?.requireLockdown) {
+      if (clientType !== 'SEB' && !headers?.['x-codeskill-session-id'] && !headers?.['x-lockdown-session-id']) {
         throw new ForbiddenException(
-          'This assessment requires Safe Exam Browser. Please launch via SEB.',
+          'This assessment requires CodeSkill LockDown. Please launch via the official CodeSkill LockDown desktop application.',
         );
       }
 
@@ -108,7 +108,7 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
         const expectedConfigKey = String(security.configKey).trim();
         if (!sebReqHash) {
           throw new ForbiddenException(
-            'Safe Exam Browser configuration key mismatch. Please download the official exam configuration.',
+            'CodeSkill LockDown configuration key mismatch. Please ensure you are running the official CodeSkill LockDown application.',
           );
         }
 
@@ -152,16 +152,16 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
 
         if (!hasValidHash) {
           throw new ForbiddenException(
-            'Safe Exam Browser configuration key mismatch. Please download the official exam configuration.',
+            'CodeSkill LockDown configuration key mismatch. Please ensure you are running the official CodeSkill LockDown application.',
           );
         }
       }
     }
 
-    if (security?.requireSEB && security.allowedSEBVersions?.length > 0) {
+    if ((security?.requireSEB || security?.requireLockdown) && security.allowedSEBVersions?.length > 0) {
       if (!security.allowedSEBVersions.includes(clientVersion)) {
         throw new ForbiddenException(
-          `Your Safe Exam Browser version (${clientVersion}) is not supported for this assessment. Please install an approved version.`,
+          `Your CodeSkill LockDown version (${clientVersion}) is not supported for this assessment. Please install an approved version.`,
         );
       }
     }

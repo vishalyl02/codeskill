@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { SebGuard } from './seb.guard';
 import { RedisService } from '../../redis/redis.service';
 
-describe('SebGuard (Cryptographic LockDown Attestation & Legacy SEB)', () => {
+describe('SebGuard (Cryptographic LockDown Attestation)', () => {
   let guard: SebGuard;
   let mockRedisClient: any;
   let mockRedisService: Partial<RedisService>;
@@ -274,20 +274,21 @@ describe('SebGuard (Cryptographic LockDown Attestation & Legacy SEB)', () => {
     });
   });
 
-  describe('Legacy Safe Exam Browser (SEB) & Fallback Paths', () => {
-    it('preserves backwards compatibility for legacy SEB request hash headers', async () => {
+  describe('LockDown Requirement & Fallback Paths', () => {
+    it('rejects legacy request headers with explicit CodeSkill LockDown requirement', async () => {
       const req = {
         headers: {
-          'x-safeexambrowser-requesthash': 'dummy-seb-hash-abcdef123456',
+          'x-safeexambrowser-requesthash': 'dummy-hash-abcdef123456',
           'user-agent': 'SafeExamBrowser/3.3.0',
         },
       };
 
-      const result = await guard.canActivate(createMockContext(req));
-      expect(result).toBe(true);
+      await expect(guard.canActivate(createMockContext(req))).rejects.toThrow(
+        /CodeSkill LockDown is required for this assessment/,
+      );
     });
 
-    it('rejects unauthenticated standard browser requests without SEB or LockDown headers', async () => {
+    it('rejects unauthenticated standard browser requests without LockDown headers', async () => {
       const req = {
         headers: {
           'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
@@ -295,7 +296,7 @@ describe('SebGuard (Cryptographic LockDown Attestation & Legacy SEB)', () => {
       };
 
       await expect(guard.canActivate(createMockContext(req))).rejects.toThrow(
-        /CodeSkill LockDown or Safe Exam Browser is required/,
+        /CodeSkill LockDown is required for this assessment/,
       );
     });
 
@@ -356,8 +357,48 @@ describe('SebGuard (Cryptographic LockDown Attestation & Legacy SEB)', () => {
       };
 
       await expect(assessmentAwareGuard.canActivate(createMockContext(req))).rejects.toThrow(
-        /CodeSkill LockDown or Safe Exam Browser is required/,
+        /CodeSkill LockDown is required for this assessment/,
       );
+    });
+
+    it('accepts requests authenticated via X-Lockdown-Session-Id and continuous hardware HMAC signature', async () => {
+      const sessionId = 'lockdown-session-hmac-uuid';
+      const hmacKeyHex = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+      const timestamp = Date.now().toString();
+      const nonce = 'hmac-nonce-12345';
+      const binaryHash = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+
+      redisStorage.set(`exam:attestation:${sessionId}`, {
+        userId: 'test-user-uuid',
+        sessionHmacKey: hmacKeyHex,
+        os: 'macos',
+        clientVersion: '1.0.0',
+        createdAt: new Date().toISOString(),
+      });
+
+      const method = 'POST';
+      const reqPath = '/api/assessments/test-asmt/start';
+      const body = { attemptNumber: 1 };
+      const bodySha256 = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
+      const canonicalPayload = `${method}\n${reqPath}\n${timestamp}\n${nonce}\n${bodySha256}\n${binaryHash}`;
+      const signature = crypto.createHmac('sha256', Buffer.from(hmacKeyHex, 'hex')).update(canonicalPayload).digest('hex');
+
+      const req = {
+        method: 'POST',
+        url: reqPath,
+        body,
+        headers: {
+          'x-lockdown-session-id': sessionId,
+          'x-lockdown-timestamp': timestamp,
+          'x-lockdown-nonce': nonce,
+          'x-lockdown-binary-hash': binaryHash,
+          'x-lockdown-signature': signature,
+        },
+        user: { id: 'test-user-uuid' },
+      };
+
+      const result = await guard.canActivate(createMockContext(req));
+      expect(result).toBe(true);
     });
 
     it('resolves attemptId to assessmentId from assessment_attempts and permits non-lockdown exam', async () => {

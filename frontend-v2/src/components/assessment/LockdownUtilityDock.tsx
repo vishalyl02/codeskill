@@ -31,6 +31,7 @@ import {
   Maximize2,
   Zap,
   Terminal,
+  Settings,
 } from "lucide-react";
 import api from "@/config/api";
 import dynamic from "next/dynamic";
@@ -986,6 +987,17 @@ export default function LockdownUtilityDock({
                     <Pin className="w-3.5 h-3.5" />
                   )}
                 </button>
+
+                {/* Re-verify OS Permissions (available when exam submitted / not locked) */}
+                {isSubmitted && (
+                  <a
+                    href="/lockdown-startup-permissions"
+                    className="p-1.5 rounded-lg hover:bg-slate-800 text-sky-400 hover:text-sky-300 transition-colors cursor-pointer"
+                    title="Re-verify OS Permissions"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </a>
+                )}
 
                 {/* Explicit Collapse Button */}
                 <button

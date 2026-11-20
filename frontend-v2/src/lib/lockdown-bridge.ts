@@ -119,6 +119,41 @@ export interface PersistedExamSession {
 
 export type PersistedExamSessionPatch = Partial<Omit<PersistedExamSession, 'updatedAtMs'>>;
 
+export interface PermissionChecklistItem {
+  id: string;
+  name: string;
+  description: string;
+  status: 'granted' | 'needs_action' | 'denied';
+  required: boolean;
+  actionType: 'request' | 'open_settings' | 'shell_command' | 'info';
+  actionPayload?: string;
+  settingsTarget?: string;
+}
+
+export interface StartupPermissionChecklistState {
+  platform: 'macos' | 'windows' | 'linux';
+  onboardingCompleted: boolean;
+  allRequiredGranted: boolean;
+  items: PermissionChecklistItem[];
+  verifiedAtMs: number;
+  clientVersion: string;
+  pendingExamUrl?: string | null;
+}
+
+export interface PermissionsSetupPersistedState {
+  onboardingCompleted: boolean;
+  verifiedAtMs: number;
+  clientVersion: string;
+  platform: string;
+  portalRestoreToken?: string | null;
+  permissions: Record<string, string>;
+}
+
+export interface CompleteOnboardingResult {
+  success: boolean;
+  targetUrl?: string | null;
+}
+
 /**
  * Checks if the current browser execution context is inside the CodeSkill LockDown desktop client.
  */
@@ -127,6 +162,8 @@ export function isLockdownClient(): boolean {
   const win = window as any;
   const userAgent = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : '';
   return Boolean(
+    win.isTauri ||
+    'isTauri' in win ||
     '__TAURI_INTERNALS__' in win ||
     '__TAURI__' in win ||
     win.__TAURI_INTERNALS__ ||
@@ -145,6 +182,7 @@ export async function tauriInvoke<T>(cmd: string, args: Record<string, any> = {}
   }
 
   const win = window as any;
+  console.log('[LockDown Bridge] Invoking command:', cmd, args);
 
   // 1. Direct Tauri v2 internals
   if (win.__TAURI_INTERNALS__ && typeof win.__TAURI_INTERNALS__.invoke === 'function') {
@@ -156,7 +194,12 @@ export async function tauriInvoke<T>(cmd: string, args: Record<string, any> = {}
     return win.__TAURI__.core.invoke(cmd, args);
   }
 
-  // 3. Optional dynamic module import without tsc build-time binding
+  // 3. Fallback for Tauri v1 or legacy global invoke
+  if (win.__TAURI__ && typeof win.__TAURI__.invoke === 'function') {
+    return win.__TAURI__.invoke(cmd, args);
+  }
+
+  // 4. Optional dynamic module import without tsc build-time binding
   try {
     const dynamicImport = new Function('specifier', 'return import(specifier)');
     const tauriCore = await dynamicImport('@tauri-apps/api/core');
@@ -168,6 +211,196 @@ export async function tauriInvoke<T>(cmd: string, args: Record<string, any> = {}
   }
 
   throw new Error(`CodeSkill LockDown Tauri runtime is not available for command: ${cmd}`);
+}
+
+/**
+ * Invokes a Tauri command with an explicit timeout to prevent hanging UI promises.
+ */
+export async function tauriInvokeWithTimeout<T>(
+  cmd: string,
+  args: Record<string, any> = {},
+  timeoutMs = 2500,
+): Promise<T> {
+  let timer: NodeJS.Timeout | number | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Tauri IPC command '${cmd}' timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([tauriInvoke<T>(cmd, args), timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Detects the client operating system from the browser/webview environment.
+ */
+export function detectClientPlatform(): 'macos' | 'windows' | 'linux' {
+  if (typeof navigator === 'undefined') return 'macos';
+  const ua = (navigator.userAgent || '').toLowerCase();
+  const platform = (navigator.platform || '').toLowerCase();
+  if (ua.includes('mac') || platform.includes('mac')) return 'macos';
+  if (ua.includes('win') || platform.includes('win')) return 'windows';
+  if (ua.includes('linux') || platform.includes('linux')) return 'linux';
+  return 'macos';
+}
+
+/**
+ * Constructs a deterministic fallback checklist state for the detected OS if IPC is unreachable or delayed.
+ */
+export function getDefaultStartupPermissionChecklist(
+  platform?: 'macos' | 'windows' | 'linux',
+): StartupPermissionChecklistState {
+  const os = platform || detectClientPlatform();
+  if (os === 'macos') {
+    return {
+      platform: 'macos',
+      onboardingCompleted: false,
+      allRequiredGranted: false,
+      items: [
+        {
+          id: 'camera',
+          name: 'Camera Access',
+          description: 'Allows video proctoring and candidate identity verification during exams.',
+          status: 'needs_action',
+          required: true,
+          actionType: 'open_settings',
+          settingsTarget: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
+        },
+        {
+          id: 'microphone',
+          name: 'Microphone Access',
+          description: 'Allows audio environment proctoring and ambient noise monitoring.',
+          status: 'needs_action',
+          required: true,
+          actionType: 'open_settings',
+          settingsTarget: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+        },
+        {
+          id: 'accessibility',
+          name: 'Accessibility & Kiosk Guard',
+          description: 'Enables hardware-level keyboard protection to block OS switcher escapes (Cmd+Tab, Spotlight, Mission Control).',
+          status: 'needs_action',
+          required: true,
+          actionType: 'open_settings',
+          settingsTarget: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+        },
+        {
+          id: 'screen_capture',
+          name: 'Screen Recording & Display Integrity',
+          description: 'Permits LockDown to inspect screen capture state and block unauthorized mirroring, broadcast, or stealth overlays.',
+          status: 'needs_action',
+          required: true,
+          actionType: 'open_settings',
+          settingsTarget: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+        },
+      ],
+      verifiedAtMs: Date.now(),
+      clientVersion: '1.0.0',
+      pendingExamUrl: null,
+    };
+  }
+
+  if (os === 'windows') {
+    return {
+      platform: 'windows',
+      onboardingCompleted: false,
+      allRequiredGranted: false,
+      items: [
+        {
+          id: 'camera',
+          name: 'Webcam Access',
+          description: 'Allows video monitoring and identity verification during exams.',
+          status: 'needs_action',
+          required: true,
+          actionType: 'open_settings',
+          settingsTarget: 'ms-settings:privacy-webcam',
+        },
+        {
+          id: 'microphone',
+          name: 'Microphone Access',
+          description: 'Allows audio environment monitoring during exams.',
+          status: 'needs_action',
+          required: true,
+          actionType: 'open_settings',
+          settingsTarget: 'ms-settings:privacy-microphone',
+        },
+        {
+          id: 'kiosk_desktop',
+          name: 'WebView2 Runtime & Kiosk Desktop',
+          description: 'Verifies Microsoft Edge WebView2 and secure desktop switching readiness without remote session conflicts.',
+          status: 'needs_action',
+          required: true,
+          actionType: 'open_settings',
+          settingsTarget: 'ms-settings:appsfeatures',
+        },
+        {
+          id: 'display_integrity',
+          name: 'Single Display & Capture Integrity',
+          description: 'Verifies single-monitor configuration and window capture protection.',
+          status: 'needs_action',
+          required: true,
+          actionType: 'open_settings',
+          settingsTarget: 'ms-settings:display',
+        },
+      ],
+      verifiedAtMs: Date.now(),
+      clientVersion: '1.0.0',
+      pendingExamUrl: null,
+    };
+  }
+
+  return {
+    platform: 'linux',
+    onboardingCompleted: false,
+    allRequiredGranted: false,
+    items: [
+      {
+        id: 'camera',
+        name: 'Camera & V4L2 Device Access',
+        description: 'Grants video capture device permissions for exam proctoring.',
+        status: 'needs_action',
+        required: true,
+        actionType: 'open_settings',
+        actionPayload: 'sudo usermod -aG video $USER',
+        settingsTarget: 'gnome-control-center privacy',
+      },
+      {
+        id: 'microphone',
+        name: 'Microphone & Sound Server Access',
+        description: 'Grants PipeWire/PulseAudio capture access for exam proctoring.',
+        status: 'needs_action',
+        required: true,
+        actionType: 'open_settings',
+        actionPayload: 'sudo usermod -aG audio $USER',
+        settingsTarget: 'gnome-control-center sound',
+      },
+      {
+        id: 'kiosk_compositor',
+        name: 'Display Server & Kiosk Compositor',
+        description: 'Ensures Wayland session with Cage kiosk compositor is configured for exam lockdown.',
+        status: 'needs_action',
+        required: true,
+        actionType: 'info',
+        actionPayload: 'sudo apt install cage',
+      },
+      {
+        id: 'portal_session',
+        name: 'XDG Desktop Portal Persistence',
+        description: 'Ensures persistent desktop portal session so permissions survive across app restarts.',
+        status: 'needs_action',
+        required: true,
+        actionType: 'info',
+        actionPayload: 'systemctl --user start xdg-desktop-portal',
+      },
+    ],
+    verifiedAtMs: Date.now(),
+    clientVersion: '1.0.0',
+    pendingExamUrl: null,
+  };
 }
 
 /**
@@ -511,11 +744,18 @@ export async function signLockdownRequest(
   path: string,
   body: string = '',
 ): Promise<LockdownSignedHeaders> {
-  return tauriInvoke<LockdownSignedHeaders>('sign_api_request', {
+  const raw = await tauriInvoke<any>('sign_api_request', {
     method,
     path,
     body,
   });
+  return {
+    'X-CodeSkill-Session-Id': raw?.['X-CodeSkill-Session-Id'] || raw?.session_id || raw?.sessionId || '',
+    'X-CodeSkill-Timestamp': raw?.['X-CodeSkill-Timestamp'] || raw?.timestamp || '',
+    'X-CodeSkill-Nonce': raw?.['X-CodeSkill-Nonce'] || raw?.nonce || '',
+    'X-CodeSkill-Signature': raw?.['X-CodeSkill-Signature'] || raw?.signature || '',
+    'X-CodeSkill-Client': raw?.['X-CodeSkill-Client'] || raw?.client || 'CodeSkill-LockDown/1.0.0',
+  };
 }
 
 /**
@@ -761,7 +1001,7 @@ export async function consumeLockdownLaunchToken(
   let token: string | null = null;
   try {
     const urlParams = new URLSearchParams(window.location.search);
-    token = urlParams.get('lockdownToken');
+    token = urlParams.get('lockdownToken') || urlParams.get('token');
 
     if (token) {
       authStorage.setAccessToken(token);
@@ -771,9 +1011,10 @@ export async function consumeLockdownLaunchToken(
         // ignore sessionStorage error
       }
 
-      // Strip lockdownToken from window.history.replaceState
+      // Strip lockdownToken and token from window.history.replaceState
       const url = new URL(window.location.href);
       url.searchParams.delete('lockdownToken');
+      url.searchParams.delete('token');
       const cleanUrl = url.pathname + (url.search ? url.search : '') + url.hash;
       window.history.replaceState(window.history.state, '', cleanUrl);
     }
@@ -982,6 +1223,64 @@ export async function checkAndRequestMediaPermissions(
 }
 
 /**
+ * Opens the operating system's native Privacy & Security settings page for Camera, Microphone,
+ * Accessibility, Screen Recording, Display, or Kiosk permissions.
+ * - macOS: x-apple.systempreferences:com.apple.preference.security?Privacy_...
+ * - Windows: ms-settings:privacy-...
+ * In CodeSkill LockDown kiosk, invokes the native Tauri command.
+ * In a standard browser, performs a protocol redirection attempt or returns false.
+ */
+export async function openSystemPrivacySettings(target: string): Promise<boolean> {
+  if (isLockdownClient()) {
+    try {
+      return await tauriInvoke<boolean>('open_system_privacy_settings', { target });
+    } catch (err) {
+      console.warn('Failed to open system privacy settings via LockDown IPC:', err);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    const ua = navigator.userAgent.toLowerCase();
+    const isMac = ua.includes('mac');
+    const isWin = ua.includes('win');
+    const t = target.toLowerCase();
+    try {
+      if (isMac) {
+        let uri = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera';
+        if (target.startsWith('x-apple.systempreferences:')) {
+          uri = target;
+        } else if (t.includes('micro') || t.includes('audio')) {
+          uri = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone';
+        } else if (t.includes('access') || t.includes('kiosk')) {
+          uri = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
+        } else if (t.includes('screen') || t.includes('display')) {
+          uri = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
+        }
+        window.location.href = uri;
+        return true;
+      } else if (isWin) {
+        let uri = 'ms-settings:privacy-webcam';
+        if (target.startsWith('ms-settings:')) {
+          uri = target;
+        } else if (t.includes('micro') || t.includes('audio')) {
+          uri = 'ms-settings:privacy-microphone';
+        } else if (t.includes('display')) {
+          uri = 'ms-settings:display';
+        } else if (t.includes('kiosk') || t.includes('app')) {
+          uri = 'ms-settings:appsfeatures';
+        }
+        window.location.href = uri;
+        return true;
+      }
+    } catch (e) {
+      console.warn('Browser prevented direct protocol navigation:', e);
+    }
+  }
+
+  return false;
+}
+
+/**
  * Lists all blocking applications (forbidden utilities + non-essential apps).
  */
 export async function listBlockingApps(): Promise<BlockingAppInfo[]> {
@@ -1068,5 +1367,122 @@ export async function runFullSystemDiagnostic(): Promise<SystemDiagnosticResult>
   } catch (err) {
     console.warn('Failed to run full system diagnostic in LockDown:', err);
     throw err;
+  }
+}
+
+/**
+ * Retrieves the unified first-launch startup OS permissions checklist.
+ */
+export async function getStartupPermissionChecklist(
+  timeoutMs = 2500,
+): Promise<StartupPermissionChecklistState> {
+  const platform = detectClientPlatform();
+  if (!isLockdownClient()) {
+    return {
+      platform,
+      onboardingCompleted: true,
+      allRequiredGranted: true,
+      items: [
+        {
+          id: 'camera',
+          name: 'Camera Access',
+          description: 'Standard browser web camera access',
+          status: 'granted',
+          required: true,
+          actionType: 'request',
+        },
+        {
+          id: 'microphone',
+          name: 'Microphone Access',
+          description: 'Standard browser microphone access',
+          status: 'granted',
+          required: true,
+          actionType: 'request',
+        },
+      ],
+      verifiedAtMs: Date.now(),
+      clientVersion: '1.0.0',
+      pendingExamUrl: null,
+    };
+  }
+  try {
+    const res = await tauriInvokeWithTimeout<StartupPermissionChecklistState>(
+      'get_startup_permission_checklist',
+      {},
+      timeoutMs,
+    );
+    if (res && Array.isArray(res.items) && res.items.length > 0) {
+      return res;
+    }
+  } catch (err) {
+    console.warn('Failed to get startup permission checklist from native IPC, using resilient platform fallback:', err);
+  }
+
+  return getDefaultStartupPermissionChecklist(platform);
+}
+
+/**
+ * Requests an OS permission or opens the appropriate system privacy panel.
+ */
+export async function requestOsPermission(permissionId: string): Promise<PermissionChecklistItem> {
+  const platform = detectClientPlatform();
+  if (!isLockdownClient()) {
+    return {
+      id: permissionId,
+      name: permissionId,
+      description: 'Web fallback',
+      status: 'granted',
+      required: true,
+      actionType: 'request',
+    };
+  }
+  try {
+    return await tauriInvokeWithTimeout<PermissionChecklistItem>(
+      'request_os_permission',
+      {
+        permissionId,
+        permission_id: permissionId,
+      },
+      3000,
+    );
+  } catch (err) {
+    console.warn(`Failed to request OS permission for ${permissionId} via IPC, attempting direct system open:`, err);
+    await openSystemPrivacySettings(permissionId);
+
+    const fallbackItems = getDefaultStartupPermissionChecklist(platform).items;
+    return fallbackItems.find((i) => i.id === permissionId) || {
+      id: permissionId,
+      name: permissionId,
+      description: 'System Permission',
+      status: 'needs_action',
+      required: true,
+      actionType: 'open_settings',
+    };
+  }
+}
+
+/**
+ * Completes the one-time OS permission onboarding flow and writes the state to persistent cache.
+ */
+export async function completePermissionOnboarding(): Promise<CompleteOnboardingResult> {
+  if (!isLockdownClient()) {
+    return { success: true, targetUrl: null };
+  }
+  try {
+    return await tauriInvokeWithTimeout<CompleteOnboardingResult>(
+      'complete_permission_onboarding',
+      {},
+      3000,
+    );
+  } catch (err) {
+    console.warn('Failed to complete permission onboarding via IPC:', err);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('codeskill_lockdown_onboarding_completed', 'true');
+      } catch {
+        // ignore
+      }
+    }
+    return { success: true, targetUrl: null };
   }
 }

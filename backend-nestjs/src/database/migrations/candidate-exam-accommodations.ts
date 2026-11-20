@@ -31,5 +31,10 @@ export async function applyCandidateExamAccommodationsMigration(
 
     CREATE INDEX IF NOT EXISTS "IDX_candidate_exam_accommodations_user"
       ON "candidate_exam_accommodations" ("user_id");
+
+    ALTER TABLE "assessment_attempts"
+      ADD COLUMN IF NOT EXISTS "extra_time_granted_minutes" int DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS "grade_held" boolean DEFAULT false,
+      ADD COLUMN IF NOT EXISTS "grade_hold_reason" text;
   `);
 }

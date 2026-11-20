@@ -46,9 +46,11 @@ import LockdownRouteGuard from "@/components/assessment/LockdownRouteGuard";
 import LockdownMediaPermissionGate from "@/components/assessment/LockdownMediaPermissionGate";
 import LockdownAppBlockerGate from "@/components/assessment/LockdownAppBlockerGate";
 import LockdownSubmissionFeedback from "@/components/assessment/LockdownSubmissionFeedback";
+import { resolveAssessmentMediaRequirements } from "@/lib/assessment-media-policy";
 import { LockdownSessionStore } from "@/lib/lockdown-session-store";
 import {
   isLockdownClient,
+  initializeLockdownAttestation,
   consumeLockdownLaunchToken,
   engageOsKiosk,
   releaseLockdownKiosk,
@@ -238,6 +240,11 @@ export default function TakeAssessmentPage({
   const [enableForensicWatermark, setEnableForensicWatermark] = useState<boolean>(false);
   const [attestedSessionId, setAttestedSessionId] = useState<string | undefined>(undefined);
 
+  const mediaRequirements = useMemo(
+    () => resolveAssessmentMediaRequirements(null, proctoring, securityPolicy),
+    [proctoring, securityPolicy]
+  );
+
   // Pre-Exam Close-Apps Gate state
   const [runningAppsList, setRunningAppsList] = useState<RunningUserApp[]>([]);
   const [isCloseAppsGateOpen, setIsCloseAppsGateOpen] = useState<boolean>(false);
@@ -247,6 +254,12 @@ export default function TakeAssessmentPage({
     const local = LockdownSessionStore.getLocalState(id);
     return Boolean(local?.mediaPermissionsVerified);
   });
+
+  useEffect(() => {
+    if (!isLoadingSettings && !mediaRequirements.needsMediaGate && !isMediaGatePassed) {
+      setIsMediaGatePassed(true);
+    }
+  }, [isLoadingSettings, mediaRequirements.needsMediaGate, isMediaGatePassed]);
   const [isAppsGatePassed, setIsAppsGatePassed] = useState<boolean>(!isLockdownClient());
   const [codingControls, setCodingControls] = useState<CodingExecutionControls | null>(null);
   const [lockdownExitCountdown, setLockdownExitCountdown] = useState<number | null>(null);
@@ -703,7 +716,7 @@ export default function TakeAssessmentPage({
   // Start the attempt only after the candidate enters fullscreen from the secure gate.
   const startAttemptRequestedRef = useRef(false);
   const beginAssessmentAfterFullscreen = useCallback(async () => {
-    if (isLockdownClient() && (!isMediaGatePassed || !isAppsGatePassed)) {
+    if (isLockdownClient() && ((mediaRequirements.needsMediaGate && !isMediaGatePassed) || !isAppsGatePassed)) {
       startAttemptRequestedRef.current = false;
       setIsLoading(false);
       return;
@@ -712,13 +725,30 @@ export default function TakeAssessmentPage({
     startAttemptRequestedRef.current = true;
     setIsLoading(true);
     try {
-      if (proctoring?.useCamera !== false && !getAssessmentFaceReference(id)) {
+      if (mediaRequirements.requireCamera && !getAssessmentFaceReference(id)) {
         if (isLockdownClient()) {
           router.replace(`/assessments/${id}`);
           return;
         }
         throw new Error("Take your identity selfie on the assessment briefing page before entering the test.");
       }
+
+      // Ensure native CodeSkill LockDown attestation session is initialized and valid before starting attempt
+      if (isLockdownClient()) {
+        try {
+          const attestRes = await initializeLockdownAttestation(api, id);
+          if (!attestRes.success) {
+            throw new Error(attestRes.error || "CodeSkill LockDown attestation verification failed.");
+          }
+          if (attestRes.sessionId) {
+            setAttestedSessionId(attestRes.sessionId);
+          }
+          setIsLockdownActive(true);
+        } catch (attestErr: any) {
+          throw new Error(attestErr?.message || "Failed to establish secure CodeSkill LockDown session.");
+        }
+      }
+
       const isExplicitRetake = new URLSearchParams(window.location.search).get("retake") === "1";
       // A Redo action must discard any stale in-progress attempt and start a
       // fresh timer. Ordinary assessment entry still resumes an in-progress test.
@@ -866,7 +896,7 @@ export default function TakeAssessmentPage({
     } finally {
       setIsLoading(false);
     }
-  }, [id, router, proctoring?.useCamera, isMediaGatePassed, isAppsGatePassed]);
+  }, [id, router, mediaRequirements.requireCamera, mediaRequirements.needsMediaGate, isMediaGatePassed, isAppsGatePassed]);
 
   // Trigger attempt start once LockDown pre-exam gates pass
   useEffect(() => {
@@ -896,7 +926,7 @@ export default function TakeAssessmentPage({
     stopCamera,
     subscribeAudioLevel,
   } = useAssessmentMedia(
-    id, proctoring?.useCamera !== false && loadedAssessmentId === id && questions.length > 0 && !isLoading && timeLeftSeconds > 0, recordViolation,
+    id, mediaRequirements.requireCamera && loadedAssessmentId === id && questions.length > 0 && !isLoading && timeLeftSeconds > 0, recordViolation,
     proctoring?.cameraSelectionPolicy || 'student_select',
   );
 
@@ -1305,10 +1335,10 @@ export default function TakeAssessmentPage({
     return () => clearInterval(autosaveInterval);
   }, [id, isLoading, questions, startedAt]);
 
-  // Anti-Cheat functionality is now handled entirely by the SafeExamBrowser component.
-  // The hooks below have been simplified to just rely on SafeExamBrowser.
+  // Anti-Cheat functionality is handled by the exam security container component.
+  // The hooks below rely on the security container.
 
-  // Keyboard shortcuts, fullscreen logic, and context menu are handled by SafeExamBrowser.
+  // Keyboard shortcuts, fullscreen logic, and context menu are handled by the security container.
 
   // Toast Auto-Dismiss
   useEffect(() => {
@@ -1947,13 +1977,13 @@ export default function TakeAssessmentPage({
     return <LockdownLaunchGate examId={id} examTitle={assessmentTitle} />;
   }
 
-  // Pre-Exam Media & Hardware Permission Gate (must pass before attempt starts)
-  if (isLockdownClient() && !isMediaGatePassed) {
+  // Pre-Exam Media & Hardware Permission Gate (only rendered if media is required by this assessment)
+  if (isLockdownClient() && mediaRequirements.needsMediaGate && !isMediaGatePassed) {
     return (
       <LockdownMediaPermissionGate
         assessmentId={id}
-        requireCamera={proctoring?.requireCamera !== false && proctoring?.enableWebcam !== false}
-        requireMic={proctoring?.requireMicrophone !== false && proctoring?.enableMicrophone !== false}
+        requireCamera={mediaRequirements.requireCamera}
+        requireMic={mediaRequirements.requireMicrophone}
         onReady={() => {
           setIsMediaGatePassed(true);
           void LockdownSessionStore.saveState(id, { mediaPermissionsVerified: true });
@@ -2098,8 +2128,8 @@ export default function TakeAssessmentPage({
       onTerminate={() => submitExam(true)}
       onViolation={recordViolation}
       activeMediaStream={mediaStream}
-      requireCamera={proctoring?.requireCamera ?? proctoring?.enableWebcam ?? (proctoring?.useCamera !== false)}
-      requireMicrophone={proctoring?.requireMicrophone ?? proctoring?.enableMicrophone ?? (proctoring?.useMicrophone !== false)}
+      requireCamera={mediaRequirements.requireCamera}
+      requireMicrophone={mediaRequirements.requireMicrophone}
       isExamSubmitted={isExamSubmitted}
       assessmentId={id}
       candidateId={resolvedCandidateId}
@@ -2705,7 +2735,7 @@ export default function TakeAssessmentPage({
         })()}
       </div>
 
-      {proctoring?.useCamera !== false && <FloatingAssessmentMonitor minimized={isPipMinimized}>
+      {mediaRequirements.requireCamera && <FloatingAssessmentMonitor minimized={isPipMinimized}>
           {/* Live Proctoring Camera & Mic PIP Card */}
           <div className="bg-card border border-border rounded-xl p-3 shadow-sm space-y-2 relative overflow-hidden">
             <div className="flex items-center justify-between">
@@ -2954,9 +2984,9 @@ export default function TakeAssessmentPage({
         </div>
       )}
 
-      {/* Proctoring Violation Warning Modal is removed in favor of SafeExamBrowser overlay */}
+      {/* Proctoring Violation Warning Modal is integrated in security overlay */}
 
-      {/* SEB-Style Bottom Utility Dock for Native CodeSkill LockDown Client */}
+      {/* Bottom Utility Dock for Native CodeSkill LockDown Client */}
       {isLockdownClient() && (
         <LockdownUtilityDock
           assessmentId={id}

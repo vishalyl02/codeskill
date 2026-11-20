@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { ShieldAlert, Download, ExternalLink, RefreshCw, Monitor, CheckCircle2, Info } from "lucide-react";
+import { ShieldAlert, Download, ExternalLink, RefreshCw, Monitor, CheckCircle2, Info, ChevronDown, ChevronUp, Terminal } from "lucide-react";
 import { authStorage } from "@/lib/auth-storage";
 import { isLockdownClient } from "@/lib/lockdown-bridge";
 
@@ -18,6 +18,8 @@ export default function LockdownLaunchGate({
 }: LockdownLaunchGateProps) {
   const [token, setToken] = useState<string>("");
   const [isClient, setIsClient] = useState<boolean>(false);
+  const [showInstructions, setShowInstructions] = useState<boolean>(false);
+  const [osTab, setOsTab] = useState<"macos" | "windows" | "linux">("macos");
 
   useEffect(() => {
     setToken(authStorage.getAccessToken() || "");
@@ -89,19 +91,15 @@ export default function LockdownLaunchGate({
           <a
             href="codeskill-lockdown://system-check"
             onClick={(e) => {
-              // Try deep-link first, fallback to browser page if not in client
+              e.preventDefault();
               if (typeof window !== "undefined") {
                 window.location.href = "codeskill-lockdown://system-check";
-                setTimeout(() => {
-                  window.open("/lockdown-system-check", "_blank");
-                }, 1000);
-                e.preventDefault();
               }
             }}
             className="w-full py-2.5 px-4 rounded-xl border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
           >
             <Monitor className="w-4 h-4" />
-            Test My LockDown Setup (Pre-Exam Diagnostics)
+            Launch Diagnostics in CodeSkill LockDown
           </a>
         </div>
 
@@ -118,7 +116,7 @@ export default function LockdownLaunchGate({
         <div className="border-t border-slate-800 pt-6">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
             <Download className="w-4 h-4" />
-            Install CodeSkill LockDown Browser
+            Install CodeSkill LockDown
           </h2>
           <p className="text-xs text-slate-400 mb-4">
             If you do not have LockDown installed on this machine, download the release for your operating system:
@@ -154,6 +152,131 @@ export default function LockdownLaunchGate({
               <span className="text-xs font-medium text-slate-200">Linux</span>
               <span className="text-[10px] text-slate-400">.deb / .AppImage</span>
             </a>
+          </div>
+
+          {/* First-Time Launch & Unverified Developer Instructions */}
+          <div className="mt-4 pt-3 border-t border-slate-800/60">
+            <button
+              type="button"
+              onClick={() => setShowInstructions(!showInstructions)}
+              className="w-full flex items-center justify-between text-[11px] font-medium text-slate-400 hover:text-slate-200 transition-colors py-1 cursor-pointer"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 text-primary" />
+                First-time setup: How to open without security certificate warnings
+              </span>
+              {showInstructions ? (
+                <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              )}
+            </button>
+
+            {showInstructions && (
+              <div className="mt-3 p-3 rounded-lg bg-slate-950/90 border border-slate-800 text-left text-xs space-y-3">
+                <div className="flex gap-2 border-b border-slate-800 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => setOsTab("macos")}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                      osTab === "macos"
+                        ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    macOS
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOsTab("windows")}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                      osTab === "windows"
+                        ? "bg-sky-500/20 text-sky-300 border border-sky-500/40"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Windows
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOsTab("linux")}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                      osTab === "linux"
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Linux
+                  </button>
+                </div>
+
+                {osTab === "macos" && (
+                  <div className="space-y-2 text-slate-300">
+                    <p className="text-[11px] text-slate-300">
+                      If macOS Gatekeeper shows <span className="text-amber-300 font-medium">&quot;CodeSkill LockDown is damaged and can&apos;t be opened&quot;</span>:
+                    </p>
+                    <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-400">
+                      <li>
+                        Drag <code className="text-slate-200 bg-slate-900 px-1 py-0.5 rounded">CodeSkill LockDown.app</code> to your <code className="text-slate-200 bg-slate-900 px-1 py-0.5 rounded">/Applications</code> folder.
+                      </li>
+                      <li>
+                        Open <strong>Terminal</strong> and run:
+                        <div className="mt-1 p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] text-emerald-400 select-all">
+                          xattr -cr /Applications/&quot;CodeSkill LockDown.app&quot;
+                        </div>
+                      </li>
+                      <li>
+                        Or in Finder: <strong>Right-click</strong> the app &rarr; hold <strong>Option</strong> &rarr; click <strong>Open</strong> &rarr; confirm <strong>Open</strong>.
+                      </li>
+                    </ol>
+                  </div>
+                )}
+
+                {osTab === "windows" && (
+                  <div className="space-y-2 text-slate-300">
+                    <p className="text-[11px] text-slate-300">
+                      If Microsoft Defender SmartScreen displays <span className="text-amber-300 font-medium">&quot;Windows protected your PC&quot;</span>:
+                    </p>
+                    <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-400">
+                      <li>
+                        Click the small underlined <strong className="text-slate-200">More info</strong> link on the SmartScreen dialog.
+                      </li>
+                      <li>
+                        Click the <strong className="text-slate-200">Run anyway</strong> button that appears.
+                      </li>
+                      <li>
+                        Or open PowerShell in your Downloads folder and run:
+                        <div className="mt-1 p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] text-sky-400 select-all">
+                          Unblock-File -Path .\codeskill-lockdown-setup.msi
+                        </div>
+                      </li>
+                    </ol>
+                  </div>
+                )}
+
+                {osTab === "linux" && (
+                  <div className="space-y-2 text-slate-300">
+                    <p className="text-[11px] text-slate-300">
+                      Install and grant permissions on Ubuntu / Debian:
+                    </p>
+                    <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-400">
+                      <li>
+                        Install the Debian package via terminal:
+                        <div className="mt-1 p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] text-emerald-400 select-all">
+                          sudo dpkg -i codeskill-lockdown.deb || sudo apt-get install -f -y
+                        </div>
+                      </li>
+                      <li>
+                        For AppImage:
+                        <div className="mt-1 p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] text-emerald-400 select-all">
+                          chmod +x codeskill-lockdown.AppImage &amp;&amp; ./codeskill-lockdown.AppImage
+                        </div>
+                      </li>
+                    </ol>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

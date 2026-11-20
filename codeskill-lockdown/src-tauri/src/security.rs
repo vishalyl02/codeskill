@@ -1483,6 +1483,78 @@ pub fn check_and_request_media_permissions(
 }
 
 #[tauri::command]
+pub fn open_system_privacy_settings(target: String) -> Result<bool, String> {
+    eprintln!("[CodeSkill LockDown IPC] open_system_privacy_settings invoked for: {}", target);
+    let normalized = target.trim().to_lowercase();
+
+    #[cfg(target_os = "macos")]
+    {
+        let url = if normalized.starts_with("x-apple.systempreferences:") {
+            target.trim()
+        } else {
+            match normalized.as_str() {
+                "camera" | "webcam" | "video" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+                "microphone" | "mic" | "audio" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+                "accessibility" | "kiosk" | "kiosk_guard" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+                "screen_capture" | "screencapture" | "screen" | "display" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+                _ => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            }
+        };
+
+        let res = std::process::Command::new("/usr/bin/open")
+            .arg(url)
+            .spawn()
+            .or_else(|_| {
+                std::process::Command::new("open")
+                    .arg(url)
+                    .spawn()
+            });
+
+        res.map_err(|e| format!("Failed to open macOS System Settings: {}", e))?;
+        Ok(true)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let uri = if normalized.starts_with("ms-settings:") {
+            target.trim()
+        } else {
+            match normalized.as_str() {
+                "camera" | "webcam" | "video" => "ms-settings:privacy-webcam",
+                "microphone" | "mic" | "audio" => "ms-settings:privacy-microphone",
+                "display" | "display_integrity" => "ms-settings:display",
+                "kiosk" | "kiosk_desktop" | "apps" => "ms-settings:appsfeatures",
+                _ => "ms-settings:privacy-webcam",
+            }
+        };
+        std::process::Command::new("cmd")
+            .args(&["/c", "start", uri])
+            .spawn()
+            .map_err(|e| format!("Failed to open Windows Settings: {}", e))?;
+        Ok(true)
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let res = match normalized.as_str() {
+            "microphone" | "mic" | "audio" => {
+                std::process::Command::new("pavucontrol").spawn()
+            }
+            _ => {
+                std::process::Command::new("gnome-control-center")
+                    .arg("privacy")
+                    .spawn()
+            }
+        };
+
+        if res.is_err() {
+            let _ = std::process::Command::new("xdg-open").arg("settings://").spawn();
+        }
+        Ok(true)
+    }
+}
+
+#[tauri::command]
 pub fn list_blocking_apps() -> Result<Vec<BlockingAppInfo>, String> {
     let mut apps = Vec::new();
     let current_pid = std::process::id();

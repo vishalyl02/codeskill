@@ -177,7 +177,7 @@ export default function SafeExamBrowser({
       setDisconnectReason(null);
       toast.success('Camera and microphone reconnected successfully.');
     } catch (err: any) {
-      console.error('[SafeExamBrowser] Failed to reconnect media:', err);
+      console.error('[LockdownExam] Failed to reconnect media:', err);
       setReconnectError(
         err?.message || 'Could not access camera or microphone. Please check system permissions and device cables.'
       );
@@ -277,7 +277,7 @@ export default function SafeExamBrowser({
           if (!hasMic) triggerDisconnect('audioinput', 'device_unplugged');
         }
       } catch (err) {
-        console.warn('[SafeExamBrowser] devicechange check failed:', err);
+        console.warn('[LockdownExam] devicechange check failed:', err);
       }
     };
 

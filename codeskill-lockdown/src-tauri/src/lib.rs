@@ -1,12 +1,14 @@
 pub mod attestation;
 pub mod kiosk_os;
 pub mod offline_vault;
+pub mod permissions_onboarding;
 pub mod security;
 pub mod state_persistence;
 pub mod system_dock;
 
 use attestation::AttestationState;
 use offline_vault::OfflineVaultState;
+use permissions_onboarding::StartupPermissionsState;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub mod config {
@@ -64,9 +66,9 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
         let mut token = None;
 
         for (k, v) in parsed.query_pairs() {
-            if k == "examId" {
+            if k == "examId" || k == "assessmentId" {
                 exam_id = Some(v.to_string());
-            } else if k == "token" {
+            } else if k == "token" || k == "lockdownToken" {
                 token = Some(v.to_string());
             }
         }
@@ -74,7 +76,7 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
         if exam_id.is_none() {
             if let Some(segments) = parsed.path_segments() {
                 for seg in segments {
-                    if !seg.is_empty() && seg != "start" && seg != "take" {
+                    if !seg.is_empty() && seg != "start" && seg != "take" && seg != "launch" {
                         exam_id = Some(seg.to_string());
                         break;
                     }
@@ -84,6 +86,41 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
 
         if let Some(id) = exam_id {
             if !id.trim().is_empty() {
+                let frontend_origin = get_frontend_origin();
+                let base_url = format!("{}/assessments/{}/take", frontend_origin.trim_end_matches('/'), id.trim());
+                let target_url = match &token {
+                    Some(tok) => {
+                        let encoded: String = url::form_urlencoded::byte_serialize(tok.as_bytes()).collect();
+                        format!("{}?lockdownToken={}", base_url, encoded)
+                    }
+                    None => base_url,
+                };
+
+                // Check if one-time permissions onboarding is needed
+                if permissions_onboarding::is_onboarding_needed(app) {
+                    let startup_state = app.state::<StartupPermissionsState>();
+                    if let Ok(mut pending) = startup_state.pending_launch_url.lock() {
+                        *pending = Some(target_url);
+                    }
+
+                    security::log_diagnostic_entry(
+                        "INFO",
+                        "PERMISSIONS_ONBOARDING",
+                        &format!("Deferring deep-link launch for assessment {} until startup permissions onboarding completes", id),
+                    );
+
+                    let onboarding_url = format!("{}/lockdown-startup-permissions", frontend_origin.trim_end_matches('/'));
+                    if let Some(window) = app.get_webview_window("exam-kiosk") {
+                        let _ = window.set_focus();
+                        let _ = window.unminimize();
+                        if let Ok(onboarding_url_obj) = url::Url::parse(&onboarding_url) {
+                            let _ = window.navigate(onboarding_url_obj);
+                        }
+                    }
+                    return;
+                }
+
+                // If onboarding already complete, lock assessment and proceed immediately
                 let att_state = app.state::<AttestationState>();
                 if let Ok(mut locked) = att_state.locked_assessment_id.lock() {
                     *locked = Some(id.clone());
@@ -109,17 +146,6 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
                     let _ = window.set_focus();
                     let _ = window.unminimize();
 
-                    let frontend_origin = get_frontend_origin();
-
-                    let base_url = format!("{}/assessments/{}/take", frontend_origin.trim_end_matches('/'), id.trim());
-                    let target_url = match &token {
-                        Some(tok) => {
-                            let encoded: String = url::form_urlencoded::byte_serialize(tok.as_bytes()).collect();
-                            format!("{}?lockdownToken={}", base_url, encoded)
-                        }
-                        None => base_url,
-                    };
-
                     if let Ok(target_url_obj) = url::Url::parse(&target_url) {
                         let _ = window.navigate(target_url_obj);
                     }
@@ -141,8 +167,23 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let hardening_js = r#"
 (function() {
     'use strict';
-    // 1. Suppress context menu globally in capture phase
+    // Helper to detect non-trapping onboarding & permissions screens
+    function isChecklistOrOnboarding() {
+        try {
+            var path = window.location.pathname || '';
+            if (path === '/lockdown-startup-permissions' || path.startsWith('/lockdown-startup-permissions/')) {
+                return true;
+            }
+            if (document.querySelector('[data-lockdown-checklist="true"]') !== null) {
+                return true;
+            }
+        } catch (_) {}
+        return false;
+    }
+
+    // 1. Suppress context menu globally in capture phase (except during onboarding checklist)
     window.addEventListener('contextmenu', function(e) {
+        if (isChecklistOrOnboarding()) return;
         e.preventDefault();
         e.stopPropagation();
         return false;
@@ -222,6 +263,7 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 
     // 6. Capture-phase Keyboard and Clipboard Lock
     window.addEventListener('keydown', function(e) {
+        if (isChecklistOrOnboarding()) return;
         var key = e.key;
         var code = e.keyCode || e.which;
         var isCtrl = e.ctrlKey;
@@ -284,6 +326,7 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     // Block copy, cut, paste outside allowed editor components
     ['copy', 'cut', 'paste'].forEach(function(eventName) {
         window.addEventListener(eventName, function(e) {
+            if (isChecklistOrOnboarding()) return;
             var target = e.target;
             var isInsideEditor = target && (
                 target.closest('.monaco-editor') ||
@@ -322,9 +365,14 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             if let Some(ref assessment_id) = locked_id {
                 let path = url.path();
 
-                // Allow exam-taking route and its subpaths for this assessment
+                // Allow exam-taking route and its subpaths for this assessment, or onboarding/diagnostic
                 let assessment_prefix = format!("/assessments/{}", assessment_id);
-                if path.starts_with(&assessment_prefix) || path == "/login" || path.starts_with("/auth/") {
+                if path.starts_with(&assessment_prefix)
+                    || path == "/login"
+                    || path.starts_with("/auth/")
+                    || path == "/lockdown-startup-permissions"
+                    || path == "/lockdown-system-check"
+                {
                     return true;
                 }
 
@@ -404,8 +452,11 @@ pub fn run() {
             }
             for arg in argv {
                 let trimmed = arg.trim().trim_matches('"').trim_matches('\'');
-                if trimmed.to_lowercase().starts_with("codeskill-exam://")
-                    || trimmed.to_lowercase().starts_with("codeskill-exam:")
+                let lower = trimmed.to_lowercase();
+                if lower.starts_with("codeskill-exam://")
+                    || lower.starts_with("codeskill-exam:")
+                    || lower.starts_with("codeskill-lockdown://")
+                    || lower.starts_with("codeskill-lockdown:")
                 {
                     handle_deep_link_url(app, trimmed);
                 }
@@ -415,6 +466,7 @@ pub fn run() {
         .plugin(lockdown_hardening_plugin())
         .manage(AttestationState::new())
         .manage(OfflineVaultState::new())
+        .manage(StartupPermissionsState::new())
         .setup(|app| {
             // Panic safety hook: ensure OS kiosk mode & presentation options are completely released on panic
             let orig_hook = std::panic::take_hook();
@@ -431,6 +483,17 @@ pub fn run() {
 
             // Hydrate AttestationState and active exam session from persistent disk journal
             state_persistence::hydrate_attestation_state_from_disk(app.handle());
+
+            // Check if initial startup permissions onboarding is needed
+            if permissions_onboarding::is_onboarding_needed(app.handle()) {
+                let frontend_origin = get_frontend_origin();
+                let onboarding_url = format!("{}/lockdown-startup-permissions", frontend_origin.trim_end_matches('/'));
+                if let Some(window) = app.get_webview_window("exam-kiosk") {
+                    if let Ok(onboarding_url_obj) = url::Url::parse(&onboarding_url) {
+                        let _ = window.navigate(onboarding_url_obj);
+                    }
+                }
+            }
 
             // In production release builds, close devtools
             #[cfg(not(debug_assertions))]
@@ -484,6 +547,7 @@ pub fn run() {
             security::list_non_essential_apps,
             security::close_non_essential_apps,
             security::check_and_request_media_permissions,
+            security::open_system_privacy_settings,
             security::list_blocking_apps,
             security::kill_blocking_app,
             security::kill_all_blocking_apps,
@@ -508,6 +572,9 @@ pub fn run() {
             state_persistence::get_persisted_exam_session,
             state_persistence::save_persisted_exam_session,
             state_persistence::clear_persisted_exam_session,
+            permissions_onboarding::get_startup_permission_checklist,
+            permissions_onboarding::request_os_permission,
+            permissions_onboarding::complete_permission_onboarding,
             kiosk_os::exit_lockdown_app,
         ])
         .build(tauri::generate_context!())

@@ -1,0 +1,4 @@
+CodeSkill LockDown Desktop Application - Linux Debian / AppImage Package
+Version: 1.0.0
+Build: Local Development Build (Built on macOS)
+To produce a production Linux .deb package, run `npm run tauri:build` on Ubuntu or via Docker container.

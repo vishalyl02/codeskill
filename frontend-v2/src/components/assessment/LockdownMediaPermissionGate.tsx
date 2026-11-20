@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Camera, Mic, AlertCircle, CheckCircle2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Camera, Mic, AlertCircle, CheckCircle2, RefreshCw, ShieldCheck, ExternalLink, Settings, CheckSquare, Square, Info } from "lucide-react";
 import {
   checkAndRequestMediaPermissions,
   inspectMediaHardware,
   savePersistedExamSession,
+  openSystemPrivacySettings,
   MediaPermissionStatus,
   isLockdownClient,
 } from "@/lib/lockdown-bridge";
@@ -76,12 +77,30 @@ export default function LockdownMediaPermissionGate({
   requireMic = true,
   onReady,
 }: LockdownMediaPermissionGateProps) {
+  // If neither camera nor microphone is required by this assessment, bypass immediately!
+  useEffect(() => {
+    if (!requireCamera && !requireMic) {
+      onReady();
+    }
+  }, [requireCamera, requireMic, onReady]);
+
+  const [osName, setOsName] = useState<"macos" | "windows" | "linux" | "other">("other");
   const [osStatus, setOsStatus] = useState<MediaPermissionStatus | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState<boolean>(true);
   const [cameraVerified, setCameraVerified] = useState<boolean>(!requireCamera);
   const [micVerified, setMicVerified] = useState<boolean>(!requireMic);
   const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [isOpeningSettings, setIsOpeningSettings] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const ua = navigator.userAgent.toLowerCase();
+      if (ua.includes("mac")) setOsName("macos");
+      else if (ua.includes("win")) setOsName("windows");
+      else if (ua.includes("linux")) setOsName("linux");
+    }
+  }, []);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
@@ -231,42 +250,148 @@ export default function LockdownMediaPermissionGate({
   }, [requireCamera, requireMic, assessmentId, stopActiveStream]);
 
   useEffect(() => {
+    if (!requireCamera && !requireMic) {
+      return;
+    }
     void verifyMediaStreams();
     return () => {
       stopActiveStream();
     };
-  }, [verifyMediaStreams, stopActiveStream]);
+  }, [requireCamera, requireMic, verifyMediaStreams, stopActiveStream]);
+
+  if (!requireCamera && !requireMic) {
+    return null;
+  }
 
   const allVerified = (!requireCamera || cameraVerified) && (!requireMic || micVerified) && !streamError;
 
-  return (
-    <div className="fixed inset-0 z-[190] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4 text-center">
-      <div className="max-w-xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl text-left space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-white">Pre-Exam Hardware & Media Verification</h2>
-            <p className="text-sm text-slate-400">
-              Exam security requires active camera and microphone streams before entering the assessment.
-            </p>
-          </div>
-        </div>
+  const handleOpenSettings = async (target: "camera" | "microphone") => {
+    setIsOpeningSettings(true);
+    try {
+      await openSystemPrivacySettings(target);
+    } finally {
+      setTimeout(() => setIsOpeningSettings(false), 800);
+    }
+  };
 
-        {streamError ? (
-          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-            <div className="space-y-1 text-sm">
-              <p className="font-semibold text-rose-300">Device Access Denied or Missing</p>
-              <p className="text-slate-300">{streamError}</p>
-              <p className="text-xs text-slate-400 pt-1">
-                macOS: System Settings &gt; Privacy & Security &gt; Camera / Microphone.<br />
-                Windows: Settings &gt; Privacy &gt; Camera / Microphone (Allow desktop apps).
+  const isMac = osName === "macos";
+  const isWin = osName === "windows";
+
+  return (
+    <div className="fixed inset-0 z-[190] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4 text-center overflow-y-auto">
+      <div className="max-w-2xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl text-left space-y-6 my-auto">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Pre-Exam Device &amp; Permission Check</h2>
+              <p className="text-xs text-slate-400">
+                This assessment requires active {requireCamera ? "camera" : ""}{requireCamera && requireMic ? " and " : ""}{requireMic ? "microphone" : ""} verification before launch.
               </p>
             </div>
           </div>
-        ) : null}
+          <span className="text-[11px] font-mono px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+            {isMac ? "macOS" : isWin ? "Windows" : "Desktop"}
+          </span>
+        </div>
+
+        {/* Permission Checklist & Direct Settings Trigger */}
+        {(!cameraVerified || !micVerified || streamError) && (
+          <div className="p-4 rounded-xl bg-slate-950/80 border border-amber-500/30 space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-amber-300">
+                  {streamError || "Operating System Permissions Required"}
+                </p>
+                <p className="text-xs text-slate-300">
+                  Follow the checklist below to grant permissions in your operating system settings.
+                </p>
+              </div>
+            </div>
+
+            {/* Checklist items */}
+            <div className="space-y-3 pt-1 border-t border-slate-800/80 text-xs">
+              <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+                <Settings className="w-3.5 h-3.5 text-primary" />
+                <span>OS Privacy &amp; Security Checklist:</span>
+              </div>
+
+              {requireCamera && (
+                <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-medium text-slate-200">
+                      <Camera className="w-3.5 h-3.5 text-amber-400" />
+                      <span>1. Camera Access</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenSettings("camera")}
+                      disabled={isOpeningSettings}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-[11px] font-semibold transition-all cursor-pointer"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      {isMac ? "Open macOS Camera Settings" : isWin ? "Open Windows Camera Settings" : "Open Settings"}
+                    </button>
+                  </div>
+                  <ul className="space-y-1 pl-4 text-slate-300 text-[11px] list-disc marker:text-primary">
+                    {isMac ? (
+                      <>
+                        <li>In <strong>System Settings &gt; Privacy &amp; Security &gt; Camera</strong>, locate <strong>CodeSkill LockDown</strong>.</li>
+                        <li>Turn the toggle switch to <strong>ON / Allowed</strong>.</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>In <strong>Settings &gt; Privacy &amp; Security &gt; Camera</strong>, ensure <strong>Camera access</strong> is ON.</li>
+                        <li>Scroll down and verify <strong>Let desktop apps access your camera</strong> is ON.</li>
+                      </>
+                    )}
+                  </ul>
+                </div>
+              )}
+
+              {requireMic && (
+                <div className="rounded-lg bg-slate-900/90 border border-slate-800 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-medium text-slate-200">
+                      <Mic className="w-3.5 h-3.5 text-amber-400" />
+                      <span>2. Microphone Access</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenSettings("microphone")}
+                      disabled={isOpeningSettings}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-[11px] font-semibold transition-all cursor-pointer"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      {isMac ? "Open macOS Microphone Settings" : isWin ? "Open Windows Microphone Settings" : "Open Settings"}
+                    </button>
+                  </div>
+                  <ul className="space-y-1 pl-4 text-slate-300 text-[11px] list-disc marker:text-primary">
+                    {isMac ? (
+                      <>
+                        <li>In <strong>System Settings &gt; Privacy &amp; Security &gt; Microphone</strong>, locate <strong>CodeSkill LockDown</strong>.</li>
+                        <li>Turn the toggle switch to <strong>ON / Allowed</strong>.</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>In <strong>Settings &gt; Privacy &amp; Security &gt; Microphone</strong>, ensure <strong>Microphone access</strong> is ON.</li>
+                        <li>Scroll down and verify <strong>Let desktop apps access your microphone</strong> is ON.</li>
+                      </>
+                    )}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-400">
+                <Info className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <span>After granting permission in your system settings, click <strong>Re-check Permissions</strong> below.</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {requireCamera && (
@@ -350,7 +475,7 @@ export default function LockdownMediaPermissionGate({
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-sm font-semibold text-slate-200 hover:bg-slate-700 transition-all cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${isVerifying ? "animate-spin" : ""}`} />
-            Retry Permission Check
+            Re-check Permissions
           </button>
 
           <button
@@ -364,7 +489,7 @@ export default function LockdownMediaPermissionGate({
             disabled={!allVerified || isVerifying}
             className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Confirm Media Setup & Enter
+            Confirm Media Setup &amp; Enter
           </button>
         </div>
       </div>

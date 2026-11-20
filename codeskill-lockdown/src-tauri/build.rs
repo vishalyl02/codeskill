@@ -44,11 +44,15 @@ fn main() {
             "save_persisted_exam_session",
             "clear_persisted_exam_session",
             "check_and_request_media_permissions",
+            "open_system_privacy_settings",
             "list_blocking_apps",
             "kill_blocking_app",
             "kill_all_blocking_apps",
             "run_full_system_diagnostic",
             "set_client_accommodations",
+            "get_startup_permission_checklist",
+            "request_os_permission",
+            "complete_permission_onboarding",
         ]),
     );
     tauri_build::try_build(attributes).expect("failed to run tauri-build");

@@ -39,14 +39,17 @@ export class SebGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
     const headers = req.headers || {};
 
-    const sessionId = (headers['x-codeskill-session-id'] as string) || '';
+    const sessionId =
+      (headers['x-codeskill-session-id'] as string) ||
+      (headers['x-lockdown-session-id'] as string) ||
+      '';
 
     // 1. Path A: Cryptographic CodeSkill LockDown Attestation Verification
     if (sessionId) {
       return this.verifyLockDownAttestation(req, headers, sessionId);
     }
 
-    // 2. Path B: Legacy Safe Exam Browser (SEB) Header Verification
+    // 2. Reject unapproved browsers with explicit CodeSkill LockDown requirement
     const sebReqHash =
       (headers['x-safeexambrowser-requesthash'] as string) ||
       (headers['x-safeexambrowser-confighash'] as string) ||
@@ -55,19 +58,21 @@ export class SebGuard implements CanActivate {
     const isSebUserAgent = /SEB|SafeExamBrowser/i.test(userAgent);
 
     if (sebReqHash || isSebUserAgent) {
-      return this.verifyLegacySeb(req, headers, sebReqHash);
+      throw new ForbiddenException(
+        'Access denied: CodeSkill LockDown is required for this assessment. Please launch via the official CodeSkill LockDown desktop application.',
+      );
     }
 
-    // 3. Path C: Check if target assessment requires CodeSkill LockDown or SEB
+    // 3. Path B: Check if target assessment requires CodeSkill LockDown
     const isLockdownRequired = await this.checkIfLockdownRequired(req);
     if (!isLockdownRequired) {
       // Standard browser is permitted for non-LockDown assessments
       return true;
     }
 
-    // LockDown is required, but neither LockDown nor SEB header was supplied
+    // LockDown is required, but neither LockDown session was supplied
     throw new ForbiddenException(
-      'Access denied: CodeSkill LockDown or Safe Exam Browser is required for this assessment.',
+      'Access denied: CodeSkill LockDown is required for this assessment. Please launch via the CodeSkill LockDown desktop application.',
     );
   }
 
@@ -193,11 +198,18 @@ export class SebGuard implements CanActivate {
     headers: Record<string, string | undefined>,
     sessionId: string,
   ): Promise<boolean> {
-    const timestamp = headers['x-codeskill-timestamp'] as string;
-    const nonce = headers['x-codeskill-nonce'] as string;
-    const signature = headers['x-codeskill-signature'] as string;
+    const timestamp =
+      (headers['x-codeskill-timestamp'] as string) ||
+      (headers['x-lockdown-timestamp'] as string) ||
+      '';
+    const nonce =
+      (headers['x-codeskill-nonce'] as string) ||
+      (headers['x-lockdown-nonce'] as string) ||
+      '';
+    const ecdsaSignature = (headers['x-codeskill-signature'] as string) || '';
+    const hmacSignature = (headers['x-lockdown-signature'] as string) || '';
 
-    if (!timestamp || !nonce || !signature) {
+    if (!timestamp || !nonce || (!ecdsaSignature && !hmacSignature)) {
       throw new ForbiddenException(
         'Missing required CodeSkill LockDown attestation headers (timestamp, nonce, signature).',
       );
@@ -214,67 +226,112 @@ export class SebGuard implements CanActivate {
     // Atomically claim Nonce to prevent replay attacks (SET exam:nonce:${nonce} 1 NX EX 60)
     await this.claimNonce(nonce);
 
-    // Fetch attested public key from Redis (exam:attestation:${sessionId})
+    // Fetch attested record from Redis (exam:attestation:${sessionId})
     const attestation = await this.getAttestation(sessionId);
-    if (!attestation || !attestation.publicKeyPem) {
+    if (!attestation) {
       throw new ForbiddenException(
         'Invalid or expired CodeSkill LockDown attestation session.',
       );
     }
 
-    // Canonical payload format: METHOD:PATH:TIMESTAMP:NONCE:SHA256(BODY)
-    const rawBodyString =
-      req.body !== undefined && req.body !== null
-        ? typeof req.body === 'string'
-          ? req.body
-          : JSON.stringify(req.body)
-        : '';
-    const candidateBodyStrings = Array.from(
-      new Set([rawBodyString, rawBodyString === '{}' ? '' : rawBodyString]),
-    );
-    const candidateBodyHashes = candidateBodyStrings.map((b) =>
-      crypto.createHash('sha256').update(b).digest('hex'),
-    );
-
-    // Canonical candidate paths to account for reverse proxy / prefix differences
-    const candidatePaths = Array.from(
-      new Set(
-        [
-          req.originalUrl,
-          req.url,
-          req.path,
-          req.baseUrl ? `${req.baseUrl}${req.path}` : undefined,
-          req.originalUrl ? req.originalUrl.split('?')[0] : undefined,
-          req.url ? req.url.split('?')[0] : undefined,
-        ].filter(Boolean) as string[],
-      ),
-    );
-
-    let signatureBuffer: Buffer;
-    try {
-      signatureBuffer = /^[0-9a-fA-F]+$/.test(signature)
-        ? Buffer.from(signature, 'hex')
-        : Buffer.from(signature, 'base64');
-    } catch {
-      throw new ForbiddenException('Invalid LockDown signature encoding.');
-    }
-
     let isSignatureValid = false;
-    for (const bodyHash of candidateBodyHashes) {
-      for (const p of candidatePaths) {
-        const canonicalPayload = `${req.method.toUpperCase()}:${p}:${timestamp}:${nonce}:${bodyHash}`;
+
+    // 1. If ECDSA signature is provided, verify against client public key
+    if (ecdsaSignature && attestation.publicKeyPem) {
+      let signatureBuffer: Buffer;
+      try {
+        signatureBuffer = /^[0-9a-fA-F]+$/.test(ecdsaSignature)
+          ? Buffer.from(ecdsaSignature, 'hex')
+          : Buffer.from(ecdsaSignature, 'base64');
+      } catch {
+        throw new ForbiddenException('Invalid LockDown signature encoding.');
+      }
+
+      const rawBodyString =
+        req.body !== undefined && req.body !== null
+          ? typeof req.body === 'string'
+            ? req.body
+            : JSON.stringify(req.body)
+          : '';
+      const candidateBodyStrings = Array.from(
+        new Set([rawBodyString, rawBodyString === '{}' ? '' : rawBodyString]),
+      );
+      const candidateBodyHashes = candidateBodyStrings.map((b) =>
+        crypto.createHash('sha256').update(b).digest('hex'),
+      );
+
+      const candidatePaths = Array.from(
+        new Set(
+          [
+            req.originalUrl,
+            req.url,
+            req.path,
+            req.baseUrl ? `${req.baseUrl}${req.path}` : undefined,
+            req.originalUrl ? req.originalUrl.split('?')[0] : undefined,
+            req.url ? req.url.split('?')[0] : undefined,
+          ].filter(Boolean) as string[],
+        ),
+      );
+
+      for (const bodyHash of candidateBodyHashes) {
+        for (const p of candidatePaths) {
+          const canonicalPayload = `${req.method.toUpperCase()}:${p}:${timestamp}:${nonce}:${bodyHash}`;
+          try {
+            const verifier = crypto.createVerify('SHA256');
+            verifier.update(canonicalPayload);
+            if (verifier.verify(attestation.publicKeyPem, signatureBuffer)) {
+              isSignatureValid = true;
+              break;
+            }
+          } catch {
+            // try next candidate
+          }
+        }
+        if (isSignatureValid) break;
+      }
+    } else if (hmacSignature) {
+      // 2. Continuous Hardware HMAC signature verification
+      const sessionHmacKey =
+        (attestation as any).sessionHmacKey ||
+        (attestation as any).session_hmac_key;
+
+      if (sessionHmacKey) {
+        const method = (req.method || 'GET').toUpperCase();
+        const reqPath = (req.originalUrl || req.url || '').split('?')[0];
+
+        let bodySha256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+        if (req.rawBody) {
+          bodySha256 = crypto.createHash('sha256').update(req.rawBody).digest('hex');
+        } else if (req.body && typeof req.body === 'string') {
+          bodySha256 = crypto.createHash('sha256').update(req.body).digest('hex');
+        } else if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+          bodySha256 = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
+        }
+
+        const binaryHash = (headers['x-lockdown-binary-hash'] as string) || '';
+        const canonicalPayload = `${method}\n${reqPath}\n${timestamp}\n${nonce}\n${bodySha256}\n${binaryHash}`;
+
         try {
-          const verifier = crypto.createVerify('SHA256');
-          verifier.update(canonicalPayload);
-          if (verifier.verify(attestation.publicKeyPem, signatureBuffer)) {
+          const keyBuf =
+            sessionHmacKey.length === 64 && /^[0-9a-fA-F]{64}$/.test(sessionHmacKey)
+              ? Buffer.from(sessionHmacKey, 'hex')
+              : Buffer.from(sessionHmacKey, 'utf8');
+
+          const expectedSig = crypto
+            .createHmac('sha256', keyBuf)
+            .update(canonicalPayload)
+            .digest('hex');
+
+          const sigBuf = Buffer.from(hmacSignature, 'hex');
+          const expectedBuf = Buffer.from(expectedSig, 'hex');
+
+          if (sigBuf.length === expectedBuf.length && crypto.timingSafeEqual(sigBuf, expectedBuf)) {
             isSignatureValid = true;
-            break;
           }
         } catch {
-          // try next candidate
+          isSignatureValid = false;
         }
       }
-      if (isSignatureValid) break;
     }
 
     if (!isSignatureValid) {
@@ -338,17 +395,5 @@ export class SebGuard implements CanActivate {
     return null;
   }
 
-  private verifyLegacySeb(
-    _req: any,
-    headers: Record<string, string | undefined>,
-    sebReqHash?: string,
-  ): boolean {
-    const userAgent = String(headers['user-agent'] || '');
-    const isSebUserAgent = /SEB|SafeExamBrowser/i.test(userAgent);
 
-    if (sebReqHash || isSebUserAgent) {
-      return true;
-    }
-    throw new ForbiddenException('Safe Exam Browser verification failed.');
-  }
 }

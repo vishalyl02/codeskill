@@ -1150,6 +1150,7 @@ pub fn disable_kiosk_mode(window: tauri::WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 pub fn exit_lockdown_app(app: tauri::AppHandle) {
+    eprintln!("[CodeSkill LockDown IPC] exit_lockdown_app invoked");
     release_os_kiosk_system();
     close_secondary_monitor_shields(&app);
     clear_kiosk_dirty(&app);
