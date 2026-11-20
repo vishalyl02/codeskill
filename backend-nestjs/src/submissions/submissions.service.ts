@@ -26,6 +26,10 @@ import {
 } from '../execution/execution.types';
 import { ProblemsService } from '../problems/problems.service';
 import { ExecutionAdmissionService } from '../execution/admission/execution-admission.service';
+import {
+  ExecutionJobType,
+  ExecutionPriority,
+} from '../code-execution/priority-lanes';
 
 export enum SubmissionStatus {
   QUEUED = 'queued',
@@ -302,12 +306,13 @@ export class SubmissionsService {
           language: langLower,
           userId,
           admissionId,
+          jobType: ExecutionJobType.FINAL_SUBMISSION_GRADE,
         },
         {
           jobId: admissionId,
           attempts: 2,
           backoff: { type: 'exponential', delay: 2_000, jitter: 0.25 },
-          priority: 100,
+          priority: ExecutionPriority.FINAL_SUBMISSION,
           removeOnComplete: { age: 24 * 60 * 60, count: 5000 },
           removeOnFail: { age: 7 * 24 * 60 * 60, count: 5000 },
         },

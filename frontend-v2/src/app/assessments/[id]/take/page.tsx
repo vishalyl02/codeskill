@@ -196,6 +196,10 @@ export default function TakeAssessmentPage({
   const [startedAt, setStartedAt] = useState<Date>(new Date());
   const [timeLeftSeconds, setTimeLeftSeconds] = useState(2700);
   const [attemptDeadlineAt, setAttemptDeadlineAt] = useState<number | null>(null);
+  const [serverEndsAtEpochMs, setServerEndsAtEpochMs] = useState<number | null>(null);
+  const serverClockOffsetMsRef = useRef<number>(0);
+  const candidateIdRef = useRef<string>("candidate");
+  const attemptIdRef = useRef<string>("attempt");
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [proctoring, setProctoring] = useState<AssessmentProctoring | null>(null);
@@ -281,9 +285,22 @@ export default function TakeAssessmentPage({
   useEffect(() => {
     if (id) {
       void offlineAutosaveQueue.hydrate(id);
+      try {
+        const prefetched = LockdownSessionStore.getQuestionBundle(id);
+        if (prefetched && prefetched.length > 0) {
+          setQuestions(prefetched as any);
+        }
+      } catch {}
       void (async () => {
         try {
           const persisted = await LockdownSessionStore.loadState(id);
+          if (persisted?.candidateId) {
+            candidateIdRef.current = persisted.candidateId;
+          }
+          if (persisted?.serverEndsAtEpochMs) {
+            setServerEndsAtEpochMs(persisted.serverEndsAtEpochMs);
+            setAttemptDeadlineAt(persisted.serverEndsAtEpochMs);
+          }
           if (persisted?.isSubmitted) {
             setIsExamSubmitted(true);
             setSubmissionReceiptId(persisted.submissionReceiptId || `REC-${id.slice(0, 8)}`);
@@ -480,6 +497,16 @@ export default function TakeAssessmentPage({
                 return;
               }
               if (resumeData?.hasAttempt && typeof resumeData.remainingSeconds === "number") {
+                if (resumeData.serverEndsAtEpochMs) {
+                  setServerEndsAtEpochMs(resumeData.serverEndsAtEpochMs);
+                  setAttemptDeadlineAt(resumeData.serverEndsAtEpochMs);
+                }
+                if (typeof resumeData.serverNowMs === "number") {
+                  serverClockOffsetMsRef.current = resumeData.serverNowMs - Date.now();
+                }
+                if (resumeData.attemptId) {
+                  attemptIdRef.current = resumeData.attemptId;
+                }
                 setTimeLeftSeconds(resumeData.remainingSeconds);
                 if (resumeData.responses && typeof resumeData.responses === "object") {
                   responsesRef.current = { ...responsesRef.current, ...resumeData.responses };
@@ -697,6 +724,13 @@ export default function TakeAssessmentPage({
       const data = res.data?.data && res.data.data.questions ? res.data.data : res.data;
       const questionsList = data?.questions || res.data?.questions || [];
       setQuestions(questionsList);
+      LockdownSessionStore.saveQuestionBundle(id, questionsList);
+      if (data.attemptId || data._id) {
+        attemptIdRef.current = data.attemptId || data._id;
+      }
+      if (data.studentId || data.candidateId || data.studentUid) {
+        candidateIdRef.current = data.studentId || data.candidateId || data.studentUid;
+      }
       if (data.lockSectionsSequentially !== undefined) {
         setLockSectionsSequentially(Boolean(data.lockSectionsSequentially));
       }
@@ -753,11 +787,16 @@ export default function TakeAssessmentPage({
       setStartedAt(start);
 
       const fallbackMs = resolvedDurationMinutes * 60_000;
-      const deadline = data.attemptExpiresAt
+      const deadline = data.serverEndsAtEpochMs || (data.attemptExpiresAt
         ? new Date(data.attemptExpiresAt).getTime()
-        : start.getTime() + fallbackMs;
+        : start.getTime() + fallbackMs);
+      if (typeof data.serverNowMs === "number") {
+        serverClockOffsetMsRef.current = data.serverNowMs - Date.now();
+      }
       setAttemptDeadlineAt(deadline);
-      setTimeLeftSeconds(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+      setServerEndsAtEpochMs(deadline);
+      const remainingMs = Math.max(0, deadline - (Date.now() + serverClockOffsetMsRef.current));
+      setTimeLeftSeconds(Math.ceil(remainingMs / 1000));
 
       if (data.proctoring?.maxTabSwitches) {
         setMaxTabSwitches(data.proctoring.maxTabSwitches);
@@ -892,17 +931,29 @@ export default function TakeAssessmentPage({
           }
         }
 
+        const candidateId = candidateIdRef.current || "candidate";
+        const attemptId = attemptIdRef.current || id;
+        const submissionIdempotencyKey = `submit:${id}:${candidateId}:${attemptId}`;
+        const clientSubmittedAtMs = Date.now();
+
         const payload = {
           responses: formattedResponses,
           timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
           violations: violationsRef.current,
+          idempotencyKey: submissionIdempotencyKey,
+          clientSubmittedAtMs,
+        };
+        const submitConfig = {
+          headers: {
+            "X-Idempotency-Key": submissionIdempotencyKey,
+          },
         };
         let lastError: any;
         // Code evaluation can briefly fail while the judge service is busy.
         // Retry transient service/network failures before leaving the attempt.
         for (let retry = 0; retry < 3; retry++) {
           try {
-            await studentAssessmentsAPI.submitAttempt(id, payload);
+            await studentAssessmentsAPI.submitAttempt(id, payload, submitConfig);
             lastError = null;
             break;
           } catch (error: any) {
@@ -1165,14 +1216,21 @@ export default function TakeAssessmentPage({
     };
   }, [id, isLoading, isSubmitting, loadedAssessmentId, proctoring?.mode]);
 
-  // 4. Countdown Clock: derive from the server deadline so a sleeping tab cannot pause the exam.
+  // 4. Server-Authoritative Zero-Jitter Countdown Clock on a 250ms UI tick
   useEffect(() => {
-    if (isLoading || isSubmitting || attemptDeadlineAt === null) return;
-    const updateClock = () => setTimeLeftSeconds(Math.max(0, Math.ceil((attemptDeadlineAt - Date.now()) / 1000)));
+    const targetEpoch = serverEndsAtEpochMs ?? attemptDeadlineAt;
+    if (isLoading || isSubmitting || targetEpoch === null) return;
+    const updateClock = () => {
+      const remainingMs = Math.max(
+        0,
+        targetEpoch - (Date.now() + serverClockOffsetMsRef.current)
+      );
+      setTimeLeftSeconds(Math.ceil(remainingMs / 1000));
+    };
     updateClock();
-    const timer = setInterval(updateClock, 1000);
+    const timer = setInterval(updateClock, 250);
     return () => clearInterval(timer);
-  }, [attemptDeadlineAt, isLoading, isSubmitting]);
+  }, [serverEndsAtEpochMs, attemptDeadlineAt, isLoading, isSubmitting]);
 
   const hasAutoSubmittedRef = useRef(false);
 
@@ -1994,6 +2052,13 @@ export default function TakeAssessmentPage({
                 isSubmitted={false}
                 onSafeReload={async () => {
                   await offlineAutosaveQueue.forceSyncNow(api);
+                }}
+                onTimerSync={(newEpoch, newServerNow) => {
+                  setServerEndsAtEpochMs(newEpoch);
+                  setAttemptDeadlineAt(newEpoch);
+                  if (typeof newServerNow === "number") {
+                    serverClockOffsetMsRef.current = newServerNow - Date.now();
+                  }
                 }}
               />
             )}
@@ -2895,6 +2960,13 @@ export default function TakeAssessmentPage({
           isSubmitted={isSubmitting || submissionRequestedRef.current}
           onSafeReload={async () => {
             await offlineAutosaveQueue.forceSyncNow(api);
+          }}
+          onTimerSync={(newEpoch, newServerNow) => {
+            setServerEndsAtEpochMs(newEpoch);
+            setAttemptDeadlineAt(newEpoch);
+            if (typeof newServerNow === "number") {
+              serverClockOffsetMsRef.current = newServerNow - Date.now();
+            }
           }}
         />
       )}

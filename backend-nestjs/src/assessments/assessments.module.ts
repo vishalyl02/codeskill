@@ -13,11 +13,13 @@ import { AssessmentsStudentController } from './assessments-student.controller';
 import { ExecutionModule } from '../execution/execution.module';
 import { S3Module } from '../s3/s3.module';
 import { ExamSecurityModule } from '../exam-security/exam-security.module';
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
   imports: [
     ExecutionModule,
     ExamSecurityModule,
+    RedisModule,
     BullModule.registerQueue({ name: 'submissions' }),
     S3Module,
     TypeOrmModule.forFeature([

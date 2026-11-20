@@ -16,6 +16,7 @@ import { ExamSecurityEvent } from '../database/entities/exam-security-event.enti
 import { CheatingRadarService } from '../audit/cheating-radar.service';
 import { AlertWebhookService } from '../audit/alert-webhook.service';
 import { RedisService } from '../redis/redis.service';
+import { OperationalHealthService } from './operational-health.service';
 
 function compareVersions(v1: string, v2: string): number {
   const p1 = (v1 || '').replace(/^[^0-9]*/, '').split('.').map((x) => parseInt(x, 10) || 0);
@@ -43,6 +44,7 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly cheatingRadarService?: CheatingRadarService,
     @Optional() private readonly alertWebhookService?: AlertWebhookService,
     @Optional() private readonly redisService?: RedisService,
+    @Optional() private readonly operationalHealthService?: OperationalHealthService,
   ) {}
 
   onModuleInit() {
@@ -275,7 +277,15 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.sessionRepo.save(session);
-    return { success: true, status: session.status };
+    const serverEndsAtEpochMs = session.expiresAt
+      ? new Date(session.expiresAt).getTime()
+      : undefined;
+    return {
+      success: true,
+      status: session.status,
+      serverEndsAtEpochMs,
+      serverNowMs: Date.now(),
+    };
   }
 
   async reportViolation(
@@ -478,6 +488,32 @@ export class ExamSecurityService implements OnModuleInit, OnModuleDestroy {
   }
 
   async attestClient(
+    userId: string,
+    body: {
+      publicKeyPem: string;
+      clientVersion: string;
+      os: string;
+      preflightPassed: boolean;
+      violations?: string[];
+      assessmentId?: string;
+      attestationTier?: string;
+      kioskMode?: string;
+      clientBinaryHash?: string;
+      sessionHmacKey?: string;
+    },
+    ip?: string,
+  ) {
+    try {
+      const res = await this.performAttestClient(userId, body, ip);
+      void this.operationalHealthService?.recordAttestation(true);
+      return res;
+    } catch (err) {
+      void this.operationalHealthService?.recordAttestation(false);
+      throw err;
+    }
+  }
+
+  private async performAttestClient(
     userId: string,
     body: {
       publicKeyPem: string;

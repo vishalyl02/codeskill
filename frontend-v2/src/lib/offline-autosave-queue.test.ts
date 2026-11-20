@@ -168,4 +168,18 @@ describe('OfflineAutosaveQueue (frontend-v2)', () => {
 
     unsubscribe();
   });
+
+  it('generates deterministic idempotency key and sends X-Idempotency-Key header on flush', async () => {
+    await queue.enqueue({
+      attemptId: 'asmt-attempt-99',
+      questionId: 'q-mcq-5',
+      candidateId: 'cand-77',
+      payload: { selectedAnswer: 3 },
+    });
+
+    expect(mockApiClient.request).toHaveBeenCalledTimes(1);
+    const callArgs = mockApiClient.request.mock.calls[0][0];
+    expect(callArgs.headers?.['X-Idempotency-Key']).toMatch(/^autosave:asmt-attempt-99:cand-77:\d+$/);
+    expect(callArgs.data.idempotencyKey).toBe(callArgs.headers['X-Idempotency-Key']);
+  });
 });

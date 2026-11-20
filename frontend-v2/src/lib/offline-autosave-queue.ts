@@ -16,6 +16,7 @@ export interface AutosavePayload {
   endpoint?: string;
   method?: string;
   updatedAt?: number;
+  candidateId?: string;
 }
 
 export type StatusListener = (status: SyncStatus, pendingCount: number) => void;
@@ -27,6 +28,7 @@ interface StoredRecord {
   endpoint: string;
   method: string;
   updatedAt: number;
+  candidateId?: string;
 }
 
 // In-memory fallback storage for environments without IndexedDB (e.g. Node / SSR / Jest)
@@ -110,6 +112,7 @@ export class OfflineAutosaveQueue {
   private flushPromise: Promise<boolean> | null = null;
   private apiClient: any;
   private onlineListenerAttached = false;
+  private sequenceNumber = 0;
 
   constructor(customApiClient?: any) {
     this.apiClient = customApiClient || api;
@@ -342,6 +345,7 @@ export class OfflineAutosaveQueue {
       endpoint,
       method,
       updatedAt: item.updatedAt || Date.now(),
+      candidateId: item.candidateId,
     };
 
     // Coalesce in memory (Last-Write-Wins)
@@ -401,15 +405,24 @@ export class OfflineAutosaveQueue {
       const entry = this.queue.get(key);
       if (!entry) continue;
 
+      const candidateId = entry.candidateId || 'candidate';
+      const autosaveKey = `autosave:${entry.attemptId}:${candidateId}:${++this.sequenceNumber}`;
+      const headers = { 'X-Idempotency-Key': autosaveKey };
+      const dataWithFallback =
+        entry.payload && typeof entry.payload === 'object'
+          ? { ...entry.payload, idempotencyKey: autosaveKey }
+          : entry.payload;
+
       try {
         if (this.apiClient && typeof this.apiClient.request === 'function') {
           await this.apiClient.request({
             url: entry.endpoint,
             method: entry.method,
-            data: entry.payload,
+            data: dataWithFallback,
+            headers,
           });
         } else if (this.apiClient && typeof this.apiClient.post === 'function' && entry.method === 'POST') {
-          await this.apiClient.post(entry.endpoint, entry.payload);
+          await this.apiClient.post(entry.endpoint, dataWithFallback, { headers });
         } else if (typeof window !== 'undefined' && typeof fetch === 'function') {
           // Standard fetch fallback - normalize relative URL if needed
           const origin = window.location?.origin || '';
@@ -418,11 +431,16 @@ export class OfflineAutosaveQueue {
             : `${origin}${entry.endpoint}`;
           const res = await fetch(targetUrl, {
             method: entry.method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(entry.payload),
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify(dataWithFallback),
           });
           if (!res.ok) {
-            throw new Error(`HTTP error ${res.status}`);
+            const error: any = new Error(`HTTP error ${res.status}`);
+            error.response = {
+              status: res.status,
+              headers: { 'retry-after': res.headers.get('retry-after') },
+            };
+            throw error;
           }
         }
 
@@ -433,10 +451,12 @@ export class OfflineAutosaveQueue {
         allSuccess = false;
         const status = err?.response?.status;
         const isNetworkOr5xx = !status || status >= 500 || status === 429;
+        const retryHeader = err?.response?.headers?.['retry-after'] || err?.response?.data?.retryAfter;
+        const retryAfterSeconds = retryHeader ? parseInt(String(retryHeader), 10) : undefined;
 
         if (isNetworkOr5xx) {
           this.setStatus('offline-buffered');
-          this.scheduleRetry();
+          this.scheduleRetry(retryAfterSeconds);
         } else {
           // 4xx client errors
           this.setStatus('error');
@@ -458,14 +478,22 @@ export class OfflineAutosaveQueue {
     return allSuccess;
   }
 
-  private scheduleRetry(): void {
+  private scheduleRetry(retryAfterSeconds?: number): void {
     if (this.retryTimer) return;
+
+    let baseDelay = this.currentBackoffMs;
+    if (typeof retryAfterSeconds === 'number' && retryAfterSeconds > 0) {
+      baseDelay = retryAfterSeconds * 1000;
+    }
+    // Jittered exponential backoff: add 50-500ms random jitter
+    const jitter = Math.floor(Math.random() * 450) + 50;
+    const finalDelay = baseDelay + jitter;
 
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       this.currentBackoffMs = Math.min(this.currentBackoffMs * 2, this.maxBackoffMs);
       void this.flush();
-    }, this.currentBackoffMs);
+    }, finalDelay);
   }
 
   /**

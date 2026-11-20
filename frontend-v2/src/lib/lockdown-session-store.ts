@@ -25,14 +25,87 @@ export interface LockdownSessionState {
   codeBuffers?: Record<string, { code: string; language: string }>;
   scratchpadNotes?: string;
   remainingCountdown?: number;
+  serverEndsAtEpochMs?: number;
   updatedAtMs: number;
 }
 
+export interface SanitizedQuestionBundleItem {
+  _id: string;
+  question: string;
+  questionType: string;
+  options?: string[];
+  marks?: number;
+  difficulty?: string;
+  language?: string;
+  starterCode?: any;
+  codeSnippet?: string;
+  supportedLanguages?: string[];
+  testCases?: any[];
+  referencePdfUrl?: string;
+  referencePdfBlobUrl?: string;
+  [key: string]: any;
+}
+
 const STORAGE_PREFIX = "codeskill_lockdown_session_";
+const BUNDLE_STORAGE_PREFIX = "codeskill_question_bundle_";
 
 export class LockdownSessionStore {
+  private static memoryBundleCache = new Map<string, SanitizedQuestionBundleItem[]>();
+
   private static getStorageKey(assessmentId: string): string {
     return `${STORAGE_PREFIX}${assessmentId}`;
+  }
+
+  private static getQuestionBundleKey(assessmentId: string): string {
+    return `${BUNDLE_STORAGE_PREFIX}${assessmentId}`;
+  }
+
+  public static saveQuestionBundle(
+    assessmentId: string,
+    bundle: SanitizedQuestionBundleItem[]
+  ): void {
+    if (!assessmentId || !Array.isArray(bundle)) return;
+    this.memoryBundleCache.set(assessmentId, bundle);
+    if (typeof window === "undefined") return;
+    try {
+      const serialized = JSON.stringify(bundle);
+      sessionStorage.setItem(this.getQuestionBundleKey(assessmentId), serialized);
+      localStorage.setItem(this.getQuestionBundleKey(assessmentId), serialized);
+    } catch (e) {
+      console.warn("[LockdownSessionStore] Failed to save question bundle:", e);
+    }
+  }
+
+  public static getQuestionBundle(
+    assessmentId: string
+  ): SanitizedQuestionBundleItem[] | null {
+    if (!assessmentId) return null;
+    const inMem = this.memoryBundleCache.get(assessmentId);
+    if (inMem && inMem.length > 0) return inMem;
+    if (typeof window === "undefined") return null;
+    try {
+      const raw =
+        sessionStorage.getItem(this.getQuestionBundleKey(assessmentId)) ||
+        localStorage.getItem(this.getQuestionBundleKey(assessmentId));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        this.memoryBundleCache.set(assessmentId, parsed);
+        return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  public static clearQuestionBundle(assessmentId: string): void {
+    this.memoryBundleCache.delete(assessmentId);
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.removeItem(this.getQuestionBundleKey(assessmentId));
+      localStorage.removeItem(this.getQuestionBundleKey(assessmentId));
+    } catch {}
   }
 
   public static getLocalState(assessmentId: string): LockdownSessionState | null {
@@ -141,6 +214,7 @@ export class LockdownSessionStore {
   }
 
   public static async clearState(assessmentId: string): Promise<void> {
+    this.clearQuestionBundle(assessmentId);
     if (typeof window !== "undefined") {
       sessionStorage.removeItem(this.getStorageKey(assessmentId));
       localStorage.removeItem(this.getStorageKey(assessmentId));

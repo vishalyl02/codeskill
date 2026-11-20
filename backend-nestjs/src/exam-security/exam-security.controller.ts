@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   Param,
   Body,
@@ -7,16 +8,23 @@ import {
   Req,
   UseGuards,
   HttpCode,
+  Optional,
 } from '@nestjs/common';
 import { ExamSecurityService } from './exam-security.service';
+import { OperationalHealthService } from './operational-health.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { AdminGuard } from '../common/guards/admin.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { LockdownSignatureGuard } from './lockdown-signature.guard';
+import { ExamBackpressureGuard } from '../common/guards/exam-backpressure.guard';
 
 @Controller('exam-security')
 @UseGuards(JwtAuthGuard)
 export class ExamSecurityController {
-  constructor(private readonly examSecurityService: ExamSecurityService) {}
+  constructor(
+    private readonly examSecurityService: ExamSecurityService,
+    @Optional() private readonly operationalHealthService?: OperationalHealthService,
+  ) {}
 
   @Post(':assessmentId/secure-session/init')
   @HttpCode(200)
@@ -100,7 +108,7 @@ export class ExamSecurityController {
   }
 
   @Post('telemetry-batch')
-  @UseGuards(LockdownSignatureGuard)
+  @UseGuards(LockdownSignatureGuard, ExamBackpressureGuard)
   @HttpCode(202)
   async ingestTelemetryBatch(
     @CurrentUser('id') userId: string,
@@ -172,6 +180,32 @@ export class ExamSecurityController {
       body.candidateId,
       body.reason,
     );
+  }
+
+  @Get('operational-health')
+  @UseGuards(AdminGuard)
+  @HttpCode(200)
+  async getOperationalHealth() {
+    if (!this.operationalHealthService) {
+      return {
+        status: 'HEALTHY',
+        timestamp: new Date().toISOString(),
+        metrics: {
+          attestFailureRate: 0,
+          attestTotal5m: 0,
+          attestFailed5m: 0,
+          telemetryLag: 0,
+          queueWaitLatencySeconds: 0,
+        },
+        thresholds: {
+          attestFailureRateMax: 5,
+          telemetryLagMax: 10000,
+          queueWaitLatencyMaxSeconds: 10,
+        },
+        breaches: [],
+      };
+    }
+    return this.operationalHealthService.getHealthReport();
   }
 }
 

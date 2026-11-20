@@ -18,6 +18,7 @@ import { User } from '../database/entities/user.entity';
 import { AppGateway } from '../gateway/app.gateway';
 import { RedisService } from '../redis/redis.service';
 import { Status } from './execution.types';
+import { ExecutionJobType } from '../code-execution/priority-lanes';
 import * as os from 'os';
 import { presentTestResults, executionMetrics, scoreComparison } from './result-presentation';
 
@@ -82,7 +83,7 @@ export class JudgeProcessor extends WorkerHost {
       throw new DelayedError();
     }
     if (claim === 'expired') {
-      if (job.name === 'evaluate-code') {
+      if (job.name === 'evaluate-code' || job.name === ExecutionJobType.FINAL_SUBMISSION_GRADE) {
         const submission = await this.submissionRepo.findOne({
           where: { id: job.data.submissionId, userId },
         });
@@ -148,7 +149,7 @@ export class JudgeProcessor extends WorkerHost {
         !(error instanceof UnrecoverableError))
     )
       return;
-    if (job.name === 'evaluate-code') {
+    if (job.name === 'evaluate-code' || job.name === ExecutionJobType.FINAL_SUBMISSION_GRADE) {
       // Covers failures before processJob (e.g. admission Redis unavailable).
       // Never overwrite a verdict already committed by a stalled worker.
       const { userId, submissionId } = job.data;
@@ -181,7 +182,7 @@ export class JudgeProcessor extends WorkerHost {
         }
       }
     }
-    if (job.name === 'run-code' && job.data.userId)
+    if ((job.name === 'run-code' || job.name === ExecutionJobType.RUN_SAMPLE_TESTS) && job.data.userId)
       this.appGateway.emitToUser(job.data.userId, 'execution_error', {
         jobId: job.id,
         executionId: job.data.executionId,
@@ -197,7 +198,7 @@ export class JudgeProcessor extends WorkerHost {
       `[Judge:${this.runnerId}] Processing job ${job.id} — type: ${job.name}`,
     );
 
-    if (job.name === 'run-code') {
+    if (job.name === 'run-code' || job.name === ExecutionJobType.RUN_SAMPLE_TESTS) {
       const { code, language, testCases, config = {}, userId, executionId } = job.data;
       if (userId) {
         this.appGateway.emitToUser(userId, 'run_status', {
@@ -240,7 +241,7 @@ export class JudgeProcessor extends WorkerHost {
       return payload;
     }
 
-    if (job.name === 'evaluate-code') {
+    if (job.name === 'evaluate-code' || job.name === ExecutionJobType.FINAL_SUBMISSION_GRADE) {
       const { submissionId } = job.data;
       let userId: string | undefined;
       let finalizedHere = false;

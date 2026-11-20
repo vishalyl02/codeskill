@@ -88,4 +88,40 @@ describe('ExamSecurityController', () => {
     expect(result.authorized).toBe(true);
     expect(mockService.verifyQuitPassword).toHaveBeenCalledWith('asmt-1', 'user-1', 'proctor-secret');
   });
+
+  it('delegates getOperationalHealth to OperationalHealthService when present', async () => {
+    const mockHealthService = {
+      getHealthReport: jest.fn().mockResolvedValue({
+        status: 'HEALTHY',
+        timestamp: '2026-11-20T00:00:00.000Z',
+        metrics: {
+          attestFailureRate: 0,
+          attestTotal5m: 10,
+          attestFailed5m: 0,
+          telemetryLag: 50,
+          queueWaitLatencySeconds: 0.2,
+        },
+        thresholds: {
+          attestFailureRateMax: 5,
+          telemetryLagMax: 10000,
+          queueWaitLatencyMaxSeconds: 10,
+        },
+        breaches: [],
+      }),
+    };
+
+    const controllerWithHealth = new ExamSecurityController(mockService, mockHealthService as any);
+    const report = await controllerWithHealth.getOperationalHealth();
+
+    expect(report.status).toBe('HEALTHY');
+    expect(report.metrics.telemetryLag).toBe(50);
+    expect(mockHealthService.getHealthReport).toHaveBeenCalled();
+  });
+
+  it('returns default healthy report when OperationalHealthService is not injected', async () => {
+    const report = await controller.getOperationalHealth();
+    expect(report.status).toBe('HEALTHY');
+    expect(report.metrics.attestFailureRate).toBe(0);
+    expect(report.breaches).toHaveLength(0);
+  });
 });

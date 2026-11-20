@@ -73,6 +73,7 @@ interface LockdownUtilityDockProps {
   isSubmitted?: boolean;
   onSafeReload?: () => Promise<void> | void;
   onProctorTerminated?: (reason: string) => void;
+  onTimerSync?: (serverEndsAtEpochMs: number, serverNowMs?: number) => void;
 }
 
 export default function LockdownUtilityDock({
@@ -85,6 +86,7 @@ export default function LockdownUtilityDock({
   isSubmitted = false,
   onSafeReload,
   onProctorTerminated,
+  onTimerSync,
 }: LockdownUtilityDockProps) {
   const isRefDocAllowed = allowReferenceDoc !== undefined ? allowReferenceDoc : Boolean(referencePdfUrl);
   // Dock DOM reference
@@ -418,6 +420,9 @@ export default function LockdownUtilityDock({
     const sendHeartbeat = async () => {
       try {
         const res = await api.post(`/exam-security/session/${sessionId}/heartbeat`);
+        if (res.data?.serverEndsAtEpochMs && onTimerSync) {
+          onTimerSync(res.data.serverEndsAtEpochMs, res.data.serverNowMs);
+        }
         if (res.data?.forceQuitReason || res.data?.status === "TERMINATED") {
           const reason = res.data?.forceQuitReason || "Proctor remotely terminated this exam session.";
           setProctorTerminatedReason(reason);

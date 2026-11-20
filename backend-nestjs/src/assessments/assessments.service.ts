@@ -31,6 +31,11 @@ import { Queue } from 'bullmq';
 import { EvaluateAssessmentCodeDto } from './dto/evaluate-code.dto';
 import { normalizeSectionIdentifier } from '../common/constants/sections.constant';
 import { ExamSecurityService } from '../exam-security/exam-security.service';
+import {
+  ExecutionJobType,
+  ExecutionPriority,
+} from '../code-execution/priority-lanes';
+import { RedisService } from '../redis/redis.service';
 
 function codingTestCases(question: Question): Array<{ id: string | number; input: string; expected: string; isHidden: boolean }> {
   const cases = question.testCases?.length ? question.testCases : (question.metadata as any)?.testCases || [];
@@ -118,18 +123,22 @@ export class AssessmentsService {
     private readonly userRepo?: Repository<User>,
     @Optional()
     private readonly examSecurityService?: ExamSecurityService,
+    @Optional()
+    private readonly redisService?: RedisService,
   ) {}
 
   private attemptExpiresAt(assessment: Assessment, attempt: AssessmentAttempt): Date {
-    const durationMinutes = Number(assessment.durationMinutes) > 0
-      ? Number(assessment.durationMinutes)
-      : 45;
+    const extraMinutes = Number((attempt as any)?.extraTimeMinutes) || 0;
+    const durationMinutes =
+      (Number(assessment.durationMinutes) > 0
+        ? Number(assessment.durationMinutes)
+        : 45) + extraMinutes;
     const startedAtTime = attempt.startedAt
       ? new Date(attempt.startedAt).getTime()
       : Date.now();
     const durationDeadline = startedAtTime + durationMinutes * 60_000;
     const windowDeadline = assessment.endTime
-      ? new Date(assessment.endTime).getTime()
+      ? new Date(assessment.endTime).getTime() + extraMinutes * 60_000
       : Infinity;
     return new Date(Math.min(durationDeadline, windowDeadline));
   }
@@ -2569,6 +2578,10 @@ export class AssessmentsService {
       status: attempt.status,
     });
 
+    const expiresAt = this.attemptExpiresAt(assessment, attempt);
+    const serverEndsAtEpochMs = expiresAt.getTime();
+    const serverNowMs = Date.now();
+
     return {
       success: true,
       attemptId: attempt.id,
@@ -2576,6 +2589,8 @@ export class AssessmentsService {
       startedAt: attempt.startedAt,
       durationMinutes: assessment.durationMinutes,
       ...this.resumeDetails(assessment, attempt),
+      serverEndsAtEpochMs,
+      serverNowMs,
       proctoring: assessment.proctoring,
       securityPolicy: assessment.securityPolicy
         ? (({ lockdownQuitPassword, ...rest }: any) => rest)(assessment.securityPolicy)
@@ -2673,10 +2688,11 @@ export class AssessmentsService {
       const job = await this.codeQueue.add('run-code', {
         code: dto.code, language, testCases, userId: studentId, admissionId,
         resultContext: 'assessment', peerScores,
+        jobType: ExecutionJobType.RUN_SAMPLE_TESTS,
         config: { timeLimit: question.timeLimit, memoryLimit: question.memoryLimit },
       }, {
         jobId: admissionId, attempts: 2, backoff: { type: 'exponential', delay: 2000 },
-        priority: 1, removeOnComplete: { age: 900, count: 2000 }, removeOnFail: { age: 3600, count: 2000 },
+        priority: ExecutionPriority.INTERACTIVE_SAMPLE, removeOnComplete: { age: 900, count: 2000 }, removeOnFail: { age: 3600, count: 2000 },
       });
       return { success: true, status: 'queued', jobId: job.id };
     } catch {
@@ -2685,8 +2701,24 @@ export class AssessmentsService {
     }
   }
 
-  async saveProgress(id: string, dto: SubmitAssessmentDto, studentUser: any) {
+  async saveProgress(
+    id: string,
+    dto: SubmitAssessmentDto,
+    studentUser: any,
+    headerKey?: string,
+  ) {
     const studentId = String(studentUser.id || studentUser._id);
+    const idempotencyKey = headerKey || dto.idempotencyKey;
+
+    if (idempotencyKey && this.redisService) {
+      const cached = await this.redisService.get<any>(
+        `idempotency:exam:${idempotencyKey}`,
+      );
+      if (cached && cached.status === 'COMPLETED') {
+        return cached.result;
+      }
+    }
+
     const assessment = await this.findAssessmentByIdOrCode(id);
     if (!assessment) {
       throw new NotFoundException('Assessment not found');
@@ -2713,6 +2745,19 @@ export class AssessmentsService {
     if (attempt.studentId !== studentId) {
       throw new ForbiddenException('You do not own this assessment attempt');
     }
+
+    const expiresAt = this.attemptExpiresAt(assessment, attempt);
+    const endsAtEpochMs = expiresAt.getTime();
+    const serverReceivedAtMs = Date.now();
+    const SUBMISSION_GRACE_WINDOW_MS = 45_000;
+    const clientSubmittedAtMs = dto.clientSubmittedAtMs || serverReceivedAtMs;
+
+    if (serverReceivedAtMs > endsAtEpochMs + SUBMISSION_GRACE_WINDOW_MS) {
+      throw new BadRequestException(
+        'The assessment submission deadline has expired.',
+      );
+    }
+    const graceWindowAccepted = serverReceivedAtMs > endsAtEpochMs;
 
     if (dto.responses && Array.isArray(dto.responses)) {
       const previousResponses = attempt.responses || [];
@@ -2816,15 +2861,77 @@ export class AssessmentsService {
     targetAttempt.proctoringPenalty = attempt.proctoringPenalty;
 
     await this.attemptRepo.save(targetAttempt);
-    return { success: true, message: 'Progress saved successfully.' };
+    const result = {
+      success: true,
+      message: 'Progress saved successfully.',
+      submissionMetadata: {
+        graceWindowAccepted,
+        clientSubmittedAtMs,
+        serverReceivedAtMs,
+        endsAtEpochMs,
+      },
+    };
+
+    if (idempotencyKey && this.redisService) {
+      await this.redisService.set(
+        `idempotency:exam:${idempotencyKey}`,
+        { status: 'COMPLETED', result },
+        86400,
+      );
+    }
+
+    return result;
   }
 
-  async submitAttempt(id: string, dto: SubmitAssessmentDto, studentUser: any) {
+  async submitAttempt(
+    id: string,
+    dto: SubmitAssessmentDto,
+    studentUser: any,
+    headerKey?: string,
+  ) {
+    const studentId = String(studentUser.id || studentUser._id);
+    const idempotencyKey =
+      headerKey ||
+      dto.idempotencyKey ||
+      `submit:${id}:${studentId}`;
+
+    if (this.redisService && idempotencyKey) {
+      const cached = await this.redisService.get<any>(
+        `idempotency:exam:${idempotencyKey}`,
+      );
+      if (cached && cached.status === 'COMPLETED') {
+        return cached.result;
+      }
+      if (cached && cached.status === 'IN_FLIGHT') {
+        for (let poll = 0; poll < 15; poll++) {
+          await new Promise((r) => setTimeout(r, 200));
+          const latest = await this.redisService.get<any>(
+            `idempotency:exam:${idempotencyKey}`,
+          );
+          if (latest && latest.status === 'COMPLETED') {
+            return latest.result;
+          }
+        }
+      }
+      try {
+        const client = this.redisService.getClient() as any;
+        if (typeof client.set === 'function') {
+          await client.set(
+            `idempotency:exam:${idempotencyKey}`,
+            JSON.stringify({ status: 'IN_FLIGHT', startedAt: Date.now() }),
+            'EX',
+            10,
+            'NX',
+          );
+        }
+      } catch {}
+    }
+
     const hasCode = dto.responses?.some(
       (response) =>
         typeof response.code === 'string' && response.code.trim().length > 0,
     );
-    if (!hasCode) return this.evaluateAttempt(id, dto, studentUser);
+    if (!hasCode) return this.evaluateAttempt(id, dto, studentUser, idempotencyKey);
     if (!this.admission) throw new PistonUnavailableError();
     const userId = String(studentUser.id || studentUser._id);
     const reservation = await this.admission.reserve(userId, {
@@ -2850,7 +2957,7 @@ export class AssessmentsService {
           });
       }, this.admission.heartbeatMs);
       heartbeat.unref();
-      return await this.evaluateAttempt(id, dto, studentUser);
+      return await this.evaluateAttempt(id, dto, studentUser, idempotencyKey);
     } finally {
       if (heartbeat) clearInterval(heartbeat);
       await this.admission.release(userId, reservation, owner);
@@ -2861,6 +2968,7 @@ export class AssessmentsService {
     id: string,
     dto: SubmitAssessmentDto,
     studentUser: any,
+    idempotencyKey?: string,
   ) {
     const assessment = await this.findAssessmentByIdOrCode(id);
     if (!assessment) {
@@ -2889,7 +2997,15 @@ export class AssessmentsService {
 
     // NEW-003: Idempotent submission: if already submitted, return the final scorecard
     if (attempt.status === 'submitted' || attempt.status === 'auto_submitted' || attempt.status === 'timed_out') {
-      return this.getStudentResult(assessment.id, studentUser);
+      const studentResult = await this.getStudentResult(assessment.id, studentUser);
+      if (idempotencyKey && this.redisService) {
+        await this.redisService.set(
+          `idempotency:exam:${idempotencyKey}`,
+          { status: 'COMPLETED', result: studentResult, completedAt: Date.now() },
+          86400,
+        );
+      }
+      return studentResult;
     }
 
     if (attempt.status === 'evaluating') {
@@ -2939,14 +3055,48 @@ export class AssessmentsService {
     try {
       // Accept before the deadline; execution may finish after it.
       const now = new Date();
-    if (assessment.endTime) {
-      const deadline = new Date(assessment.endTime);
-      if (now > deadline) {
-        throw new BadRequestException(
-          'The examination submission deadline has expired.',
-        );
+      const serverReceivedAtMs = now.getTime();
+      const expiresAt = this.attemptExpiresAt(assessment, attempt);
+      const endsAtEpochMs = expiresAt.getTime();
+      const SUBMISSION_GRACE_WINDOW_MS = 45_000;
+
+      let graceWindowAccepted = false;
+      const clientSubmittedAtMs = dto.clientSubmittedAtMs;
+
+      if (assessment.endTime) {
+        const deadline = new Date(assessment.endTime).getTime();
+        if (serverReceivedAtMs > deadline) {
+          if (
+            (clientSubmittedAtMs &&
+              clientSubmittedAtMs <= deadline + SUBMISSION_GRACE_WINDOW_MS &&
+              serverReceivedAtMs <= deadline + SUBMISSION_GRACE_WINDOW_MS) ||
+            (serverReceivedAtMs <= deadline + SUBMISSION_GRACE_WINDOW_MS &&
+              attempt.startedAt)
+          ) {
+            graceWindowAccepted = true;
+          } else {
+            throw new BadRequestException(
+              'The examination submission deadline has expired.',
+            );
+          }
+        }
       }
-    }
+
+      if (!graceWindowAccepted && serverReceivedAtMs > endsAtEpochMs) {
+        if (
+          (clientSubmittedAtMs &&
+            clientSubmittedAtMs <= endsAtEpochMs + SUBMISSION_GRACE_WINDOW_MS &&
+            serverReceivedAtMs <= endsAtEpochMs + SUBMISSION_GRACE_WINDOW_MS) ||
+          (serverReceivedAtMs <= endsAtEpochMs + SUBMISSION_GRACE_WINDOW_MS &&
+            attempt.startedAt)
+        ) {
+          graceWindowAccepted = true;
+        } else {
+          throw new BadRequestException(
+            'The examination submission deadline has expired.',
+          );
+        }
+      }
 
     const responseIds = (dto.responses || []).map((answer) => String(answer.questionId));
     if (new Set(responseIds).size !== responseIds.length) {
@@ -3276,7 +3426,7 @@ export class AssessmentsService {
       status: attempt.status,
     });
 
-    return {
+    const receipt = {
       success: true,
       message: 'Assessment submitted successfully.',
       result: {
@@ -3294,8 +3444,34 @@ export class AssessmentsService {
         timeSpentSeconds: attempt.timeSpentSeconds,
         tabSwitchCount: tabSwitches,
       },
+      submissionMetadata: {
+        graceWindowAccepted,
+        clientSubmittedAtMs: clientSubmittedAtMs || serverReceivedAtMs,
+        serverReceivedAtMs,
+        endsAtEpochMs,
+      },
     };
+
+    if (idempotencyKey && this.redisService) {
+      await this.redisService.set(
+        `idempotency:exam:${idempotencyKey}`,
+        { status: 'COMPLETED', result: receipt, completedAt: Date.now() },
+        86400,
+      );
+    }
+
+    return receipt;
     } catch (evalErr) {
+      if (idempotencyKey && this.redisService) {
+        try {
+          const cached = await this.redisService.get<any>(
+            `idempotency:exam:${idempotencyKey}`,
+          );
+          if (cached && cached.status === 'IN_FLIGHT') {
+            await this.redisService.del(`idempotency:exam:${idempotencyKey}`);
+          }
+        } catch {}
+      }
       if (attempt.status === 'evaluating') {
         try {
           if (typeof this.attemptRepo.update === 'function') {
@@ -3814,9 +3990,11 @@ export class AssessmentsService {
     );
 
     const expiresAt = this.attemptExpiresAt(assessment, latestAttempt);
+    const serverEndsAtEpochMs = expiresAt.getTime();
+    const serverNowMs = Date.now();
     const remainingSeconds = isSubmitted
       ? 0
-      : Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+      : Math.max(0, Math.floor((serverEndsAtEpochMs - serverNowMs) / 1000));
 
     const responses: Record<string, any> = {};
     (latestAttempt.responses || []).forEach((r: any) => {
@@ -3837,6 +4015,8 @@ export class AssessmentsService {
       attemptId: latestAttempt.id,
       alreadySubmitted: isSubmitted,
       remainingSeconds,
+      serverEndsAtEpochMs,
+      serverNowMs,
       responses,
       resumeDetails: this.resumeDetails(assessment, latestAttempt),
     };

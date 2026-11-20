@@ -83,4 +83,37 @@ describe('LockdownSessionStore', () => {
     expect(state?.kioskMode).toBe('macos_cocoa_kiosk');
     expect(state?.isSubmitted).toBe(true);
   });
+
+  it('prefetches, caches, and retrieves full question bundle instantaneously with 0ms delay', () => {
+    const bundle = [
+      {
+        _id: 'q-mcq-1',
+        question: 'What is O(1)?',
+        questionType: 'MCQ',
+        options: ['Constant', 'Linear'],
+        marks: 2,
+        difficulty: 'easy',
+      },
+      {
+        _id: 'q-code-1',
+        question: 'Reverse a Linked List',
+        questionType: 'coding',
+        language: 'python',
+        starterCode: 'def reverseList(head): pass',
+        testCases: [{ id: '1', input: '[1,2,3]', expected: '[3,2,1]' }],
+        marks: 5,
+        difficulty: 'medium',
+      },
+    ];
+
+    LockdownSessionStore.saveQuestionBundle(assessmentId, bundle);
+    const cached = LockdownSessionStore.getQuestionBundle(assessmentId);
+
+    expect(cached).toHaveLength(2);
+    expect(cached?.[0]._id).toBe('q-mcq-1');
+    expect(cached?.[1].starterCode).toBe('def reverseList(head): pass');
+
+    LockdownSessionStore.clearQuestionBundle(assessmentId);
+    expect(LockdownSessionStore.getQuestionBundle(assessmentId)).toBeNull();
+  });
 });

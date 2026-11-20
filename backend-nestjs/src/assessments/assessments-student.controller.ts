@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Headers, Header } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AssessmentsService } from './assessments.service';
@@ -6,6 +6,7 @@ import { EvaluateAssessmentCodeDto } from './dto/evaluate-code.dto';
 import { SubmissionRateLimitGuard } from '../common/guards/submission-rate-limit.guard';
 import { SebGuard } from '../exam-security/guards/seb.guard';
 import { LockdownSignatureGuard } from '../exam-security/lockdown-signature.guard';
+import { ExamBackpressureGuard } from '../common/guards/exam-backpressure.guard';
 import {
   SubmitAssessmentDto,
   RecordViolationDto,
@@ -29,10 +30,26 @@ export class AssessmentsStudentController {
   }
 
   @Get(':id/overview')
+  @Header('Cache-Control', 'private, max-age=300')
   @ApiOperation({
     summary: 'Get assessment briefing and candidate eligibility',
   })
   async getOverview(@Param('id') id: string, @CurrentUser() studentUser: any) {
+    return this.assessmentsService.getStudentAssessmentOverview(
+      id,
+      studentUser,
+    );
+  }
+
+  @Get(':id/question-bundle')
+  @Header('Cache-Control', 'private, max-age=300')
+  @ApiOperation({
+    summary: 'Get prefetchable question bundle metadata and references',
+  })
+  async getQuestionBundle(
+    @Param('id') id: string,
+    @CurrentUser() studentUser: any,
+  ) {
     return this.assessmentsService.getStudentAssessmentOverview(
       id,
       studentUser,
@@ -106,7 +123,7 @@ export class AssessmentsStudentController {
   }
 
   @Post(':id/save-progress')
-  @UseGuards(SebGuard, LockdownSignatureGuard)
+  @UseGuards(SebGuard, LockdownSignatureGuard, ExamBackpressureGuard)
   @ApiOperation({ summary: 'Autosave candidate responses during test' })
   @Throttle({
     short: { limit: 20, ttl: 1000 },
@@ -117,8 +134,9 @@ export class AssessmentsStudentController {
     @Param('id') id: string,
     @Body() dto: SubmitAssessmentDto,
     @CurrentUser() studentUser: any,
+    @Headers('x-idempotency-key') headerKey?: string,
   ) {
-    return this.assessmentsService.saveProgress(id, dto, studentUser);
+    return this.assessmentsService.saveProgress(id, dto, studentUser, headerKey);
   }
 
   @Post(':id/submit')
@@ -135,8 +153,9 @@ export class AssessmentsStudentController {
     @Param('id') id: string,
     @Body() dto: SubmitAssessmentDto,
     @CurrentUser() studentUser: any,
+    @Headers('x-idempotency-key') headerKey?: string,
   ) {
-    return this.assessmentsService.submitAttempt(id, dto, studentUser);
+    return this.assessmentsService.submitAttempt(id, dto, studentUser, headerKey);
   }
 
   @Post(':id/evaluate-code')

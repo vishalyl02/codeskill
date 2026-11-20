@@ -76,6 +76,14 @@ export class SubmitAssessmentDto {
   @ValidateNested({ each: true })
   @Type(() => ProctoringViolationDto)
   violations?: ProctoringViolationDto[];
+
+  @IsString()
+  @IsOptional()
+  idempotencyKey?: string;
+
+  @IsNumber()
+  @IsOptional()
+  clientSubmittedAtMs?: number;
 }
 
 export class VerifyIdentityDto {
