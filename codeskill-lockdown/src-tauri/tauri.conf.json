@@ -42,7 +42,8 @@
   "plugins": {
     "deep-link": {
       "schemes": [
-        "codeskill-exam"
+        "codeskill-exam",
+        "codeskill-lockdown"
       ]
     },
     "updater": {
