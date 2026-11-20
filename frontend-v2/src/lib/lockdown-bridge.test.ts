@@ -36,6 +36,9 @@ import {
   runRuntimeIntegrityCheck,
   inspectMediaHardware,
   computeSha256,
+  runFullSystemDiagnostic,
+  killBlockingApp,
+  killAllBlockingApps,
 } from './lockdown-bridge';
 import { authStorage } from '@/lib/auth-storage';
 
@@ -690,6 +693,64 @@ describe('LockDown Desktop Bridge (frontend-v2)', () => {
 
       const textHash = await computeSha256('hello world');
       expect(textHash).toBe('b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
+    });
+
+    it('runFullSystemDiagnostic invokes run_full_system_diagnostic in Tauri environment', async () => {
+      mockInvoke.mockResolvedValue({
+        osName: 'macOS',
+        osVersion: '15.1.0',
+        architecture: 'aarch64',
+        monitorCount: 1,
+        isVm: false,
+        kioskReadiness: true,
+        overallReadiness: true,
+        readinessScore: 95,
+        virtualCameraDetected: false,
+        virtualMicDetected: false,
+        displays: {
+          monitorCount: 1,
+          primaryResolution: '2560x1440',
+          externalDisplaysDetected: false,
+        },
+        backgroundApps: [],
+        recommendations: [],
+      });
+
+      const diag = await runFullSystemDiagnostic();
+      expect(mockInvoke).toHaveBeenCalledWith('run_full_system_diagnostic', {});
+      expect(diag.osName).toBe('macOS');
+      expect(diag.monitorCount).toBe(1);
+      expect(diag.overallReadiness).toBe(true);
+      expect(diag.readinessScore).toBe(95);
+    });
+
+    it('killBlockingApp invokes kill_blocking_app with pid and force', async () => {
+      mockInvoke.mockResolvedValue(true);
+      const res = await killBlockingApp(12345, true);
+      expect(mockInvoke).toHaveBeenCalledWith('kill_blocking_app', { pid: 12345, force: true });
+      expect(res).toBe(true);
+    });
+
+    it('killAllBlockingApps invokes kill_all_blocking_apps with force', async () => {
+      mockInvoke.mockResolvedValue([
+        { name: 'Discord', pid: 1234, category: 'COMMUNICATION', bundleOrPath: '/Applications/Discord.app' },
+      ]);
+      const res = await killAllBlockingApps(true);
+      expect(mockInvoke).toHaveBeenCalledWith('kill_all_blocking_apps', { force: true });
+      expect(res).toHaveLength(1);
+      expect(res[0].name).toBe('Discord');
+    });
+  });
+
+  describe('runFullSystemDiagnostic browser fallback', () => {
+    it('returns mock diagnostic report when not running inside Tauri', async () => {
+      delete (window as any).__TAURI_INTERNALS__;
+      delete (window as any).__TAURI__;
+
+      const diag = await runFullSystemDiagnostic();
+      expect(diag.overallReadiness).toBe(true);
+      expect(diag.readinessScore).toBe(100);
+      expect(diag.displays.monitorCount).toBe(1);
     });
   });
 });

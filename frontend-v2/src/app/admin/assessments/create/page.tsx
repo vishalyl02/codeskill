@@ -377,6 +377,31 @@ function AssessmentBuilder() {
   const updateGroup = (group: "a" | "b" | "both") => {
     setTargetGroup(group);
   };
+
+  const applySecurityProfile = (profile: "STANDARD_CLASSROOM_QUIZ" | "PROCTORED_MIDTERM_FINAL" | "HIGH_STAKES_CERTIFICATION") => {
+    store.setRequireLockdown(true);
+    if (profile === "STANDARD_CLASSROOM_QUIZ") {
+      store.setAllowCalculators(true);
+      store.setAllowScratchpad(true);
+      store.setAllowVirtualMachine(true);
+      store.setRequireCloseOtherApps(false);
+      store.setEnableForensicWatermark(false);
+    } else if (profile === "PROCTORED_MIDTERM_FINAL") {
+      store.setAllowCalculators(true);
+      store.setAllowScratchpad(true);
+      store.setAllowReferenceDoc(false);
+      store.setAllowVirtualMachine(false);
+      store.setRequireCloseOtherApps(true);
+      store.setEnableForensicWatermark(false);
+    } else if (profile === "HIGH_STAKES_CERTIFICATION") {
+      store.setAllowCalculators(false);
+      store.setAllowScratchpad(false);
+      store.setAllowReferenceDoc(false);
+      store.setAllowVirtualMachine(false);
+      store.setRequireCloseOtherApps(true);
+      store.setEnableForensicWatermark(true);
+    }
+  };
   const clearAutoSelection = (sectionId: string) => {
     setAutoSelections((current) => {
       const next = { ...current };
@@ -880,6 +905,57 @@ function AssessmentBuilder() {
                 <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
               </label>
             </div>
+
+            {/* One-Click Security Profiles Preset Selector */}
+            {store.requireLockdown && (
+              <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    One-Click Security Profiles
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">Select a baseline profile or customize toggles below</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => applySecurityProfile("STANDARD_CLASSROOM_QUIZ")}
+                    className={`p-3 rounded-lg border text-left text-xs transition-all cursor-pointer ${
+                      store.allowCalculators && store.allowScratchpad && store.allowVirtualMachine && !store.requireCloseOtherApps
+                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
+                        : "border-border bg-background hover:bg-muted/50 text-foreground"
+                    }`}
+                  >
+                    <div className="font-semibold text-xs mb-1">Standard Quiz</div>
+                    <div className="text-[11px] text-muted-foreground line-clamp-2">In-dock tools & whiteboard allowed, VDI enabled.</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applySecurityProfile("PROCTORED_MIDTERM_FINAL")}
+                    className={`p-3 rounded-lg border text-left text-xs transition-all cursor-pointer ${
+                      store.allowCalculators && store.allowScratchpad && !store.allowVirtualMachine && store.requireCloseOtherApps
+                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
+                        : "border-border bg-background hover:bg-muted/50 text-foreground"
+                    }`}
+                  >
+                    <div className="font-semibold text-xs mb-1">Proctored Midterm</div>
+                    <div className="text-[11px] text-muted-foreground line-clamp-2">Tools allowed, third-party apps closed, VM blocked.</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applySecurityProfile("HIGH_STAKES_CERTIFICATION")}
+                    className={`p-3 rounded-lg border text-left text-xs transition-all cursor-pointer ${
+                      !store.allowCalculators && !store.allowScratchpad && !store.allowVirtualMachine && store.requireCloseOtherApps
+                        ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
+                        : "border-border bg-background hover:bg-muted/50 text-foreground"
+                    }`}
+                  >
+                    <div className="font-semibold text-xs mb-1">High-Stakes Strict</div>
+                    <div className="text-[11px] text-muted-foreground line-clamp-2">Zero dock tools, VM blocked, forensic watermark.</div>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Allow Virtual Machines (University VDI Labs) Toggle - Conditionally Rendered */}
             {store.requireLockdown && (

@@ -55,6 +55,11 @@
     <div class="spinner"></div>
     <h1>CodeSkill LockDown Browser</h1>
     <p>Secure exam environment active. Initializing attestation and connecting to exam session...</p>
+    <div id="diagnosticActions" style="display: none; margin-top: 20px;">
+      <button id="systemCheckBtn" style="background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+        Test My LockDown Setup (Diagnostics)
+      </button>
+    </div>
   </div>
   <script>
     (function() {
@@ -91,6 +96,12 @@
 
       // Check if Tauri events are available
       if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
+        window.__TAURI__.event.listen('exam:system-check-launch', function() {
+          resolveOrigin(function(origin) {
+            navigateTo(origin.replace(/\/+$/, '') + '/lockdown-system-check');
+          });
+        });
+
         window.__TAURI__.event.listen('exam:deep-link-launch', function(e) {
           if (e && e.payload && e.payload.examId) {
             var tok = e.payload.token ? '?lockdownToken=' + encodeURIComponent(e.payload.token) : '';
@@ -101,15 +112,27 @@
         });
       }
 
-      // Standalone Launch: do NOT redirect to /assessments. Keep candidate securely on splash until deep-linked.
+      // Standalone Launch: do NOT redirect to /assessments. Show diagnostic button so candidate can test setup.
       setTimeout(function() {
         if (!redirected) {
           var p = document.querySelector('p');
           if (p) {
-            p.innerText = "Single-Assessment Isolation Active. Please click 'Launch in CodeSkill LockDown' from your exam portal to begin.";
+            p.innerText = "Single-Assessment Isolation Active. Click 'Launch in CodeSkill LockDown' from your exam portal, or test your setup below.";
+          }
+          var actions = document.getElementById('diagnosticActions');
+          if (actions) {
+            actions.style.display = 'block';
+          }
+          var btn = document.getElementById('systemCheckBtn');
+          if (btn) {
+            btn.onclick = function() {
+              resolveOrigin(function(origin) {
+                navigateTo(origin.replace(/\/+$/, '') + '/lockdown-system-check');
+              });
+            };
           }
         }
-      }, 1000);
+      }, 800);
     })();
   </script>
 </body>

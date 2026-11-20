@@ -20,6 +20,7 @@ import { applyAssessmentDockToolsMigration } from './migrations/assessment-dock-
 import { applyAssessmentEnterpriseHardeningMigration } from './migrations/assessment-enterprise-hardening';
 import { applyExamSecurityCompositeIndexesMigration } from './migrations/exam-security-composite-indexes';
 import { applyAssessmentForensicWatermarkMigration } from './migrations/assessment-forensic-watermark';
+import { applyCandidateExamAccommodationsMigration } from './migrations/candidate-exam-accommodations';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -172,6 +173,11 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       // 22. Assessment forensic screen watermark
       await this.executeStep('assessment-forensic-watermark', () =>
         applyAssessmentForensicWatermarkMigration(queryRunner),
+      );
+
+      // 23. Candidate exam accommodations table
+      await this.executeStep('candidate-exam-accommodations', () =>
+        applyCandidateExamAccommodationsMigration(queryRunner),
       );
     } finally {
       await queryRunner.release();
