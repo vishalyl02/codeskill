@@ -513,6 +513,29 @@ pub fn is_forbidden_process(name: &str, exe_path: Option<&str>) -> Option<&'stat
                     || lower_name == "obs.exe"
                     || lower_name == "obs64.exe"
             }
+            "warp" => {
+                // Only match the actual Warp AI terminal emulator (https://www.warp.dev), NOT Cloudflare WARP VPN/DNS
+                if lower_name.contains("cloudflare")
+                    || lower_name.contains("warp-svc")
+                    || lower_name.contains("warp-diag")
+                    || lower_name.contains("warp-dex")
+                    || exe_path.map_or(false, |p| {
+                        let lp = p.to_lowercase();
+                        lp.contains("cloudflare") || lp.contains("warp-svc")
+                    })
+                {
+                    false
+                } else {
+                    lower_name == "warp"
+                        || lower_name == "warp.exe"
+                        || lower_name == "warp.app"
+                        || lower_name == "warp-terminal"
+                        || exe_path.map_or(false, |p| {
+                            let lp = p.to_lowercase();
+                            (lp.contains("/warp.app/") || lp.contains("dev.warp.warp")) && !lp.contains("cloudflare")
+                        })
+                }
+            }
             _ => {
                 lower_name == forbidden
                     || lower_name == format!("{}.exe", forbidden)
@@ -527,8 +550,18 @@ pub fn is_forbidden_process(name: &str, exe_path: Option<&str>) -> Option<&'stat
             return Some(forbidden);
         }
 
+        // Dedicated custom matching rules (like "warp") already comprehensively inspect both
+        // process name and full executable path in the match arm above. Do not fall through
+        // to broad substring matching on exe_path for them.
+        if forbidden == "warp" {
+            continue;
+        }
+
         if let Some(exe) = exe_path {
             let lower_exe = exe.to_lowercase();
+            if forbidden == "parsec" && lower_exe.starts_with("/system/") {
+                continue;
+            }
             if lower_exe.contains(forbidden) {
                 return Some(forbidden);
             }
@@ -2285,6 +2318,61 @@ mod tests {
         assert_eq!(
             is_forbidden_process("zsh", Some("/bin/zsh")),
             None
+        );
+    }
+
+    #[test]
+    fn test_warp_terminal_vs_cloudflare_warp() {
+        // Cloudflare WARP client, GUI, daemons, and diagnostics must NEVER be flagged
+        assert_eq!(
+            is_forbidden_process("CloudflareWARP", Some("/Applications/Cloudflare WARP.app/Contents/MacOS/Cloudflare WARP")),
+            None
+        );
+        assert_eq!(
+            is_forbidden_process("CloudflareWARP", None),
+            None
+        );
+        assert_eq!(
+            is_forbidden_process("warp-svc", Some("/Applications/Cloudflare WARP.app/Contents/Resources/warp-svc")),
+            None
+        );
+        assert_eq!(
+            is_forbidden_process("warp-svc", Some("/Library/Application Support/Cloudflare/warp-svc")),
+            None
+        );
+        assert_eq!(
+            is_forbidden_process("warp-svc", None),
+            None
+        );
+        assert_eq!(
+            is_forbidden_process("warp-diag", Some("/Applications/Cloudflare WARP.app/Contents/Resources/warp-diag")),
+            None
+        );
+        assert_eq!(
+            is_forbidden_process("warp-dex", None),
+            None
+        );
+
+        // Genuine Warp AI Terminal emulator (https://www.warp.dev) MUST be detected
+        assert_eq!(
+            is_forbidden_process("Warp", Some("/Applications/Warp.app/Contents/MacOS/stable")),
+            Some("warp")
+        );
+        assert_eq!(
+            is_forbidden_process("warp", Some("/Applications/Warp.app/Contents/MacOS/warp")),
+            Some("warp")
+        );
+        assert_eq!(
+            is_forbidden_process("warp", None),
+            Some("warp")
+        );
+        assert_eq!(
+            is_forbidden_process("warp-terminal", None),
+            Some("warp")
+        );
+        assert_eq!(
+            is_forbidden_process("stable", Some("/Applications/Warp.app/Contents/MacOS/stable")),
+            Some("warp")
         );
     }
 }

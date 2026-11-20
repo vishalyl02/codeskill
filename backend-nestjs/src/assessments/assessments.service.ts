@@ -2285,7 +2285,10 @@ export class AssessmentsService {
     ) {
       isAvailable = false;
       unavailabilityReason = 'Assessment has concluded and is closed.';
-    } else if (assessment.startTime && now < new Date(assessment.startTime)) {
+    } else if (
+      assessment.startTime &&
+      now.getTime() + 60_000 < new Date(assessment.startTime).getTime()
+    ) {
       isAvailable = false;
       unavailabilityReason = `Assessment window has not opened yet. Scheduled to open at ${new Date(assessment.startTime).toLocaleString()}.`;
     } else if (assessment.endTime && now > new Date(assessment.endTime)) {
@@ -2368,7 +2371,12 @@ export class AssessmentsService {
       );
     }
     const now = new Date();
-    if (assessment.startTime && now < new Date(assessment.startTime)) {
+    // Allow up to 60 seconds clock skew tolerance between candidate machine and server
+    const clockSkewToleranceMs = 60_000;
+    if (
+      assessment.startTime &&
+      now.getTime() + clockSkewToleranceMs < new Date(assessment.startTime).getTime()
+    ) {
       throw new BadRequestException(
         `Assessment has not started yet. Scheduled to begin at ${new Date(assessment.startTime).toLocaleString()}.`,
       );

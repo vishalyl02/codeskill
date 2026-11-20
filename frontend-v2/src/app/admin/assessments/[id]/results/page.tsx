@@ -275,6 +275,12 @@ export default function AssessmentResultsPage({
 
         <div className="flex items-center gap-2">
           <Link
+            href={`/admin/assessments/${id}/lockdown-control`}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-md transition-colors shadow-sm"
+          >
+            <ShieldAlert className="w-3.5 h-3.5" /> Student Controls
+          </Link>
+          <Link
             href={`/admin/assessments/${id}/analytics`}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-md hover:bg-primary/90 transition-colors shadow-sm"
           >

@@ -841,6 +841,7 @@ export async function inspectMediaHardware(): Promise<MediaHardwareAudit> {
 export async function initializeLockdownAttestation(
   apiClient?: any,
   assessmentId?: string,
+  autoEngageKiosk = true,
 ): Promise<{ success: boolean; sessionId?: string; error?: string }> {
   if (!isLockdownClient()) {
     return { success: false, error: 'Not running inside CodeSkill LockDown' };
@@ -959,15 +960,17 @@ export async function initializeLockdownAttestation(
       }
     }
 
-    // 7. Engage OS-level kiosk lockdowns after attestation and time sync succeed
-    try {
-      await engageOsKiosk();
-    } catch (kioskErr: any) {
-      await releaseLockdownKiosk();
-      return {
-        success: false,
-        error: kioskErr?.message || 'Failed to engage OS kiosk mode',
-      };
+    // 7. Engage OS-level kiosk lockdowns after attestation and time sync succeed (if requested)
+    if (autoEngageKiosk) {
+      try {
+        await engageOsKiosk();
+      } catch (kioskErr: any) {
+        await releaseLockdownKiosk();
+        return {
+          success: false,
+          error: kioskErr?.message || 'Failed to engage OS kiosk mode',
+        };
+      }
     }
 
     return { success: true, sessionId: attestedSessionId };
@@ -1030,7 +1033,7 @@ export async function consumeLockdownLaunchToken(
     }
   }
 
-  const attestation = await initializeLockdownAttestation(apiClient, targetId);
+  const attestation = await initializeLockdownAttestation(apiClient, targetId, false);
 
   return {
     success: attestation.success,
