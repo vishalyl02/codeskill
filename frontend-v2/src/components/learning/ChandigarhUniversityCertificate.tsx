@@ -158,15 +158,15 @@ export function ChandigarhUniversityCertificate({
     name: data.signatoryLeft?.name || "Ishdeep Singla",
     title: data.signatoryLeft?.title || "Head - Technical Training (CSE)",
     subtext: data.signatoryLeft?.subtext || "E16430 · ad.skill@cumail.in",
-    signatureUrl: data.signatoryLeft?.signatureSvg || "/signatures/blue-signature.svg",
+    signatureUrl: data.signatoryLeft?.signatureSvg || "/signatures/singla-signature.png",
   };
 
-  // Right: Prof. (Dr.) Satbir Singh Sehgal, Vice-Chancellor
+  // Right: Prof. (Dr.) Satbir Singh Sehgal, Pro-Vice Chancellor & Registrar
   const sigRight = {
     name: data.signatoryRight?.name || "Prof. (Dr.) Satbir Singh Sehgal",
-    title: data.signatoryRight?.title || "Vice-Chancellor",
+    title: data.signatoryRight?.title || "Pro-Vice Chancellor & Registrar",
     subtext: data.signatoryRight?.subtext || "E18146 · vc@cumail.in",
-    signatureUrl: data.signatoryRight?.signatureSvg || "/signatures/sehgal-signature.svg",
+    signatureUrl: data.signatoryRight?.signatureSvg || "/signatures/sehgal-signature.png",
   };
 
   const certTitle = data.certificateTitle || "CERTIFICATE OF COMPLETION";
@@ -328,12 +328,12 @@ export function ChandigarhUniversityCertificate({
               <div className="flex flex-col items-center text-center">
                 <div className="w-36 sm:w-48 md:w-56">
                   {/* Handwritten Blue Signature */}
-                  <div className="h-8 sm:h-9 flex items-end justify-center mb-0.5">
+                  <div className="h-10 sm:h-12 md:h-14 flex items-end justify-center mb-0.5">
                     {sigLeft.signatureUrl ? (
                       <img
                         src={sigLeft.signatureUrl}
                         alt="Signature Ishdeep Singla"
-                        className="h-8 sm:h-9 w-auto max-w-[140px] sm:max-w-[170px] object-contain block drop-shadow-2xs"
+                        className="h-10 sm:h-12 md:h-14 w-auto max-w-[140px] sm:max-w-[180px] object-contain block drop-shadow-2xs"
                       />
                     ) : (
                       <svg
@@ -370,12 +370,12 @@ export function ChandigarhUniversityCertificate({
               <div className="flex flex-col items-center text-center">
                 <div className="w-36 sm:w-48 md:w-56">
                   {/* Handwritten Executive Signature */}
-                  <div className="h-8 sm:h-9 flex items-end justify-center mb-0.5">
+                  <div className="h-10 sm:h-12 md:h-14 flex items-end justify-center mb-0.5">
                     {sigRight.signatureUrl ? (
                       <img
                         src={sigRight.signatureUrl}
                         alt="Signature Prof. (Dr.) Satbir Singh Sehgal"
-                        className="h-8 sm:h-9 w-auto max-w-[140px] sm:max-w-[170px] object-contain block drop-shadow-2xs"
+                        className="h-10 sm:h-12 md:h-14 w-auto max-w-[140px] sm:max-w-[180px] object-contain block drop-shadow-2xs"
                       />
                     ) : (
                       <svg

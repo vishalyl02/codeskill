@@ -45,7 +45,7 @@ export class CertificationService {
   private generateCredentialId(): string {
     const year = new Date().getFullYear();
     const entropy = randomBytes(4).toString('hex').toUpperCase().slice(0, 6);
-    return `CS-${year}-${entropy}`;
+    return `CU-CS-${year}-${entropy}`;
   }
 
   /**
@@ -160,7 +160,7 @@ export class CertificationService {
         signatories: [
           {
             name: 'Prof. (Dr.) Satbir Singh Sehgal',
-            role: 'Vice-Chancellor',
+            role: 'Pro-Vice Chancellor & Registrar',
             organization: 'Chandigarh University',
             employeeId: 'E18146',
             email: 'vc@cumail.in',
@@ -215,7 +215,7 @@ export class CertificationService {
       signatories: [
         {
           name: 'Prof. (Dr.) Satbir Singh Sehgal',
-          role: 'Vice-Chancellor',
+          role: 'Pro-Vice Chancellor & Registrar',
           organization: 'Chandigarh University',
           employeeId: 'E18146',
           email: 'vc@cumail.in',
