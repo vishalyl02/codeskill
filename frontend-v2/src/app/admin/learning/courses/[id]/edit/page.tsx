@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, useMemo, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -23,6 +23,12 @@ import {
   Database,
   Terminal,
   Lightbulb,
+  Search,
+  Filter,
+  Sparkles,
+  Library,
+  Check,
+  X,
 } from "lucide-react";
 import { adminLearningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
@@ -74,6 +80,276 @@ interface CourseDetail {
     }>;
   }>;
 }
+
+interface BankQuestionItem {
+  id: string;
+  type: "quiz" | "coding" | "sql";
+  title: string;
+  topic: string;
+  difficulty: "beginner" | "intermediate" | "advanced";
+  marks: number;
+  // For Quiz
+  quizQuestion?: string;
+  options?: string[];
+  correctAnswer?: number;
+  explanation?: string;
+  // For Coding & SQL
+  starterCode?: Record<string, string>;
+  testInput?: string;
+  testExpected?: string;
+  hints?: string[];
+}
+
+const QUESTION_BANK_DATA: BankQuestionItem[] = [
+  // ── C Programming ──
+  {
+    id: "bank-c-1",
+    type: "quiz",
+    title: "C sizeof(char) Specification",
+    topic: "C Programming",
+    difficulty: "beginner",
+    marks: 15,
+    quizQuestion: "What is the output of sizeof(char) according to the ISO C Standard across all hardware architectures?",
+    options: ["Exactly 1 byte", "2 bytes", "4 bytes", "Implementation-defined"],
+    correctAnswer: 0,
+    explanation: "In standard C (ISO/IEC 9899), sizeof(char) is defined by definition to be exactly 1.",
+  },
+  {
+    id: "bank-c-2",
+    type: "quiz",
+    title: "C Pointer Member Access Operator",
+    topic: "C Programming",
+    difficulty: "beginner",
+    marks: 15,
+    quizQuestion: "Which operator is used to access structure members through a pointer?",
+    options: [". (dot)", "-> (arrow)", "* (dereference)", "& (address-of)"],
+    correctAnswer: 1,
+    explanation: "The arrow operator (->) dereferences the pointer and accesses the structure field in one step.",
+  },
+  {
+    id: "bank-c-3",
+    type: "coding",
+    title: "In-Place Swap Using Pointers",
+    topic: "C Programming",
+    difficulty: "beginner",
+    marks: 25,
+    hints: ["Pass the addresses of variables (&a, &b) and dereference using *a and *b."],
+    starterCode: {
+      c: `#include <stdio.h>\n\nvoid swap(int *a, int *b) {\n    int temp = *a;\n    *a = *b;\n    *b = temp;\n}\n\nint main() {\n    int x = 10, y = 20;\n    swap(&x, &y);\n    printf("%d %d\\n", x, y);\n    return 0;\n}\n`,
+      cpp: `#include <iostream>\n\nvoid swap(int &a, int &b) {\n    int temp = a;\n    a = b;\n    b = temp;\n}\n\nint main() {\n    int x = 10, y = 20;\n    swap(x, y);\n    std::cout << x << " " << y << "\\n";\n    return 0;\n}\n`,
+    },
+    testInput: "",
+    testExpected: "20 10",
+  },
+  {
+    id: "bank-c-4",
+    type: "coding",
+    title: "Dynamic Array Allocation with malloc & free",
+    topic: "C Programming",
+    difficulty: "intermediate",
+    marks: 30,
+    hints: ["Use malloc(n * sizeof(int)) and check for NULL return."],
+    starterCode: {
+      c: `#include <stdio.h>\n#include <stdlib.h>\n\nint main() {\n    int n = 5;\n    int *arr = (int *)malloc(n * sizeof(int));\n    if (!arr) return 1;\n    int sum = 0;\n    for (int i = 0; i < n; i++) {\n        arr[i] = (i + 1) * 10;\n        sum += arr[i];\n    }\n    printf("Sum: %d\\n", sum);\n    free(arr);\n    return 0;\n}\n`,
+    },
+    testInput: "",
+    testExpected: "Sum: 150",
+  },
+
+  // ── Data Structures & Algorithms ──
+  {
+    id: "bank-dsa-1",
+    type: "quiz",
+    title: "Balanced BST Search Complexity",
+    topic: "Data Structures",
+    difficulty: "intermediate",
+    marks: 15,
+    quizQuestion: "What is the worst-case time complexity of searching in a balanced Binary Search Tree (AVL/Red-Black)?",
+    options: ["O(log n)", "O(n)", "O(1)", "O(n log n)"],
+    correctAnswer: 0,
+    explanation: "Because balanced BSTs maintain height proportional to log(n), searching takes at most O(log n) time.",
+  },
+  {
+    id: "bank-dsa-2",
+    type: "quiz",
+    title: "Queue Data Structure Ordering",
+    topic: "Data Structures",
+    difficulty: "beginner",
+    marks: 15,
+    quizQuestion: "Which ordering discipline governs a standard Queue data structure?",
+    options: ["FIFO (First In, First Out)", "LIFO (Last In, First Out)", "Priority Based", "Random Access"],
+    correctAnswer: 0,
+    explanation: "Queues process items in the order they arrive: First In, First Out (FIFO).",
+  },
+  {
+    id: "bank-dsa-3",
+    type: "coding",
+    title: "Binary Search on a Sorted Array",
+    topic: "Algorithms",
+    difficulty: "intermediate",
+    marks: 30,
+    hints: ["Calculate mid as left + (right - left) / 2 to avoid integer overflow."],
+    starterCode: {
+      c: `#include <stdio.h>\n\nint binarySearch(int arr[], int n, int target) {\n    int l = 0, r = n - 1;\n    while (l <= r) {\n        int mid = l + (r - l) / 2;\n        if (arr[mid] == target) return mid;\n        if (arr[mid] < target) l = mid + 1;\n        else r = mid - 1;\n    }\n    return -1;\n}\n\nint main() {\n    int arr[] = {2, 5, 8, 12, 16, 23, 38, 56, 72};\n    int n = sizeof(arr)/sizeof(arr[0]);\n    printf("Index: %d\\n", binarySearch(arr, n, 23));\n    return 0;\n}\n`,
+      python: `def binary_search(arr, target):\n    l, r = 0, len(arr) - 1\n    while l <= r:\n        mid = (l + r) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            l = mid + 1\n        else:\n            r = mid - 1\n    return -1\n\nprint("Index:", binary_search([2, 5, 8, 12, 16, 23, 38, 56, 72], 23))\n`,
+    },
+    testInput: "",
+    testExpected: "Index: 5",
+  },
+  {
+    id: "bank-dsa-4",
+    type: "coding",
+    title: "Check for Balanced Parentheses",
+    topic: "Data Structures",
+    difficulty: "intermediate",
+    marks: 30,
+    hints: ["Use a character stack to push opening brackets and pop upon matching closing brackets."],
+    starterCode: {
+      c: `#include <stdio.h>\n#include <stdbool.h>\n#include <string.h>\n\nbool isBalanced(const char *s) {\n    char stack[100];\n    int top = -1;\n    for (int i = 0; s[i]; i++) {\n        char c = s[i];\n        if (c == '(' || c == '[' || c == '{') stack[++top] = c;\n        else {\n            if (top < 0) return false;\n            char open = stack[top--];\n            if (c == ')' && open != '(') return false;\n            if (c == ']' && open != '[') return false;\n            if (c == '}' && open != '{') return false;\n        }\n    }\n    return top == -1;\n}\n\nint main() {\n    printf("%s\\n", isBalanced("{[()]}") ? "BALANCED" : "UNBALANCED");\n    printf("%s\\n", isBalanced("{[(])}") ? "BALANCED" : "UNBALANCED");\n    return 0;\n}\n`,
+    },
+    testInput: "",
+    testExpected: "BALANCED\nUNBALANCED",
+  },
+
+  // ── SQL & Databases ──
+  {
+    id: "bank-sql-1",
+    type: "quiz",
+    title: "SQL Aggregate Filtering with HAVING",
+    topic: "SQL & Databases",
+    difficulty: "intermediate",
+    marks: 15,
+    quizQuestion: "Which SQL clause is used to filter records AFTER an aggregation operation with GROUP BY?",
+    options: ["HAVING", "WHERE", "FILTER", "ORDER BY"],
+    correctAnswer: 0,
+    explanation: "WHERE filters rows before grouping; HAVING filters aggregated groups after GROUP BY.",
+  },
+  {
+    id: "bank-sql-2",
+    type: "sql",
+    title: "Retrieve Completed High-Value Orders",
+    topic: "SQL & Databases",
+    difficulty: "beginner",
+    marks: 25,
+    hints: ["Filter using WHERE status = 'completed' AND amount > 100."],
+    starterCode: {
+      sql: `SELECT id, customer_id, amount FROM orders WHERE status = 'completed' AND amount > 100.00 ORDER BY amount DESC;`,
+    },
+  },
+  {
+    id: "bank-sql-3",
+    type: "sql",
+    title: "Customer Total Spend with INNER JOIN",
+    topic: "SQL & Databases",
+    difficulty: "intermediate",
+    marks: 30,
+    hints: ["Join customers and orders on customer_id, then aggregate with SUM()."],
+    starterCode: {
+      sql: `SELECT c.name, SUM(o.amount) as total_spent FROM customers c INNER JOIN orders o ON c.id = o.customer_id GROUP BY c.name ORDER BY total_spent DESC;`,
+    },
+  },
+
+  // ── Operating Systems ──
+  {
+    id: "bank-os-1",
+    type: "quiz",
+    title: "Unix Process Creation System Call",
+    topic: "Operating Systems",
+    difficulty: "beginner",
+    marks: 15,
+    quizQuestion: "Which system call is used in Unix-like operating systems to duplicate the current process?",
+    options: ["fork()", "exec()", "spawn()", "clone()"],
+    correctAnswer: 0,
+    explanation: "fork() duplicates the calling process, returning 0 to the child and the child PID to the parent.",
+  },
+  {
+    id: "bank-os-2",
+    type: "quiz",
+    title: "Deadlock Necessary Conditions",
+    topic: "Operating Systems",
+    difficulty: "intermediate",
+    marks: 15,
+    quizQuestion: "Which of the following is NOT one of Coffman's 4 necessary conditions for Deadlock?",
+    options: ["Preemption allowed", "Mutual Exclusion", "Hold and Wait", "Circular Wait"],
+    correctAnswer: 0,
+    explanation: "NO preemption (resources cannot be forcibly taken) is a necessary condition; if preemption is allowed, deadlock cannot occur.",
+  },
+  {
+    id: "bank-os-3",
+    type: "coding",
+    title: "Process Branching and Reaping with wait()",
+    topic: "Operating Systems",
+    difficulty: "intermediate",
+    marks: 35,
+    hints: ["Check pid == 0 for the child process branch, pid > 0 for the parent."],
+    starterCode: {
+      c: `#include <stdio.h>\n#include <unistd.h>\n#include <sys/wait.h>\n\nint main() {\n    pid_t pid = fork();\n    if (pid == 0) {\n        printf("Child Executed\\n");\n    } else if (pid > 0) {\n        wait(NULL);\n        printf("Parent Reaped Child\\n");\n    }\n    return 0;\n}\n`,
+    },
+    testInput: "",
+    testExpected: "Child Executed\nParent Reaped Child",
+  },
+
+  // ── Java OOP ──
+  {
+    id: "bank-java-1",
+    type: "quiz",
+    title: "Java Final Keyword on Classes",
+    topic: "Java OOP",
+    difficulty: "beginner",
+    marks: 15,
+    quizQuestion: "What is the consequence of declaring a Java class with the 'final' keyword?",
+    options: [
+      "The class cannot be subclassed or inherited",
+      "The class cannot have any methods",
+      "The class cannot be instantiated",
+      "All methods in the class become private",
+    ],
+    correctAnswer: 0,
+    explanation: "A final class in Java cannot be extended by any other class (preventing inheritance).",
+  },
+  {
+    id: "bank-java-2",
+    type: "coding",
+    title: "Encapsulated BankAccount Class in Java",
+    topic: "Java OOP",
+    difficulty: "beginner",
+    marks: 25,
+    hints: ["Keep balance private and provide public getter and deposit methods."],
+    starterCode: {
+      java: `public class Main {\n    static class BankAccount {\n        private double balance;\n        public BankAccount(double initial) { this.balance = initial; }\n        public void deposit(double amount) { this.balance += amount; }\n        public double getBalance() { return this.balance; }\n    }\n    public static void main(String[] args) {\n        BankAccount acc = new BankAccount(100.0);\n        acc.deposit(50.0);\n        System.out.println("Balance: " + (int)acc.getBalance());\n    }\n}\n`,
+    },
+    testInput: "",
+    testExpected: "Balance: 150",
+  },
+
+  // ── Python Programming ──
+  {
+    id: "bank-py-1",
+    type: "quiz",
+    title: "Python Dictionary Lookup Complexity",
+    topic: "Python",
+    difficulty: "beginner",
+    marks: 15,
+    quizQuestion: "What is the average time complexity of key lookup in a Python dictionary (hash table)?",
+    options: ["O(1)", "O(log n)", "O(n)", "O(n^2)"],
+    correctAnswer: 0,
+    explanation: "Python dictionaries are implemented as hash tables with open addressing, giving O(1) average lookup time.",
+  },
+  {
+    id: "bank-py-2",
+    type: "coding",
+    title: "Fibonacci Series Generator",
+    topic: "Python",
+    difficulty: "beginner",
+    marks: 25,
+    hints: ["Use iterative unpacking a, b = b, a + b."],
+    starterCode: {
+      python: `def fib(n):\n    res = []\n    a, b = 0, 1\n    for _ in range(n):\n        res.append(a)\n        a, b = b, a + b\n    return res\n\nprint("Fibonacci:", " ".join(map(str, fib(7))))\n`,
+    },
+    testInput: "",
+    testExpected: "Fibonacci: 0 1 1 2 3 5 8",
+  },
+];
 
 export default function CourseCurriculumEditorPage({
   params,
@@ -171,6 +447,86 @@ export default function CourseCurriculumEditorPage({
       setTestInput("");
       setTestExpected("5 4 3 2 1");
       setExerciseHint("Iterate backwards starting from index n - 1 down to 0.");
+    }
+  };
+
+  // Question Bank Integration state
+  const [addExerciseMode, setAddExerciseMode] = useState<"new" | "bank">("new");
+  const [bankSearchTerm, setBankSearchTerm] = useState("");
+  const [bankTypeFilter, setBankTypeFilter] = useState<string>("all");
+  const [bankTopicFilter, setBankTopicFilter] = useState<string>("all");
+  const [bankDifficultyFilter, setBankDifficultyFilter] = useState<string>("all");
+  const [previewingBankItemId, setPreviewingBankItemId] = useState<string | null>(null);
+
+  const filteredQuestionBank = useMemo(() => {
+    const query = bankSearchTerm.trim().toLowerCase();
+    return QUESTION_BANK_DATA.filter((item) => {
+      if (bankTypeFilter !== "all" && item.type !== bankTypeFilter) return false;
+      if (bankTopicFilter !== "all" && item.topic !== bankTopicFilter) return false;
+      if (bankDifficultyFilter !== "all" && item.difficulty !== bankDifficultyFilter) return false;
+      if (query) {
+        const matchTitle = item.title.toLowerCase().includes(query);
+        const matchTopic = item.topic.toLowerCase().includes(query);
+        const matchQuestion = item.quizQuestion?.toLowerCase().includes(query);
+        const matchCode =
+          item.starterCode &&
+          Object.values(item.starterCode).some((c) => c.toLowerCase().includes(query));
+        const matchHint = item.hints?.some((h) => h.toLowerCase().includes(query));
+        if (!matchTitle && !matchTopic && !matchQuestion && !matchCode && !matchHint) return false;
+      }
+      return true;
+    });
+  }, [bankSearchTerm, bankTypeFilter, bankTopicFilter, bankDifficultyFilter]);
+
+  const handleImportFromBank = async (item: BankQuestionItem) => {
+    if (!showAddExerciseModal) return;
+    try {
+      setSaving(true);
+      if (item.type === "quiz") {
+        const quizConfig = {
+          questions: [
+            {
+              id: `q-${Date.now()}`,
+              question: item.quizQuestion || item.title,
+              options: item.options || [],
+              correctAnswer: item.correctAnswer || 0,
+              explanation: item.explanation || "",
+            },
+          ],
+        };
+        await adminLearningAPI.createExercise(showAddExerciseModal, {
+          title: item.title,
+          type: "quiz",
+          marks: item.marks || 15,
+          quizConfig,
+        });
+      } else {
+        const quizConfig = item.testExpected
+          ? {
+              testCases: [
+                {
+                  input: item.testInput || "",
+                  expected: item.testExpected,
+                },
+              ],
+            }
+          : undefined;
+        await adminLearningAPI.createExercise(showAddExerciseModal, {
+          title: item.title,
+          type: "coding",
+          marks: item.marks || 25,
+          starterCode: item.starterCode || {},
+          quizConfig,
+          hints: item.hints || [],
+        });
+      }
+      showNotification("success", `Imported "${item.title}" into lesson`);
+      setShowAddExerciseModal(null);
+      await loadCourse();
+    } catch (err: any) {
+      showNotification("error", err?.response?.data?.message || "Failed to import question");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1278,20 +1634,297 @@ export default function CourseCurriculumEditorPage({
       {/* MODAL: Add Practice Exercise (MCQ or Coding/SQL) */}
       {showAddExerciseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-card border border-border rounded-xl p-6 max-w-xl w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-1 border-b border-border/60">
-              <h3 className="text-base font-bold text-foreground">Attach Practice Exercise to Lesson</h3>
-              <button
-                type="button"
-                onClick={() => loadSampleQuestion(exerciseType)}
-                className="px-2 py-1 rounded-md text-[11px] font-semibold text-primary hover:bg-primary/10 border border-primary/30 flex items-center gap-1 cursor-pointer transition-colors"
-                title="Fill in a sample problem/question automatically"
-              >
-                <Lightbulb className="w-3.5 h-3.5" />
-                <span>Pre-fill Sample</span>
-              </button>
+          <div
+            className={`bg-card border border-border rounded-xl p-6 w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto transition-all ${
+              addExerciseMode === "bank" ? "max-w-3xl" : "max-w-xl"
+            }`}
+          >
+            {/* Top Switcher: Create New vs Question Bank */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-border/80">
+              <div>
+                <h3 className="text-base font-bold text-foreground">Attach Practice to Lesson</h3>
+                <p className="text-xs text-muted-foreground">
+                  Author a new exercise or import instantly from the verified Question Bank.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-1 p-1 bg-muted rounded-lg border border-border">
+                <button
+                  type="button"
+                  onClick={() => setAddExerciseMode("new")}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+                    addExerciseMode === "new"
+                      ? "bg-background text-foreground shadow-xs border border-border/60"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Create New
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddExerciseMode("bank")}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    addExerciseMode === "bank"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Library className="w-3.5 h-3.5" />
+                  <span>Question Bank</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20 dark:bg-white/20 font-mono">
+                    {QUESTION_BANK_DATA.length}
+                  </span>
+                </button>
+              </div>
             </div>
-            <form onSubmit={handleCreateExercise} className="space-y-4 text-xs">
+
+            {addExerciseMode === "bank" ? (
+              <div className="space-y-4 text-xs">
+                {/* Search & Fast Filters */}
+                <div className="space-y-2.5 bg-muted/40 p-3 rounded-lg border border-border">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-2.5 pointer-events-none" />
+                    <Input
+                      value={bankSearchTerm}
+                      onChange={(e) => setBankSearchTerm(e.target.value)}
+                      placeholder="Fast search by keyword, concept, language, or question text..."
+                      className="pl-9 pr-8 bg-background text-foreground text-xs h-9"
+                    />
+                    {bankSearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setBankSearchTerm("")}
+                        className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {/* Type Filter */}
+                    <select
+                      value={bankTypeFilter}
+                      onChange={(e) => setBankTypeFilter(e.target.value)}
+                      className="bg-background border border-border text-foreground text-xs rounded-md px-2 py-1.5 font-medium cursor-pointer"
+                    >
+                      <option value="all">All Types (Quiz & Coding)</option>
+                      <option value="quiz">MCQ Quizzes</option>
+                      <option value="coding">Coding Problems</option>
+                      <option value="sql">SQL Sandboxes</option>
+                    </select>
+
+                    {/* Topic Filter */}
+                    <select
+                      value={bankTopicFilter}
+                      onChange={(e) => setBankTopicFilter(e.target.value)}
+                      className="bg-background border border-border text-foreground text-xs rounded-md px-2 py-1.5 font-medium cursor-pointer"
+                    >
+                      <option value="all">All Topics</option>
+                      <option value="C Programming">C Programming</option>
+                      <option value="Data Structures">Data Structures</option>
+                      <option value="Algorithms">Algorithms</option>
+                      <option value="SQL & Databases">SQL & Databases</option>
+                      <option value="Operating Systems">Operating Systems</option>
+                      <option value="Java OOP">Java OOP</option>
+                      <option value="Python">Python</option>
+                    </select>
+
+                    {/* Difficulty Filter */}
+                    <select
+                      value={bankDifficultyFilter}
+                      onChange={(e) => setBankDifficultyFilter(e.target.value)}
+                      className="bg-background border border-border text-foreground text-xs rounded-md px-2 py-1.5 font-medium cursor-pointer"
+                    >
+                      <option value="all">All Difficulties</option>
+                      <option value="beginner">Beginner</option>
+                      <option value="intermediate">Intermediate</option>
+                      <option value="advanced">Advanced</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+                  <span>
+                    Found <strong className="text-foreground">{filteredQuestionBank.length}</strong> questions in bank
+                  </span>
+                  {(bankSearchTerm || bankTypeFilter !== "all" || bankTopicFilter !== "all" || bankDifficultyFilter !== "all") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBankSearchTerm("");
+                        setBankTypeFilter("all");
+                        setBankTopicFilter("all");
+                        setBankDifficultyFilter("all");
+                      }}
+                      className="text-primary hover:underline text-[11px] cursor-pointer"
+                    >
+                      Reset filters
+                    </button>
+                  )}
+                </div>
+
+                {/* Cards List */}
+                <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+                  {filteredQuestionBank.length === 0 ? (
+                    <div className="text-center py-8 border border-dashed border-border rounded-lg text-muted-foreground">
+                      No questions matched your search criteria. Try adjusting filters.
+                    </div>
+                  ) : (
+                    filteredQuestionBank.map((item) => {
+                      const isPreviewing = previewingBankItemId === item.id;
+                      return (
+                        <div
+                          key={item.id}
+                          className="p-3.5 rounded-lg border border-border bg-background hover:border-primary/40 transition-all shadow-xs space-y-2"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              {item.type === "quiz" ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                  MCQ
+                                </span>
+                              ) : item.type === "sql" ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                                  SQL
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                  Coding
+                                </span>
+                              )}
+                              <h4 className="text-xs font-bold text-foreground">{item.title}</h4>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                                {item.topic}
+                              </span>
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary">
+                                +{item.marks} XP
+                              </span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={saving}
+                                onClick={() => handleImportFromBank(item)}
+                                className="h-7 text-[11px] px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1 cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Import</span>
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Preview Question Text / Details */}
+                          <div className="text-[11.5px] text-muted-foreground leading-relaxed">
+                            {item.type === "quiz" ? (
+                              <p className="line-clamp-2">{item.quizQuestion}</p>
+                            ) : item.hints?.[0] ? (
+                              <p className="line-clamp-2">{item.hints[0]}</p>
+                            ) : (
+                              <p>Includes pre-configured starter code and verification assertions.</p>
+                            )}
+                          </div>
+
+                          {/* Expandable Preview Drawer */}
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewingBankItemId(isPreviewing ? null : item.id)}
+                              className="text-[10.5px] text-primary hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+                            >
+                              {isPreviewing ? (
+                                <>
+                                  <ChevronUp className="w-3 h-3" />
+                                  <span>Hide details</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronDown className="w-3 h-3" />
+                                  <span>Preview question & options / code</span>
+                                </>
+                              )}
+                            </button>
+
+                            {isPreviewing && (
+                              <div className="mt-2 p-3 rounded bg-muted/60 border border-border text-xs space-y-2 font-mono">
+                                {item.type === "quiz" ? (
+                                  <div className="space-y-1 text-foreground">
+                                    <p className="font-bold">{item.quizQuestion}</p>
+                                    <div className="space-y-0.5 pt-1">
+                                      {item.options?.map((opt, oIdx) => (
+                                        <div
+                                          key={oIdx}
+                                          className={`px-2 py-1 rounded text-[11px] ${
+                                            oIdx === item.correctAnswer
+                                              ? "bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30"
+                                              : "text-muted-foreground"
+                                          }`}
+                                        >
+                                          {String.fromCharCode(65 + oIdx)}. {opt}{" "}
+                                          {oIdx === item.correctAnswer && "✓ (Correct)"}
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {item.explanation && (
+                                      <p className="text-[10px] text-muted-foreground pt-1 italic font-sans">
+                                        Explanation: {item.explanation}
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1.5 text-foreground text-[11px]">
+                                    <div className="bg-slate-950 p-2 rounded text-emerald-300 overflow-x-auto max-h-32 text-[10px]">
+                                      <pre>
+                                        {item.starterCode?.c ||
+                                          item.starterCode?.sql ||
+                                          item.starterCode?.python ||
+                                          item.starterCode?.java ||
+                                          "// Starter code template"}
+                                      </pre>
+                                    </div>
+                                    {item.testExpected && (
+                                      <div className="text-[10.5px] text-slate-400">
+                                        Expected Output: <span className="text-emerald-400">{item.testExpected}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end pt-2 border-t border-border">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAddExerciseModal(null)}
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleCreateExercise} className="space-y-4 text-xs">
+                <div className="flex items-center justify-between pb-1 border-b border-border/60">
+                  <span className="font-semibold text-foreground">Exercise Authoring Mode</span>
+                  <button
+                    type="button"
+                    onClick={() => loadSampleQuestion(exerciseType)}
+                    className="px-2 py-1 rounded-md text-[11px] font-semibold text-primary hover:bg-primary/10 border border-primary/30 flex items-center gap-1 cursor-pointer transition-colors"
+                    title="Fill in a sample problem/question automatically"
+                  >
+                    <Lightbulb className="w-3.5 h-3.5" />
+                    <span>Pre-fill Sample</span>
+                  </button>
+                </div>
               <div>
                 <label className="font-semibold block mb-1.5">Exercise Type</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -1504,6 +2137,7 @@ export default function CourseCurriculumEditorPage({
                 </Button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
