@@ -96,6 +96,8 @@ jobs:
 
       - name: Install Dependencies
         working-directory: ./frontend-v2
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: npm ci --legacy-peer-deps
 
       - name: Frontend Lint Check

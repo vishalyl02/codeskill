@@ -27,6 +27,8 @@ jobs:
           npm run test:startup
         working-directory: backend-nestjs
       - name: Install frontend
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: npm ci --legacy-peer-deps
         working-directory: frontend-v2
       - name: Test and build frontend
