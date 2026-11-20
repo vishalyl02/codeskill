@@ -404,26 +404,22 @@ export default function TakeAssessmentPage({
       if (isLockdownClient()) {
         try {
           const launchRes = await consumeLockdownLaunchToken(api, id);
-          if (!launchRes.success && launchRes.attestation?.error) {
-            if (!cancelled) {
-              setStartError(launchRes.attestation.error);
-              setIsLoadingSettings(false);
-            }
-            return;
-          }
-          if (!cancelled && launchRes.success) {
+          if (launchRes.success) {
             setIsLockdownActive(true);
             if (launchRes.attestation?.sessionId) {
               setAttestedSessionId(launchRes.attestation.sessionId);
             }
+          } else {
+            // Note: If initial attestation fails due to background applications or media permissions,
+            // do not abort loading assessment overview. Allow LockdownAppBlockerGate and LockdownMediaPermissionGate
+            // to mount and guide the student. Full attestation will be validated upon gate completion.
+            console.warn(
+              "[Lockdown] Initial attestation deferred to pre-exam gates:",
+              launchRes.attestation?.error,
+            );
           }
         } catch (err: any) {
-          console.error("Failed to bootstrap lockdown launch token:", err);
-          if (!cancelled) {
-            setStartError(err?.message || "Failed to initialize secure exam environment");
-            setIsLoadingSettings(false);
-          }
-          return;
+          console.warn("[Lockdown] Launch token ingestion warning:", err);
         }
       }
 
@@ -734,9 +730,9 @@ export default function TakeAssessmentPage({
       }
 
       // Ensure native CodeSkill LockDown attestation session is initialized and valid before starting attempt
-      if (isLockdownClient()) {
+      if (isLockdownClient() && (!isLockdownActive || !attestedSessionId)) {
         try {
-          const attestRes = await initializeLockdownAttestation(api, id);
+          const attestRes = await initializeLockdownAttestation(api, id, true);
           if (!attestRes.success) {
             throw new Error(attestRes.error || "CodeSkill LockDown attestation verification failed.");
           }
@@ -752,9 +748,36 @@ export default function TakeAssessmentPage({
       const isExplicitRetake = new URLSearchParams(window.location.search).get("retake") === "1";
       // A Redo action must discard any stale in-progress attempt and start a
       // fresh timer. Ordinary assessment entry still resumes an in-progress test.
-      const res = isExplicitRetake
-        ? await studentAssessmentsAPI.retakeAttempt(id)
-        : await studentAssessmentsAPI.startAttempt(id);
+      let res;
+      if (isExplicitRetake) {
+        try {
+          res = await studentAssessmentsAPI.retakeAttempt(id);
+        } catch (retakeErr: any) {
+          const msg = retakeErr?.response?.data?.message || "";
+          if (msg.includes("already in progress") || retakeErr?.response?.status === 400) {
+            res = await studentAssessmentsAPI.startAttempt(id);
+          } else {
+            throw retakeErr;
+          }
+        }
+      } else {
+        try {
+          res = await studentAssessmentsAPI.startAttempt(id);
+        } catch (startErr: any) {
+          const msg = startErr?.response?.data?.message || "";
+          if (
+            msg.includes("not started yet") ||
+            msg.includes("duplicate key") ||
+            msg.includes("concurrent") ||
+            startErr?.response?.status === 429
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            res = await studentAssessmentsAPI.startAttempt(id);
+          } else {
+            throw startErr;
+          }
+        }
+      }
       const data = res.data?.data && res.data.data.questions ? res.data.data : res.data;
       const questionsList = data?.questions || res.data?.questions || [];
       setQuestions(questionsList);

@@ -109,7 +109,7 @@ export default function AssessmentBriefingPage({
   useEffect(() => {
     clearAssessmentFaceReference(id);
     if (isLockdownClient() && id) {
-      void initializeLockdownAttestation(api, id).catch((err) => {
+      void initializeLockdownAttestation(api, id, false).catch((err) => {
         console.warn("[Lockdown] Briefing page attestation warm-up failed:", err);
       });
     }
