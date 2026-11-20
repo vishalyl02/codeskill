@@ -146,11 +146,12 @@ it('routes contest aggregates only to shards with eligible attempts, excluding s
   const { store, a, b } = setup();
   await store.contestSolvedProblems(
     ['problem'],
-    [{ userId: 'student-a', start: new Date(0), end: new Date(100) }],
+    [{ userId: 'student-a', attemptId: 'attempt-a', start: new Date(0), end: new Date(100) }],
   );
   expect(a.query).toHaveBeenCalledTimes(1);
   expect(b.query).not.toHaveBeenCalled();
   expect(a.query.mock.calls[0][0]).toContain('min(s."createdAt")');
+  expect(a.query.mock.calls[0][0]).toContain('s."contestAttemptId" = w."attemptId"');
   expect(a.query.mock.calls[0][0]).not.toContain('s.code');
 });
 

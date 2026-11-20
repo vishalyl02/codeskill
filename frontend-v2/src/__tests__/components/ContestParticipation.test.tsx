@@ -4,12 +4,16 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import Page from "@/app/contests/[id]/attempt/page";
 import api from "@/config/api";
 import { useAntiCheatMaster } from "@/hooks/anti-cheat/useAntiCheatMaster";
+import ContestMCQWorkspace from "@/app/contests/[id]/attempt/_components/ContestMCQWorkspace";
+import { contestMcqDraftKey, contestCodeDraftKey } from "@/lib/contest-storage";
+import { exitDocumentFullscreen } from "@/lib/fullscreen";
 const replace = jest.fn(); const router = { replace };
 const mockAuth = { user: { id: "student-id", name: "Real Candidate", username: "candidate" }, loading: false };
 jest.mock("next/navigation", () => ({ useParams: () => ({ id: "contest-id" }), useRouter: () => router }));
 jest.mock("@/context/AuthContext", () => ({ useAuth: () => mockAuth }));
 jest.mock("@/config/api", () => ({ __esModule: true, default: { post: jest.fn(), get: jest.fn() } }));
 jest.mock("@/hooks/anti-cheat/useAntiCheatMaster", () => ({ useAntiCheatMaster: jest.fn() }));
+jest.mock("@/lib/fullscreen", () => ({ exitDocumentFullscreen: jest.fn().mockResolvedValue(undefined) }));
 jest.mock("@/components/problems/ProblemWorkspace", () => function MockProblemWorkspace({ embedded }: { embedded?: boolean }) { return <div>Existing problem editor {embedded ? "embedded" : "standalone"}</div>; });
 jest.mock("@/app/contests/[id]/attempt/_components/ContestStartGate", () => ({ ContestStartGate: ({ onAccept }: { onAccept: () => void }) => <button onClick={() => onAccept()}>Start live contest</button> }));
 jest.mock("@/app/contests/[id]/attempt/_components/AntiCheatWarningDialog", () => ({ AntiCheatWarningDialog: () => null }));
@@ -28,13 +32,16 @@ it("finalizes the persisted session and opens its actual contest rankings", asyn
   render(<Page />); const startButton = await screen.findByRole("button", { name: "Start live contest" }); await act(async () => { fireEvent.click(startButton); });
   fireEvent.click(screen.getByRole("button", { name: "Finish Contest" })); fireEvent.click(screen.getByRole("button", { name: "Submit Now" }));
   await waitFor(() => expect(post).toHaveBeenCalledWith("/contests/contest-id/submit", { sessionId: "server-session" }, expect.objectContaining({ signal: expect.any(AbortSignal) })));
-  expect(replace).toHaveBeenCalledWith("/contests/contest-id/results");
+  await waitFor(() => expect(replace).toHaveBeenCalledWith("/contests/contest-id/results"));
+  expect(exitDocumentFullscreen).toHaveBeenCalledTimes(1);
+  expect(jest.mocked(exitDocumentFullscreen).mock.invocationCallOrder[0]).toBeLessThan(replace.mock.invocationCallOrder[0]);
 });
 it("shows API failures and allows a manual retry instead of claiming success", async () => {
   render(<Page />); const startButton = await screen.findByRole("button", { name: "Start live contest" }); await act(async () => { fireEvent.click(startButton); });
   post.mockRejectedValueOnce(new Error("Offline"));
   fireEvent.click(screen.getByRole("button", { name: "Finish Contest" })); fireEvent.click(screen.getByRole("button", { name: "Submit Now" }));
   await screen.findByRole("alert"); expect(replace).not.toHaveBeenCalled();
+  expect(exitDocumentFullscreen).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Finish Contest" })); fireEvent.click(screen.getByRole("button", { name: "Submit Now" }));
   await waitFor(() => expect(replace).toHaveBeenCalled());
 });
@@ -62,6 +69,7 @@ it('auto-finalizes at the configured end time and unmounts the editor', async ()
     await act(async () => jest.advanceTimersByTime(1000));
     expect(post.mock.calls.filter(call => String(call[0]).endsWith('/submit'))).toHaveLength(1);
     expect(screen.queryByText('Existing problem editor embedded')).toBeNull();
+    expect(exitDocumentFullscreen).toHaveBeenCalledTimes(1);
   } finally { jest.useRealTimers(); }
 });
 
@@ -157,9 +165,37 @@ it("renders MCQ workspace with options instead of code editor in mixed contest",
         problemId: "mcq-1",
         selectedAnswer: 3,
         language: "text",
+        contestId: "contest-id",
+        sessionId: "server-session",
       }),
     );
   });
 
   expect(await screen.findByText(/Accepted! Your answer has been verified/i)).toBeInTheDocument();
+});
+
+it("keeps the same question's draft and solved state separate across contests", async () => {
+  localStorage.clear();
+  const problem = {
+    id: "shared-question", title: "Shared MCQ", slug: "",
+    questionType: "single_choice", options: ["First", "Second"], question: "Choose one",
+  };
+  expect(contestCodeDraftKey("student-id", "contest-a", "session-a", "shared-question", "javascript"))
+    .not.toBe(contestCodeDraftKey("student-id", "contest-b", "session-b", "shared-question", "javascript"));
+  get.mockImplementation(async (_url, config) => ({ data: {
+    data: config?.params?.contestId === "contest-a" ? [{ status: "accepted" }] : [],
+  } }));
+  const first = render(<ContestMCQWorkspace problem={problem} contestId="contest-a" sessionId="session-a" userId="student-id" />);
+  fireEvent.click(screen.getByRole("button", { name: /First/ }));
+  expect(screen.getByRole("button", { name: /Submit Answer/ })).toBeEnabled();
+  expect(localStorage.getItem(contestMcqDraftKey("student-id", "contest-a", "session-a", problem.id))).toContain("selectedAnswer");
+  await screen.findByText("Solved (Accepted)");
+  first.unmount();
+  render(<ContestMCQWorkspace problem={problem} contestId="contest-b" sessionId="session-b" userId="student-id" />);
+  expect(screen.getByRole("button", { name: /Submit Answer/ })).toBeDisabled();
+  expect(screen.queryByText("Solved (Accepted)")).toBeNull();
+  await waitFor(() => expect(get).toHaveBeenCalledWith(
+    "/submissions/problem/shared-question", { params: { contestId: "contest-b", sessionId: "session-b" } },
+  ));
+  localStorage.clear();
 });

@@ -2,6 +2,9 @@ type FullscreenDocument = Document & {
   webkitFullscreenElement?: Element | null;
   mozFullScreenElement?: Element | null;
   msFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => void | Promise<void>;
+  mozCancelFullScreen?: () => void | Promise<void>;
+  msExitFullscreen?: () => void | Promise<void>;
 };
 type FullscreenRoot = HTMLElement & {
   webkitRequestFullscreen?: () => void | Promise<void>;
@@ -11,6 +14,12 @@ export const fullscreenEvents = ["fullscreenchange", "webkitfullscreenchange", "
 export function isDocumentFullscreen(): boolean {
   const doc = document as FullscreenDocument;
   return Boolean(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
+}
+export async function exitDocumentFullscreen(): Promise<void> {
+  if (!isDocumentFullscreen()) return;
+  const doc = document as FullscreenDocument;
+  const exit = doc.exitFullscreen || doc.webkitExitFullscreen || doc.mozCancelFullScreen || doc.msExitFullscreen;
+  await exit?.call(doc);
 }
 /** Call directly from a user gesture; never claim success from a resolved promise alone. */
 export async function enterDocumentFullscreen(): Promise<void> {

@@ -93,10 +93,14 @@ export class SubmissionsController {
   async getSubmissionsByProblem(
     @CurrentUser('id') userId: string,
     @Param('problemId') problemId: string,
+    @Query('contestId') contestId?: string,
+    @Query('sessionId') sessionId?: string,
   ) {
     const submissions = await this.submissionsService.getSubmissionsByProblem(
       userId,
       problemId,
+      contestId,
+      sessionId,
     );
     return { count: submissions.length, data: submissions };
   }

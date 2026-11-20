@@ -20,6 +20,7 @@ import { applyProblemConfigDefaultLanguageMigration } from './migrations/problem
 import { applyAnalyticsOptimizationIndexesMigration } from './migrations/analytics-optimization-indexes';
 import { applyQuestionHideMainMethodMigration } from './migrations/question-hide-main-method';
 import { applyAssessmentSequentialSectionsMigration } from './migrations/assessment-sequential-sections';
+import { applyContestSubmissionScopeMigration, migrateContestSubmissionShards } from './migrations/contest-submission-scope';
 
 export function practiceSubmissionMigrationOptions(): DataSourceOptions {
   const postgres = databaseConfig().postgres;
@@ -76,6 +77,7 @@ export async function runPracticeSubmissionSourceMigration(): Promise<void> {
         await applyAnalyticsOptimizationIndexesMigration(queryRunner);
         await applyQuestionHideMainMethodMigration(queryRunner);
         await applyAssessmentSequentialSectionsMigration(queryRunner);
+        if (!sharding) await applyContestSubmissionScopeMigration(queryRunner);
         await queryRunner.commitTransaction();
       } catch (error) {
         await queryRunner.rollbackTransaction();
@@ -89,6 +91,9 @@ export async function runPracticeSubmissionSourceMigration(): Promise<void> {
       await dataSource.destroy();
     }
   }
+
+  const sharding = parseSubmissionShardingConfig();
+  if (sharding) await migrateContestSubmissionShards(sharding);
 }
 
 if (require.main === module) {

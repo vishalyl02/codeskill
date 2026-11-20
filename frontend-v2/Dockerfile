@@ -9,7 +9,8 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --legacy-peer-deps
+# The speech worker uses browser WebAssembly and does not need CUDA binaries.
+RUN ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci --legacy-peer-deps
 
 # --- Stage 2: Builder ---
 FROM node:22-alpine AS builder
@@ -34,7 +35,7 @@ ENV NODE_ENV=production
 RUN npm run build
 
 # Remove development dependencies
-RUN npm prune --omit=dev --legacy-peer-deps
+RUN ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm prune --omit=dev --legacy-peer-deps
 
 # --- Stage 3: Production Runner ---
 FROM node:22-alpine AS runner

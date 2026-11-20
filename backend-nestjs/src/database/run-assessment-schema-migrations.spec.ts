@@ -36,6 +36,9 @@ it('serializes rollout migrations and adds the attempt columns before committing
   expect(runner.query.mock.calls[0][0]).toBe('SELECT pg_advisory_xact_lock(1902230159)');
   expect(runner.query).toHaveBeenCalledWith(expect.stringContaining('contestFormat'));
   expect(runner.query).toHaveBeenCalledWith(expect.stringContaining('ADD COLUMN IF NOT EXISTS "captures"'));
+  expect(runner.query).toHaveBeenCalledWith(
+    'ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS "contestAttemptId" uuid',
+  );
   expect(applyAssessmentResumeLimitMigration).toHaveBeenCalledWith(runner);
   expect(applyLearningModuleMigration).toHaveBeenCalledWith(runner);
   expect(runner.commitTransaction).toHaveBeenCalledTimes(1);
