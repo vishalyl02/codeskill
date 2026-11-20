@@ -22,6 +22,7 @@ import {
   AlertCircle,
   Database,
   Terminal,
+  Lightbulb,
 } from "lucide-react";
 import { adminLearningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
@@ -128,6 +129,8 @@ export default function CourseCurriculumEditorPage({
   // Coding / SQL fields
   const [starterCode, setStarterCode] = useState("");
   const [exerciseHint, setExerciseHint] = useState("");
+  const [testInput, setTestInput] = useState("");
+  const [testExpected, setTestExpected] = useState("");
 
   // Edit existing exercise state
   const [editingExercise, setEditingExercise] = useState<{
@@ -144,8 +147,32 @@ export default function CourseCurriculumEditorPage({
     quizCorrect?: number;
     quizExplanation?: string;
     starterCode?: string;
+    testInput?: string;
+    testExpected?: string;
     exerciseHint?: string;
   } | null>(null);
+
+  const loadSampleQuestion = (type: string) => {
+    if (type === "quiz") {
+      setQuizQuestion("What is the time complexity of searching in a balanced Binary Search Tree?");
+      setQuizOptA("O(log n)");
+      setQuizOptB("O(n)");
+      setQuizOptC("O(1)");
+      setQuizOptD("O(n log n)");
+      setQuizCorrect(0);
+      setQuizExplanation("A balanced BST halves the search space at each node, giving logarithmic O(log n) time.");
+    } else if (type === "sql") {
+      setExerciseTitle("Retrieve Completed High-Value Orders");
+      setStarterCode("SELECT id, customer_id, amount FROM orders WHERE status = 'completed' AND amount > 100.00 ORDER BY amount DESC;");
+      setExerciseHint("Filter by status = 'completed' and amount > 100.");
+    } else {
+      setExerciseTitle("Reverse Array Elements in C");
+      setStarterCode("#include <stdio.h>\n\nint main() {\n    int arr[] = {1, 2, 3, 4, 5};\n    int n = 5;\n    for (int i = n - 1; i >= 0; i--) {\n        printf(\"%d \", arr[i]);\n    }\n    printf(\"\\n\");\n    return 0;\n}\n");
+      setTestInput("");
+      setTestExpected("5 4 3 2 1");
+      setExerciseHint("Iterate backwards starting from index n - 1 down to 0.");
+    }
+  };
 
   useEffect(() => {
     loadCourse();
@@ -407,15 +434,29 @@ export default function CourseCurriculumEditorPage({
         if (isSql) {
           codeMap.sql = starterCode || "SELECT * FROM customers LIMIT 10;";
         } else {
+          codeMap.c = starterCode || "#include <stdio.h>\n\nint main() {\n    return 0;\n}\n";
+          codeMap.cpp = starterCode || "#include <iostream>\n\nint main() {\n    return 0;\n}\n";
           codeMap.javascript = starterCode || "// Write solution here\n";
           codeMap.python = starterCode || "# Write solution here\n";
         }
+
+        const quizConfig = testExpected.trim()
+          ? {
+              testCases: [
+                {
+                  input: testInput || "",
+                  expected: testExpected.trim(),
+                },
+              ],
+            }
+          : undefined;
 
         await adminLearningAPI.createExercise(showAddExerciseModal, {
           title: exerciseTitle.trim() || (isSql ? "SQL Query Practice" : "Hands-On Coding Challenge"),
           type: "coding",
           marks: Number(exerciseMarks) || 25,
           starterCode: codeMap,
+          quizConfig,
           hints: exerciseHint ? [exerciseHint] : [],
         });
       }
@@ -429,6 +470,8 @@ export default function CourseCurriculumEditorPage({
       setQuizOptD("");
       setQuizExplanation("");
       setStarterCode("");
+      setTestInput("");
+      setTestExpected("");
       setExerciseHint("");
       showNotification("success", "Exercise added successfully");
       await loadCourse();
@@ -487,14 +530,27 @@ export default function CourseCurriculumEditorPage({
           codeMap.sql = editingExercise.starterCode || "SELECT * FROM customers LIMIT 10;";
         } else {
           codeMap.c = editingExercise.starterCode || "#include <stdio.h>\n\nint main() {\n    return 0;\n}";
+          codeMap.cpp = editingExercise.starterCode || "#include <iostream>\n\nint main() {\n    return 0;\n}";
           codeMap.javascript = editingExercise.starterCode || "// Write solution here\n";
           codeMap.python = editingExercise.starterCode || "# Write solution here\n";
         }
+
+        const quizConfig = editingExercise.testExpected?.trim()
+          ? {
+              testCases: [
+                {
+                  input: editingExercise.testInput || "",
+                  expected: editingExercise.testExpected.trim(),
+                },
+              ],
+            }
+          : undefined;
 
         await adminLearningAPI.updateExercise(editingExercise.id, {
           title: editingExercise.title.trim(),
           marks: Number(editingExercise.marks) || 25,
           starterCode: codeMap,
+          quizConfig,
           hints: editingExercise.exerciseHint ? [editingExercise.exerciseHint] : [],
         });
       }
@@ -919,8 +975,10 @@ export default function CourseCurriculumEditorPage({
                                             type="button"
                                             onClick={() => {
                                               const q0 = ex.quizConfig?.questions?.[0];
+                                              const tc0 = (ex.quizConfig as any)?.testCases?.[0];
                                               const starter =
                                                 ex.starterCode?.c ||
+                                                ex.starterCode?.cpp ||
                                                 ex.starterCode?.sql ||
                                                 ex.starterCode?.javascript ||
                                                 ex.starterCode?.python ||
@@ -939,6 +997,8 @@ export default function CourseCurriculumEditorPage({
                                                 quizCorrect: q0?.correctAnswer ?? 0,
                                                 quizExplanation: q0?.explanation || "",
                                                 starterCode: starter,
+                                                testInput: tc0?.input || "",
+                                                testExpected: tc0?.expected || tc0?.output || "",
                                                 exerciseHint: ex.hints?.[0] || "",
                                               });
                                             }}
@@ -1219,7 +1279,18 @@ export default function CourseCurriculumEditorPage({
       {showAddExerciseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-card border border-border rounded-xl p-6 max-w-xl w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-base font-bold text-foreground">Attach Practice Exercise to Lesson</h3>
+            <div className="flex items-center justify-between pb-1 border-b border-border/60">
+              <h3 className="text-base font-bold text-foreground">Attach Practice Exercise to Lesson</h3>
+              <button
+                type="button"
+                onClick={() => loadSampleQuestion(exerciseType)}
+                className="px-2 py-1 rounded-md text-[11px] font-semibold text-primary hover:bg-primary/10 border border-primary/30 flex items-center gap-1 cursor-pointer transition-colors"
+                title="Fill in a sample problem/question automatically"
+              >
+                <Lightbulb className="w-3.5 h-3.5" />
+                <span>Pre-fill Sample</span>
+              </button>
+            </div>
             <form onSubmit={handleCreateExercise} className="space-y-4 text-xs">
               <div>
                 <label className="font-semibold block mb-1.5">Exercise Type</label>
@@ -1369,6 +1440,29 @@ export default function CourseCurriculumEditorPage({
                       className="w-full bg-background border border-border rounded p-2 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                   </div>
+
+                  {exerciseType !== "sql" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-semibold block mb-1">Test Input (stdin - Optional)</label>
+                        <Input
+                          value={testInput}
+                          onChange={(e) => setTestInput(e.target.value)}
+                          placeholder="e.g. 5"
+                          className="bg-background text-foreground text-xs font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold block mb-1">Expected Output (stdout)</label>
+                        <Input
+                          value={testExpected}
+                          onChange={(e) => setTestExpected(e.target.value)}
+                          placeholder="e.g. 15"
+                          className="bg-background text-foreground text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <label className="font-semibold block mb-1">Hint for Students</label>
@@ -1568,6 +1662,39 @@ export default function CourseCurriculumEditorPage({
                       className="w-full bg-background border border-border rounded p-2 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                   </div>
+
+                  {editingExercise.type !== "sql" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-semibold block mb-1">Test Input (stdin - Optional)</label>
+                        <Input
+                          value={editingExercise.testInput || ""}
+                          onChange={(e) =>
+                            setEditingExercise({
+                              ...editingExercise,
+                              testInput: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. 5"
+                          className="bg-background text-foreground text-xs font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold block mb-1">Expected Output (stdout)</label>
+                        <Input
+                          value={editingExercise.testExpected || ""}
+                          onChange={(e) =>
+                            setEditingExercise({
+                              ...editingExercise,
+                              testExpected: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. 15"
+                          className="bg-background text-foreground text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <label className="font-semibold block mb-1">Hint for Students</label>
