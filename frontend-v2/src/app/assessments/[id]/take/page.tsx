@@ -980,17 +980,12 @@ export default function TakeAssessmentPage({
           idempotencyKey: submissionIdempotencyKey,
           clientSubmittedAtMs,
         };
-        const submitConfig = {
-          headers: {
-            "X-Idempotency-Key": submissionIdempotencyKey,
-          },
-        };
         let lastError: any;
         // Code evaluation can briefly fail while the judge service is busy.
         // Retry transient service/network failures before leaving the attempt.
         for (let retry = 0; retry < 3; retry++) {
           try {
-            await studentAssessmentsAPI.submitAttempt(id, payload, submitConfig);
+            await studentAssessmentsAPI.submitAttempt(id, payload);
             lastError = null;
             break;
           } catch (error: any) {

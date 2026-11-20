@@ -35,6 +35,22 @@ export function resolveAssessmentMediaRequirements(
     };
   }
 
+  // If no proctoring object, mode, or policy is present, assessment is unproctored by default
+  const hasProctoringConfig = Boolean(
+    (proctoring !== undefined && proctoring !== null) ||
+    (mode !== undefined && mode !== null) ||
+    (securityPolicy !== undefined && securityPolicy !== null)
+  );
+
+  if (!hasProctoringConfig) {
+    return {
+      requireCamera: false,
+      requireMicrophone: false,
+      needsMediaGate: false,
+      reason: "No proctoring configuration specified.",
+    };
+  }
+
   // 2. Camera Requirement Resolution
   // Explicit false takes strict precedence
   const explicitCameraOff =
@@ -42,22 +58,8 @@ export function resolveAssessmentMediaRequirements(
     proctoring?.enableWebcam === false ||
     proctoring?.useCamera === false;
 
-  // Explicit true flags
-  const explicitCameraOn =
-    proctoring?.requireCamera === true ||
-    proctoring?.enableWebcam === true ||
-    proctoring?.useCamera === true;
-
-  // Mode-based requirements
-  const modeRequiresCamera =
-    mode === "fully_proctored" ||
-    proctoring?.mode === "fully_proctored" ||
-    securityPolicy?.proctoringMode === "STRICT" ||
-    securityPolicy?.proctoringMode === "STANDARD" ||
-    securityPolicy?.proctoringMode === "AI_PROCTORED";
-
-  // Require camera only if explicitly enabled or if proctored mode is active AND not explicitly disabled
-  const requireCamera = !explicitCameraOff && (explicitCameraOn || modeRequiresCamera);
+  // When proctoring is enabled/configured, camera is required by default unless explicitly turned off
+  const requireCamera = !explicitCameraOff;
 
   // 3. Microphone Requirement Resolution
   // Explicit false takes strict precedence
