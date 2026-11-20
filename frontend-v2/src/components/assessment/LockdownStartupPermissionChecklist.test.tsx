@@ -13,6 +13,7 @@ jest.mock("@/lib/lockdown-bridge", () => {
     getStartupPermissionChecklist: jest.fn(),
     requestOsPermission: jest.fn(),
     completePermissionOnboarding: jest.fn(),
+    logoutAndExitLockdown: jest.fn(),
     exitLockdownApp: jest.fn(),
     setLockedAssessment: jest.fn(),
     setClientAccommodations: jest.fn(),
@@ -154,6 +155,30 @@ describe("LockdownStartupPermissionChecklist & LockdownRouteGuard", () => {
       await waitFor(() => {
         expect(bridge.completePermissionOnboarding).toHaveBeenCalled();
         expect(onCompleteMock).toHaveBeenCalled();
+      });
+    });
+
+    it("calls logoutAndExitLockdown and does not navigate to website when clicking Exit button", async () => {
+      (bridge.getStartupPermissionChecklist as jest.Mock).mockResolvedValue({
+        platform: "macos",
+        onboardingCompleted: false,
+        allRequiredGranted: false,
+        items: [],
+        verifiedAtMs: 1732000000000,
+        clientVersion: "1.0.0",
+        pendingExamUrl: null,
+      });
+
+      render(<LockdownStartupPermissionChecklist />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /exit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /exit/i }));
+
+      await waitFor(() => {
+        expect(bridge.logoutAndExitLockdown).toHaveBeenCalled();
       });
     });
   });

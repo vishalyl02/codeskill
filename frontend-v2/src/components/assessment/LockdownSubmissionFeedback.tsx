@@ -97,10 +97,10 @@ export default function LockdownSubmissionFeedback({
     // 2. Clear persisted exam sessions and storage
     await LockdownSessionStore.clearState(assessmentId);
 
-    // 3. Release OS kiosk lock (caffeinate, presentations, hooks, desktops)
+    // 3. Release OS kiosk lock and cleanly log out & exit the application
     if (isLockdownClient()) {
       await releaseLockdownKiosk();
-      await exitLockdownApp();
+      await logoutAndExitLockdown();
     } else {
       window.location.href = `/assessments/${assessmentId}/result`;
     }

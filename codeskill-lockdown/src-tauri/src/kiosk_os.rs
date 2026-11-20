@@ -1150,13 +1150,14 @@ pub fn disable_kiosk_mode(window: tauri::WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 pub fn exit_lockdown_app(app: tauri::AppHandle) {
-    eprintln!("[CodeSkill LockDown IPC] exit_lockdown_app invoked");
+    eprintln!("[CodeSkill LockDown IPC] exit_lockdown_app invoked - terminating platform process");
     release_os_kiosk_system();
     close_secondary_monitor_shields(&app);
     clear_kiosk_dirty(&app);
     let _ = crate::state_persistence::clear_persisted_exam_session(app.clone());
     if let Some(window) = app.get_webview_window("exam-kiosk") {
         let _ = window.clear_all_browsing_data();
+        let _ = window.destroy();
     }
     if let Ok(dir) = app.path().app_data_dir() {
         let scoped = dir.join("scoped_webview_data");
@@ -1165,6 +1166,7 @@ pub fn exit_lockdown_app(app: tauri::AppHandle) {
         }
     }
     app.exit(0);
+    std::process::exit(0);
 }
 
 pub fn reassert_os_kiosk() {
