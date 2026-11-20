@@ -20,6 +20,8 @@ pub struct PersistedExamSession {
     pub assessment_id: Option<String>,
     #[serde(rename = "candidateId")]
     pub candidate_id: Option<String>,
+    #[serde(rename = "portalOrigin", default, skip_serializing_if = "Option::is_none")]
+    pub portal_origin: Option<String>,
     #[serde(rename = "authToken")]
     pub auth_token: Option<String>,
     #[serde(rename = "attestationToken")]
@@ -48,6 +50,8 @@ pub struct PersistedExamSessionPatch {
     pub assessment_id: Option<String>,
     #[serde(rename = "candidateId")]
     pub candidate_id: Option<String>,
+    #[serde(rename = "portalOrigin", default, skip_serializing_if = "Option::is_none")]
+    pub portal_origin: Option<String>,
     #[serde(rename = "authToken")]
     pub auth_token: Option<String>,
     #[serde(rename = "attestationToken")]
@@ -146,6 +150,9 @@ pub fn hydrate_attestation_state_from_disk(app: &AppHandle) {
             if let Ok(mut locked) = att_state.locked_assessment_id.lock() {
                 *locked = Some(assessment_id.clone());
             }
+        }
+        if let Some(ref origin) = session.portal_origin {
+            crate::config::set_runtime_origin(origin);
         }
         if let Some(ref mode) = session.kiosk_mode {
             if let Ok(mut km) = att_state.kiosk_mode.lock() {
@@ -249,6 +256,9 @@ pub fn save_persisted_exam_session(
     }
     if let Some(cid) = patch.candidate_id {
         current.candidate_id = Some(cid);
+    }
+    if let Some(orig) = patch.portal_origin {
+        current.portal_origin = Some(orig);
     }
     if let Some(tok) = patch.auth_token {
         current.auth_token = Some(tok);

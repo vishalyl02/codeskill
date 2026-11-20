@@ -41,6 +41,12 @@ for (const plist of plistPaths) {
       try {
         execSync(`/usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "${plist}"`, { stdio: 'ignore' });
       } catch {}
+      try {
+        execSync(`/usr/libexec/PlistBuddy -c "Delete :LSRequiresCarbon" "${plist}"`, { stdio: 'ignore' });
+      } catch {}
+      try {
+        execSync(`/usr/libexec/PlistBuddy -c "Delete :CSResourcesFileMapped" "${plist}"`, { stdio: 'ignore' });
+      } catch {}
       execSync(`/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "${plist}"`);
       execSync(`/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "${plist}"`);
       execSync(`/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string com.codeskill.lockdown" "${plist}"`);
@@ -95,6 +101,20 @@ if (validAppDir && fs.existsSync(validAppDir)) {
     execSync(`xattr -cr "${targetDmg}"`);
     fs.rmSync(stagingDir, { recursive: true, force: true });
     console.log(`[postbuild] Packaged signed DMG installer at ${targetDmg}`);
+
+    const installedApp = '/Applications/CodeSkill LockDown.app';
+    if (fs.existsSync(installedApp)) {
+      try {
+        execSync(`rm -rf "${installedApp}"`);
+        execSync(`cp -R "${validAppDir}" "${installedApp}"`);
+        execSync(`xattr -cr "${installedApp}"`);
+        execSync(`codesign --force --deep --sign - "${installedApp}"`);
+        execSync(`/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "${installedApp}"`);
+        console.log(`[postbuild] Synced and registered latest build at ${installedApp}`);
+      } catch (instErr) {
+        console.warn(`[postbuild] Non-fatal: could not update /Applications copy: ${instErr.message}`);
+      }
+    }
   } catch (e) {
     console.warn(`[postbuild] Failed to package signed DMG: ${e.message}`);
   }

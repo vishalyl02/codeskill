@@ -115,6 +115,10 @@
       // Standalone Launch: do NOT redirect to /assessments. Show diagnostic button so candidate can test setup.
       setTimeout(function() {
         if (!redirected) {
+          var spinner = document.querySelector('.spinner');
+          if (spinner) {
+            spinner.style.display = 'none';
+          }
           var p = document.querySelector('p');
           if (p) {
             p.innerText = "Single-Assessment Isolation Active. Click 'Launch in CodeSkill LockDown' from your exam portal, or test your setup below.";

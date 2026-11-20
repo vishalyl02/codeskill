@@ -12,8 +12,26 @@ use permissions_onboarding::StartupPermissionsState;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub mod config {
+    use std::sync::RwLock;
+
+    static DYNAMIC_ORIGIN: RwLock<Option<String>> = RwLock::new(None);
+
+    pub fn set_runtime_origin(origin: &str) {
+        let trimmed = origin.trim().trim_end_matches('/');
+        if !trimmed.is_empty() && (trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+            if let Ok(mut lock) = DYNAMIC_ORIGIN.write() {
+                *lock = Some(trimmed.to_string());
+            }
+        }
+    }
+
     #[tauri::command]
     pub fn get_frontend_origin() -> String {
+        if let Ok(lock) = DYNAMIC_ORIGIN.read() {
+            if let Some(ref origin) = *lock {
+                return origin.clone();
+            }
+        }
         option_env!("FRONTEND_ORIGIN")
             .map(|s| s.to_string())
             .or_else(|| std::env::var("FRONTEND_ORIGIN").ok())
@@ -21,7 +39,7 @@ pub mod config {
             .unwrap_or_else(|| "http://localhost:3000".to_string())
     }
 }
-pub use config::get_frontend_origin;
+pub use config::{get_frontend_origin, set_runtime_origin};
 
 #[derive(Clone, serde::Serialize)]
 struct DeepLinkPayload {
@@ -32,8 +50,15 @@ struct DeepLinkPayload {
 
 fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
     let clean_url = url_str.trim().trim_matches('"').trim_matches('\'');
-    // Expected format: codeskill-exam://start?examId={id}&token={token} or codeskill-lockdown://system-check
+    // Expected format: codeskill-exam://start?examId={id}&token={token}&origin={origin} or codeskill-lockdown://system-check?origin={origin}
     if let Ok(parsed) = url::Url::parse(clean_url) {
+        // Extract origin from query parameters if present
+        for (k, v) in parsed.query_pairs() {
+            if k == "origin" || k == "frontendOrigin" || k == "baseUrl" {
+                config::set_runtime_origin(&v);
+            }
+        }
+
         let is_system_check = parsed.host_str() == Some("system-check")
             || parsed.path() == "/system-check"
             || parsed.path() == "system-check"
@@ -126,12 +151,13 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
                     *locked = Some(id.clone());
                 }
 
-                // Persist locked assessment id into state persistence journal
+                // Persist locked assessment id and portal origin into state persistence journal
                 let _ = state_persistence::save_persisted_exam_session(
                     app.clone(),
                     state_persistence::PersistedExamSessionPatch {
                         assessment_id: Some(id.clone()),
                         auth_token: token.clone(),
+                        portal_origin: Some(frontend_origin),
                         ..Default::default()
                     },
                 );
@@ -354,6 +380,12 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 return true;
             }
 
+            if let Some(host) = url.host_str() {
+                if host == "tauri.localhost" || host.ends_with(".localhost") {
+                    return true;
+                }
+            }
+
             // 2. Check if locked assessment is set
             let (locked_id, allowed_urls) = {
                 let locked = state.locked_assessment_id.lock().unwrap();
@@ -422,13 +454,19 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             // If no assessment locked yet, allow navigation to frontend origin and localhost
             let frontend = config::get_frontend_origin();
             if let Ok(frontend_url) = url::Url::parse(&frontend) {
-                if url.host_str() == frontend_url.host_str() && url.port() == frontend_url.port() {
+                if url.host_str() == frontend_url.host_str() {
                     return true;
                 }
             }
 
             if let Some(host) = url.host_str() {
-                if host == "localhost" || host == "127.0.0.1" || host.ends_with(".codeskill.com") || host == "codeskill.com" {
+                if host == "localhost"
+                    || host == "127.0.0.1"
+                    || host == "tauri.localhost"
+                    || host.ends_with(".localhost")
+                    || host.ends_with(".codeskill.com")
+                    || host == "codeskill.com"
+                {
                     return true;
                 }
             }
@@ -483,25 +521,6 @@ pub fn run() {
 
             // Hydrate AttestationState and active exam session from persistent disk journal
             state_persistence::hydrate_attestation_state_from_disk(app.handle());
-
-            // Check if initial startup permissions onboarding is needed
-            if permissions_onboarding::is_onboarding_needed(app.handle()) {
-                let frontend_origin = get_frontend_origin();
-                let onboarding_url = format!("{}/lockdown-startup-permissions", frontend_origin.trim_end_matches('/'));
-                if let Some(window) = app.get_webview_window("exam-kiosk") {
-                    if let Ok(onboarding_url_obj) = url::Url::parse(&onboarding_url) {
-                        let _ = window.navigate(onboarding_url_obj);
-                    }
-                }
-            }
-
-            // In production release builds, close devtools
-            #[cfg(not(debug_assertions))]
-            {
-                if let Some(window) = app.get_webview_window("exam-kiosk") {
-                    let _ = window.close_devtools();
-                }
-            }
 
             // Start background watchdog for multi-monitor, stealth overlays, and forbidden processes
             security::start_security_watchdog(app.handle().clone());

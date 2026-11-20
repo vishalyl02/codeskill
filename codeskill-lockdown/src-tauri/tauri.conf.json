@@ -27,7 +27,7 @@
         "skipTaskbar": false,
         "contentProtected": false,
         "center": true,
-        "devtools": true
+        "devtools": false
       }
     ]
   },
