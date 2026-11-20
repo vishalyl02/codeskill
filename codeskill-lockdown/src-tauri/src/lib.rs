@@ -402,8 +402,11 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 if path.starts_with(&assessment_prefix)
                     || path == "/login"
                     || path.starts_with("/auth/")
+                    || path.starts_with("/(auth)/")
                     || path == "/lockdown-startup-permissions"
                     || path == "/lockdown-system-check"
+                    || path.starts_with("/_next/")
+                    || path.starts_with("/api/")
                 {
                     return true;
                 }
@@ -464,6 +467,8 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                     || host == "127.0.0.1"
                     || host == "tauri.localhost"
                     || host.ends_with(".localhost")
+                    || host == "codeskill.novaserve.cloud"
+                    || host.ends_with(".novaserve.cloud")
                     || host.ends_with(".codeskill.com")
                     || host == "codeskill.com"
                 {
