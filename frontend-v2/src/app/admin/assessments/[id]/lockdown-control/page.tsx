@@ -10,6 +10,9 @@ import {
   Clock,
   AlertTriangle,
   FileCheck2,
+  Sparkles,
+  Users,
+  Flame,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "@/config/api";
@@ -22,6 +25,9 @@ import CandidateForensicDrawer from "./_components/CandidateForensicDrawer";
 import PlagiarismDiffViewerModal, {
   PlagiarismPairData,
 } from "./_components/PlagiarismDiffViewerModal";
+import AccommodationsManagerPanel from "./_components/AccommodationsManagerPanel";
+import LiveClassroomInvigilationPanel from "./_components/LiveClassroomInvigilationPanel";
+import QuestionFrictionHeatmap from "./_components/QuestionFrictionHeatmap";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -58,6 +64,22 @@ export default function LockdownControlPage({ params }: PageProps) {
   const [isScanningPlagiarism, setIsScanningPlagiarism] = useState(false);
   const [isRotatingPin, setIsRotatingPin] = useState(false);
   const [quitPin, setQuitPin] = useState<string | null>(null);
+  const [activeControlTab, setActiveControlTab] = useState<
+    "candidates" | "invigilation" | "accommodations" | "friction"
+  >("candidates");
+  const [isCreatingMock, setIsCreatingMock] = useState(false);
+
+  const handleCreatePracticeMock = async () => {
+    setIsCreatingMock(true);
+    try {
+      await api.post(`/admin/assessments/${assessmentId}/create-practice-mock`);
+      toast.success("5-Minute Practice Mock created successfully!");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to create practice mock");
+    } finally {
+      setIsCreatingMock(false);
+    }
+  };
 
   // Fetch command center data
   const fetchData = useCallback(
@@ -378,6 +400,16 @@ export default function LockdownControlPage({ params }: PageProps) {
 
           <button
             type="button"
+            onClick={handleCreatePracticeMock}
+            disabled={isCreatingMock}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{isCreatingMock ? "Generating..." : "Generate Practice Mock"}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => fetchData(true)}
             disabled={isRefreshing}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-medium border border-border transition-colors cursor-pointer disabled:opacity-50"
@@ -428,15 +460,92 @@ export default function LockdownControlPage({ params }: PageProps) {
               quitPin={quitPin}
             />
 
-            {/* Virtualized Candidate Monitor Table */}
-            <CandidateMonitorTable
-              candidates={data.candidates}
-              plagiarismPairs={data.plagiarismFlaggedPairs}
-              onSelectCandidate={(cid) => setSelectedCandidateId(cid)}
-              onQuickUnlock={handleQuickUnlock}
-              onQuickReopen={handleQuickReopen}
-              onViewPlagiarismDiff={handleViewPlagiarismDiff}
-            />
+            {/* Control Center Navigation Tabs */}
+            <div className="flex items-center gap-2 border-b border-border pb-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setActiveControlTab("candidates")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  activeControlTab === "candidates"
+                    ? "bg-indigo-600 text-white"
+                    : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Fingerprint className="w-3.5 h-3.5" />
+                Candidate Integrity & Plagiarism
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveControlTab("invigilation")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  activeControlTab === "invigilation"
+                    ? "bg-indigo-600 text-white"
+                    : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                Live Invigilation & Extra Time
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveControlTab("accommodations")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  activeControlTab === "accommodations"
+                    ? "bg-indigo-600 text-white"
+                    : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                Student Accommodations
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveControlTab("friction")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  activeControlTab === "friction"
+                    ? "bg-indigo-600 text-white"
+                    : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Flame className="w-3.5 h-3.5" />
+                Question Friction Heatmap
+              </button>
+            </div>
+
+            {/* Tab Views */}
+            {activeControlTab === "candidates" && (
+              <CandidateMonitorTable
+                candidates={data.candidates}
+                plagiarismPairs={data.plagiarismFlaggedPairs}
+                onSelectCandidate={(cid) => setSelectedCandidateId(cid)}
+                onQuickUnlock={handleQuickUnlock}
+                onQuickReopen={handleQuickReopen}
+                onViewPlagiarismDiff={handleViewPlagiarismDiff}
+              />
+            )}
+
+            {activeControlTab === "invigilation" && (
+              <LiveClassroomInvigilationPanel
+                assessmentId={assessmentId}
+                userRole="ADMIN"
+              />
+            )}
+
+            {activeControlTab === "accommodations" && (
+              <AccommodationsManagerPanel
+                assessmentId={assessmentId}
+                userRole="ADMIN"
+              />
+            )}
+
+            {activeControlTab === "friction" && (
+              <QuestionFrictionHeatmap
+                assessmentId={assessmentId}
+              />
+            )}
           </>
         ) : null}
       </div>

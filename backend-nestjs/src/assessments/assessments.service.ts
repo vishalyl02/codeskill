@@ -15,6 +15,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not, LessThan } from 'typeorm';
 import { Assessment } from '../database/entities/assessment.entity';
 import { AssessmentAttempt } from '../database/entities/assessment-attempt.entity';
+import { CandidateExamAccommodation } from '../database/entities/candidate-exam-accommodation.entity';
 import { Question } from '../database/entities/question.entity';
 import { AuditLog } from '../database/entities/audit-log.entity';
 import { calculateStateDiff } from '../audit/object-diff.util';
@@ -22,6 +23,7 @@ import { User } from '../database/entities/user.entity';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateAssessmentDto } from './dto/update-assessment.dto';
 import { SubmitAssessmentDto } from './dto/submit-assessment.dto';
+import { UpsertAccommodationDto, GrantExtraTimeDto, GradeHoldDto } from './dto/accommodations.dto';
 import { ExecutionService } from '../execution/execution.service';
 import { ExecutionAdmissionService } from '../execution/admission/execution-admission.service';
 import { randomUUID } from 'node:crypto';
@@ -125,14 +127,22 @@ export class AssessmentsService {
     private readonly examSecurityService?: ExamSecurityService,
     @Optional()
     private readonly redisService?: RedisService,
+    @Optional()
+    @InjectRepository(CandidateExamAccommodation)
+    private readonly accommodationRepo?: Repository<CandidateExamAccommodation>,
   ) {}
 
   private attemptExpiresAt(assessment: Assessment, attempt: AssessmentAttempt): Date {
-    const extraMinutes = Number((attempt as any)?.extraTimeMinutes) || 0;
-    const durationMinutes =
-      (Number(assessment.durationMinutes) > 0
+    const extraMinutes =
+      Number((attempt as any)?.extraTimeMinutes) ||
+      Number(attempt?.extraTimeGrantedMinutes) ||
+      0;
+    const timeMultiplier = Number((attempt as any)?.timeMultiplier) || 1.0;
+    const baseDuration =
+      Number(assessment.durationMinutes) > 0
         ? Number(assessment.durationMinutes)
-        : 45) + extraMinutes;
+        : 45;
+    const durationMinutes = baseDuration * timeMultiplier + extraMinutes;
     const startedAtTime = attempt.startedAt
       ? new Date(attempt.startedAt).getTime()
       : Date.now();
@@ -4051,5 +4061,244 @@ export class AssessmentsService {
     }
 
     return { success: true };
+  }
+
+  async createPracticeMock(id: string, adminUser: any) {
+    const original = await this.findAssessmentByIdOrCode(id);
+    if (!original) {
+      throw new NotFoundException('Assessment not found');
+    }
+
+    const mockCode = `${original.code || 'exam'}-mock-${Date.now().toString(36)}`;
+    const cloned = this.assessmentRepo.create({
+      ...original,
+      id: undefined,
+      title: `[PRACTICE MOCK] ${original.title}`,
+      code: mockCode,
+      durationMinutes: 5,
+      totalMarks: 10,
+      passingMarks: 0,
+      status: 'published',
+      instructions: [
+        'This is a 5-minute non-graded practice mock to verify your CodeSkill LockDown setup and hardware attestation before your exam.',
+        'No exam grades or records will be affected by this practice session.',
+      ],
+      created_by_id: adminUser?.id || adminUser?._id,
+    });
+
+    const saved = await this.assessmentRepo.save(cloned);
+    return {
+      success: true,
+      message: '5-Minute Practice Mock created successfully',
+      data: saved,
+    };
+  }
+
+  async getAccommodations(assessmentId: string) {
+    const assessment = await this.findAssessmentByIdOrCode(assessmentId);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+
+    if (!this.accommodationRepo) return [];
+    return this.accommodationRepo.find({
+      where: { assessment_id: assessment.id },
+      relations: { user: true },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  async upsertAccommodation(assessmentId: string, dto: UpsertAccommodationDto, adminUser: any) {
+    const assessment = await this.findAssessmentByIdOrCode(assessmentId);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    if (!this.accommodationRepo) throw new ServiceUnavailableException('Accommodations repository not ready');
+
+    let existing = await this.accommodationRepo.findOne({
+      where: { assessment_id: assessment.id, user_id: dto.userId },
+    });
+
+    if (existing) {
+      if (dto.timeMultiplier !== undefined) existing.time_multiplier = dto.timeMultiplier;
+      if (dto.secondaryDisplayAllowed !== undefined) existing.secondary_display_allowed = dto.secondaryDisplayAllowed;
+      if (dto.screenReaderAllowed !== undefined) existing.screen_reader_allowed = dto.screenReaderAllowed;
+      if (dto.customNotes !== undefined) existing.custom_notes = dto.customNotes;
+      existing.granted_by = adminUser?.id || adminUser?._id;
+      return this.accommodationRepo.save(existing);
+    } else {
+      const created = this.accommodationRepo.create({
+        assessment_id: assessment.id,
+        user_id: dto.userId,
+        time_multiplier: dto.timeMultiplier || 1.0,
+        secondary_display_allowed: dto.secondaryDisplayAllowed || false,
+        screen_reader_allowed: dto.screenReaderAllowed || false,
+        custom_notes: dto.customNotes,
+        granted_by: adminUser?.id || adminUser?._id,
+      });
+      return this.accommodationRepo.save(created);
+    }
+  }
+
+  async deleteAccommodation(assessmentId: string, userId: string) {
+    const assessment = await this.findAssessmentByIdOrCode(assessmentId);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    if (!this.accommodationRepo) return { success: true };
+
+    await this.accommodationRepo.delete({ assessment_id: assessment.id, user_id: userId });
+    return { success: true };
+  }
+
+  async getInvigilationRoster(assessmentId: string) {
+    const assessment = await this.findAssessmentByIdOrCode(assessmentId);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+
+    const attempts = await this.attemptRepo.find({
+      where: { assessmentId: assessment.id },
+      relations: { student: true },
+      order: { startedAt: 'DESC' },
+    });
+
+    const accommodations = this.accommodationRepo
+      ? await this.accommodationRepo.find({ where: { assessment_id: assessment.id } })
+      : [];
+    const accMap = new Map(accommodations.map((a) => [a.user_id, a]));
+
+    return attempts.map((att) => {
+      const student = att.student || ({} as any);
+      const acc = accMap.get(att.studentId);
+      const expiresAt = this.attemptExpiresAt(assessment, att);
+      return {
+        attemptId: att.id,
+        studentId: att.studentId,
+        studentName: student.name || 'Anonymous Student',
+        studentEmail: student.email || '',
+        status: att.status,
+        score: att.score,
+        startedAt: att.startedAt,
+        expiresAt,
+        timeSpentSeconds: att.timeSpentSeconds,
+        tabSwitchCount: att.tabSwitchCount,
+        fullscreenExitCount: att.fullscreenExitCount,
+        violationsCount: (att.violations || []).length,
+        extraTimeGrantedMinutes: att.extraTimeGrantedMinutes || 0,
+        gradeHeld: att.gradeHeld || false,
+        gradeHoldReason: att.gradeHoldReason || '',
+        accommodation: acc ? {
+          timeMultiplier: acc.time_multiplier,
+          secondaryDisplayAllowed: acc.secondary_display_allowed,
+          screenReaderAllowed: acc.screen_reader_allowed,
+        } : null,
+      };
+    });
+  }
+
+  async grantExtraTime(assessmentId: string, dto: GrantExtraTimeDto, adminUser: any) {
+    const assessment = await this.findAssessmentByIdOrCode(assessmentId);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+
+    const attempt = await this.attemptRepo.findOne({
+      where: { assessmentId: assessment.id, studentId: dto.studentId, status: 'in_progress' },
+    });
+
+    if (!attempt) {
+      throw new NotFoundException('Active in-progress attempt not found for this candidate');
+    }
+
+    const current = Number(attempt.extraTimeGrantedMinutes) || 0;
+    attempt.extraTimeGrantedMinutes = current + dto.extraMinutes;
+    await this.attemptRepo.save(attempt);
+
+    if (this.auditLogRepo) {
+      await this.auditLogRepo.save(
+        this.auditLogRepo.create({
+          action: 'INVIGILATION_EXTRA_TIME_GRANTED',
+          target: attempt.id,
+          targetType: 'AssessmentAttempt',
+          attemptId: attempt.id,
+          actorId: adminUser?.id || adminUser?._id,
+          actorEmail: adminUser?.email || '',
+          metadata: { extraMinutes: dto.extraMinutes, totalExtraMinutes: attempt.extraTimeGrantedMinutes },
+        }),
+      );
+    }
+
+    return {
+      success: true,
+      message: `Granted ${dto.extraMinutes} minutes of extra time`,
+      totalExtraMinutes: attempt.extraTimeGrantedMinutes,
+      expiresAt: this.attemptExpiresAt(assessment, attempt),
+    };
+  }
+
+  async holdGrade(assessmentId: string, dto: GradeHoldDto, adminUser: any) {
+    const assessment = await this.findAssessmentByIdOrCode(assessmentId);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+
+    const attempt = await this.attemptRepo.findOne({
+      where: { id: dto.attemptId, assessmentId: assessment.id },
+    });
+
+    if (!attempt) throw new NotFoundException('Attempt not found');
+
+    attempt.gradeHeld = dto.hold;
+    attempt.gradeHoldReason = dto.reason || (dto.hold ? 'Held by invigilator for academic integrity review' : '');
+    await this.attemptRepo.save(attempt);
+
+    return {
+      success: true,
+      gradeHeld: attempt.gradeHeld,
+      gradeHoldReason: attempt.gradeHoldReason,
+    };
+  }
+
+  async getFrictionAnalytics(assessmentId: string) {
+    const assessment = await this.findAssessmentByIdOrCode(assessmentId);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+
+    const attempts = await this.attemptRepo.find({
+      where: { assessmentId: assessment.id },
+    });
+
+    const questionStats: Record<string, {
+      questionId: string;
+      totalAttempts: number;
+      totalCorrect: number;
+      totalTimeSpentSeconds: number;
+      pasteCount: number;
+      errorCount: number;
+    }> = {};
+
+    attempts.forEach((att) => {
+      (att.responses || []).forEach((resp: any) => {
+        const qId = String(resp.questionId || resp.id);
+        if (!questionStats[qId]) {
+          questionStats[qId] = {
+            questionId: qId,
+            totalAttempts: 0,
+            totalCorrect: 0,
+            totalTimeSpentSeconds: 0,
+            pasteCount: 0,
+            errorCount: 0,
+          };
+        }
+        questionStats[qId].totalAttempts += 1;
+        if (resp.isCorrect) questionStats[qId].totalCorrect += 1;
+        questionStats[qId].totalTimeSpentSeconds += Number(resp.timeSpentSeconds) || 0;
+        if (resp.pasteCount) questionStats[qId].pasteCount += Number(resp.pasteCount);
+      });
+    });
+
+    return Object.values(questionStats).map((stat) => {
+      const avgTimeSeconds = stat.totalAttempts > 0 ? Math.round(stat.totalTimeSpentSeconds / stat.totalAttempts) : 0;
+      const successRate = stat.totalAttempts > 0 ? Math.round((stat.totalCorrect / stat.totalAttempts) * 100) : 0;
+      const frictionScore = Math.min(100, Math.round((100 - successRate) * 0.6 + (stat.pasteCount > 5 ? 20 : 0) + (avgTimeSeconds > 300 ? 20 : 0)));
+
+      return {
+        questionId: stat.questionId,
+        totalAttempts: stat.totalAttempts,
+        successRate,
+        averageTimeSpentSeconds: avgTimeSeconds,
+        pasteCount: stat.pasteCount,
+        frictionScore,
+        difficultyTier: frictionScore > 70 ? 'HIGH_FRICTION' : frictionScore > 40 ? 'MODERATE' : 'SMOOTH',
+      };
+    });
   }
 }

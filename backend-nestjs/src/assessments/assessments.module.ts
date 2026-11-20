@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Assessment } from '../database/entities/assessment.entity';
 import { AssessmentAttempt } from '../database/entities/assessment-attempt.entity';
+import { CandidateExamAccommodation } from '../database/entities/candidate-exam-accommodation.entity';
 import { Question } from '../database/entities/question.entity';
 import { AuditLog } from '../database/entities/audit-log.entity';
 import { User } from '../database/entities/user.entity';
@@ -25,6 +26,7 @@ import { RedisModule } from '../redis/redis.module';
     TypeOrmModule.forFeature([
       Assessment,
       AssessmentAttempt,
+      CandidateExamAccommodation,
       Question,
       AuditLog,
       User,

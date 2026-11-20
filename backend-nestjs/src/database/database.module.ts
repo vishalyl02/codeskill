@@ -33,6 +33,7 @@ import { AuditLog } from './entities/audit-log.entity';
 import { EmailJob } from './entities/email-job.entity';
 import { ExamSession } from './entities/exam-session.entity';
 import { ExamSecurityEvent } from './entities/exam-security-event.entity';
+import { CandidateExamAccommodation } from './entities/candidate-exam-accommodation.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { BugReport } from './entities/bug-report.entity';
 import { BugImage } from './entities/bug-image.entity';
@@ -73,6 +74,7 @@ const entities = [
   QuestionBank,
   Assessment,
   AssessmentAttempt,
+  CandidateExamAccommodation,
   Submission,
   Contest,
   ContestAttempt,
