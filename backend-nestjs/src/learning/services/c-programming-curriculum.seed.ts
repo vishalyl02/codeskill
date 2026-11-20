@@ -142,8 +142,7 @@ int main() {
         c: `#include <stdio.h>
 
 int main() {
-    // Print "Welcome to Chandigarh University!" followed by a newline
-    printf("Welcome to Chandigarh University!\\n");
+    // TODO: Print "Welcome to Chandigarh University!" followed by a newline
     return 0;
 }
 `,
@@ -256,9 +255,9 @@ printf("Age: %d, GPA: %.2f\\n", age, gpa);
 
 int main() {
     float celsius = 25.0f;
-    // Formula: F = (C * 9.0 / 5.0) + 32.0
-    float fahrenheit = (celsius * 9.0f / 5.0f) + 32.0f;
-    printf("Celsius: %.1f -> Fahrenheit: %.1f\\n", celsius, fahrenheit);
+    // TODO: Convert celsius to fahrenheit using formula: F = (C * 9.0 / 5.0) + 32.0
+    // TODO: Print formatted output: "Celsius: %.1f -> Fahrenheit: %.1f\\n"
+
     return 0;
 }
 `,
@@ -301,8 +300,8 @@ C provides low-level operators that manipulate individual bits inside integral t
         c: `#include <stdio.h>
 
 int isEven(int n) {
-    // If the least significant bit is 0, number is even
-    return (n & 1) == 0;
+    // TODO: Return 1 if n is even, 0 if odd using bitwise AND operator
+    return 0;
 }
 
 int main() {
@@ -350,17 +349,10 @@ int main() {
 int main() {
     char op = '+';
     int a = 15, b = 27;
-    int result = 0;
 
-    switch (op) {
-        case '+': result = a + b; break;
-        case '-': result = a - b; break;
-        case '*': result = a * b; break;
-        case '/': result = b != 0 ? a / b : 0; break;
-        default: printf("Unknown operator\\n"); return 1;
-    }
+    // TODO: Use switch-case on op to compute result for '+', '-', '*', '/'
+    // and print formatted output: "%d %c %d = %d\\n", a, op, b, result
 
-    printf("%d %c %d = %d\\n", a, op, b, result);
     return 0;
 }
 `,
@@ -398,12 +390,11 @@ Nested loops allow iteration across rows and columns. They are foundational for 
 
 int main() {
     int rows = 5;
-    for (int i = 1; i <= rows; ++i) {
-        for (int j = 1; j <= i; ++j) {
-            printf("* ");
-        }
-        printf("\\n");
-    }
+    // TODO: Use nested loops to print a half pyramid of stars
+    // Row 1: *
+    // Row 2: * *
+    // ... up to rows
+
     return 0;
 }
 `,
@@ -440,13 +431,8 @@ An array is a collection of elements of the same data type stored in contiguous 
         c: `#include <stdio.h>
 
 int findMax(int arr[], int n) {
-    int max = arr[0];
-    for (int i = 1; i < n; ++i) {
-        if (arr[i] > max) {
-            max = arr[i];
-        }
-    }
-    return max;
+    // TODO: Return the maximum value in arr of length n
+    return 0;
 }
 
 int main() {
@@ -491,8 +477,9 @@ A function that calls itself is recursive. Every recursive function must have:
         c: `#include <stdio.h>
 
 long long factorial(int n) {
-    if (n <= 1) return 1;
-    return n * factorial(n - 1);
+    // TODO: Implement recursive factorial
+    // Base case: n <= 1 returns 1
+    return 1;
 }
 
 int main() {
@@ -534,9 +521,7 @@ C strictly passes parameters by value. To modify variables in caller stack frame
         c: `#include <stdio.h>
 
 void swap(int *a, int *b) {
-    int temp = *a;
-    *a = *b;
-    *b = temp;
+    // TODO: Implement pointer swap without allocating new memory
 }
 
 int main() {
@@ -586,7 +571,8 @@ typedef struct {
 } Student;
 
 void printStudent(const Student *s) {
-    printf("Roll: %d | Name: %s | GPA: %.2f\\n", s->rollNumber, s->name, s->gpa);
+    // TODO: Access struct members through pointer using -> operator
+    // Format: "Roll: %d | Name: %s | GPA: %.2f\\n"
 }
 
 int main() {
@@ -634,20 +620,9 @@ Dynamic memory is allocated on the **Heap** at runtime:
 
 int main() {
     int n = 5;
-    int *arr = (int*) malloc(n * sizeof(int));
-    if (arr == NULL) {
-        printf("Memory allocation failed\\n");
-        return 1;
-    }
+    // TODO: Allocate memory for n integers using malloc
+    // TODO: Fill arr[i] with (i + 1) * 10, compute sum, print "Sum of dynamic array: %d\\n", and free memory
 
-    int sum = 0;
-    for (int i = 0; i < n; ++i) {
-        arr[i] = (i + 1) * 10;
-        sum += arr[i];
-    }
-
-    printf("Sum of dynamic array: %d\\n", sum);
-    free(arr); // Always free allocated memory
     return 0;
 }
 `,
@@ -686,14 +661,8 @@ A palindrome reads the same forwards and backwards (e.g. "radar", "level").
 #include <stdbool.h>
 
 bool isPalindrome(const char *str) {
-    int left = 0;
-    int right = strlen(str) - 1;
-    while (left < right) {
-        if (str[left] != str[right]) return false;
-        left++;
-        right--;
-    }
-    return true;
+    // TODO: Implement palindrome verification using two pointers
+    return false;
 }
 
 int main() {

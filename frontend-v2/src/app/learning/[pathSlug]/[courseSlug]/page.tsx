@@ -36,6 +36,10 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
+import {
+  IndependentQuestionCompiler,
+  MINIMAL_STARTER_CODES,
+} from "@/components/learning/IndependentQuestionCompiler";
 import { learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
@@ -614,55 +618,37 @@ function getW3ExercisesForCourse(
 const DEFAULT_STARTER_CODES: Record<string, string> = {
   c: `#include <stdio.h>
 
+// TODO: Implement your logic
 int main() {
-    printf("Hello from CodeSkill C Sandbox!\\n");
-    int a = 10, b = 5;
-    printf("Result: %d\\n", a * b + 42);
     return 0;
 }
 `,
   sql: `-- CodeSkill Interactive SQL Sandbox (PostgreSQL)
--- Available sandbox tables: customers, orders, students, products
-SELECT * FROM customers LIMIT 10;
+-- TODO: Write your query below
+SELECT 1;
 `,
   javascript: `// CodeSkill Real-Time JavaScript Sandbox
-console.log("Hello from CodeSkill Real-Time Sandbox!");
-
-function calculate(x, y) {
-  return x * y + 42;
+// TODO: Implement your logic
+function solution() {
+  return null;
 }
-
-console.log("Result:", calculate(10, 5));
 `,
   python: `# CodeSkill Real-Time Python 3 Runner
-def calculate(a, b):
-    return a * b + 42
-
-print("Hello from CodeSkill Python 3!")
-print("Result:", calculate(10, 5))
+# TODO: Implement your logic
+def solution():
+    pass
 `,
   java: `public class Main {
     public static void main(String[] args) {
-        System.out.println("Hello from CodeSkill Java 21!");
-        int result = calculate(10, 5);
-        System.out.println("Result: " + result);
-    }
-
-    public static int calculate(int a, int b) {
-        return a * b + 42;
+        // TODO: Implement your logic
     }
 }
 `,
   cpp: `#include <iostream>
 using namespace std;
 
-int calculate(int a, int b) {
-    return a * b + 42;
-}
-
+// TODO: Implement your logic
 int main() {
-    cout << "Hello from CodeSkill C++ 20!" << endl;
-    cout << "Result: " << calculate(10, 5) << endl;
     return 0;
 }
 `,
@@ -870,7 +856,7 @@ export default function CourseWorkspacePage({
       ) {
         setLanguage("c");
         setCode(
-          `#include <stdio.h>\n\n// Chandigarh University Lab: ${lessonData?.title || "Exercise"}\nint main() {\n    printf("Welcome to Chandigarh University Interactive Lab!\\n");\n    printf("Task: %s\\n", "${lessonData?.title || "Hands-on Exercise"}");\n    return 0;\n}\n`,
+          `#include <stdio.h>\n\n// TODO: Implement your logic for: ${lessonData?.title || "Exercise"}\nint main() {\n    return 0;\n}\n`,
         );
       } else if (courseSlug.includes("dbms") || courseSlug.includes("sql")) {
         setLanguage("sql");
@@ -2486,10 +2472,20 @@ export default function CourseWorkspacePage({
                           </div>
                         )}
 
-                        {/* Coding & Chandigarh University Practice Suite */}
-                        {(ex.type === "coding" || ex.type === "debugging") &&
-                          renderInteractivePracticeSuite(ex)
-                        }
+                        {/* Independent Isolated Coding Compiler for Every Question */}
+                        {(ex.type === "coding" || ex.type === "debugging") && (
+                          <IndependentQuestionCompiler
+                            key={ex.id}
+                            exercise={ex}
+                            onPassed={(exerciseId, result) => {
+                              if (result?.xpAwarded > 0) {
+                                setXpCelebration(result.xpAwarded);
+                              }
+                              loadLesson(activeLessonId!);
+                              loadCourse();
+                            }}
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2508,9 +2504,20 @@ export default function CourseWorkspacePage({
                       </span>
                     </div>
 
-                    <div className="bg-muted/20 border border-border rounded-xl p-6 shadow-xs space-y-6">
-                      {renderInteractivePracticeSuite()}
-                    </div>
+                    <IndependentQuestionCompiler
+                      key={`sandbox-${lesson.id}`}
+                      exercise={{
+                        id: `sandbox-${lesson.id}`,
+                        title: `Chandigarh University Interactive Practice Lab: ${lesson.title || "Sandbox"}`,
+                        type: "coding",
+                        starterCode: MINIMAL_STARTER_CODES,
+                        hints: [
+                          "Write, test, and execute your code in real-time. Use the language selector to switch environments.",
+                        ],
+                        marks: 25,
+                      }}
+                      onPassed={() => {}}
+                    />
                   </div>
                 )}
 

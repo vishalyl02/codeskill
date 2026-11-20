@@ -76,11 +76,11 @@ Write a C program that prints a formatted invoice header and two items as shown 
         c: `#include <stdio.h>
 
 int main() {
-    // Print item 1: "Notebook", price 45.50
-    // Print item 2: "Pen", price 12.00
+    // TODO: Print formatted items using field width specifiers:
+    // Item 1: "Notebook" with price 45.50
+    // Item 2: "Pen" with price 12.00
     // Format: "%-12s : $%.2f\\n"
-    printf("%-12s : $%.2f\\n", "Notebook", 45.50);
-    printf("%-12s : $%.2f\\n", "Pen", 12.00);
+
     return 0;
 }
 `,
@@ -88,12 +88,12 @@ int main() {
 #include <iomanip>
 
 int main() {
-    std::cout << std::left << std::setw(12) << "Notebook" << " : $" << std::fixed << std::setprecision(2) << 45.50 << "\\n";
-    std::cout << std::left << std::setw(12) << "Pen" << " : $" << std::fixed << std::setprecision(2) << 12.00 << "\\n";
+    // TODO: Print "Notebook" ($45.50) and "Pen" ($12.00) formatted with field width 12
     return 0;
 }
 `,
-        python: `print("%-12s : $%.2f" % ("Notebook", 45.50))\nprint("%-12s : $%.2f" % ("Pen", 12.00))\n`,
+        python: `# TODO: Print "Notebook" ($45.50) and "Pen" ($12.00) with format "%-12s : $%.2f"
+`,
       },
       hints: [
         'Use printf("%-12s : $%.2f\\n", name, price) to align text cleanly.',
@@ -140,13 +140,9 @@ Instead of testing all divisors up to $n$, test only up to $\\sqrt{n}$:
 #include <stdbool.h>
 
 bool isPrime(int n) {
-    if (n <= 1) return false;
-    if (n <= 3) return true;
-    if (n % 2 == 0 || n % 3 == 0) return false;
-    for (int i = 5; i * i <= n; i += 6) {
-        if (n % i == 0 || n % (i + 2) == 0) return false;
-    }
-    return true;
+    // TODO: Implement trial division prime check logic
+    // Return true if n is prime, false otherwise
+    return false;
 }
 
 int main() {
@@ -159,18 +155,8 @@ int main() {
 }
 `,
         python: `def is_prime(n):
-    if n <= 1:
-        return False
-    if n <= 3:
-        return True
-    if n % 2 == 0 or n % 3 == 0:
-        return False
-    i = 5
-    while i * i <= n:
-        if n % i == 0 or n % (i + 2) == 0:
-            return False
-        i += 6
-    return True
+    # TODO: Implement prime checking logic
+    return False
 
 for num in [2, 17, 25, 29, 1]:
     print(f"{num}: {'PRIME' if is_prime(num) else 'COMPOSITE'}")
@@ -232,9 +218,7 @@ void swap(int *a, int *b) {
         c: `#include <stdio.h>
 
 void swap(int *a, int *b) {
-    int temp = *a;
-    *a = *b;
-    *b = temp;
+    // TODO: Implement pointer swap logic without allocating new memory
 }
 
 int main() {
@@ -248,9 +232,7 @@ int main() {
         cpp: `#include <iostream>
 
 void swap(int *a, int *b) {
-    int temp = *a;
-    *a = *b;
-    *b = temp;
+    // TODO: Implement pointer swap logic
 }
 
 int main() {
@@ -303,17 +285,7 @@ Reversing a null-terminated string without allocating additional memory uses two
 #include <string.h>
 
 void reverseString(char *str) {
-    if (!str) return;
-    int len = strlen(str);
-    char *left = str;
-    char *right = str + len - 1;
-    while (left < right) {
-        char temp = *left;
-        *left = *right;
-        *right = temp;
-        left++;
-        right--;
-    }
+    // TODO: Implement in-place string reversal using two pointers
 }
 
 int main() {
@@ -324,7 +296,8 @@ int main() {
 }
 `,
         python: `def reverse_string(s):
-    return s[::-1]
+    # TODO: Implement string reversal
+    return s
 
 print("Reversed:", reverse_string("Chandigarh"))
 `,
@@ -390,34 +363,18 @@ arr = NULL; // Prevent dangling pointer
 
 int main() {
     int n = 5;
-    int *arr = (int *)malloc(n * sizeof(int));
-    if (arr == NULL) {
-        printf("Memory allocation failed\\n");
-        return 1;
-    }
+    // TODO: Dynamically allocate memory for n integers using malloc
+    // TODO: Populate arr[i] with (i + 1) * 10
+    // TODO: Compute sum of elements, print "Dynamic Array Sum: %d\\n", and free memory
 
-    // Populate array: 10, 20, 30, 40, 50
-    int sum = 0;
-    for (int i = 0; i < n; i++) {
-        arr[i] = (i + 1) * 10;
-        sum += arr[i];
-    }
-
-    printf("Dynamic Array Sum: %d\\n", sum);
-
-    free(arr);
-    arr = NULL;
     return 0;
 }
 `,
         cpp: `#include <iostream>
 #include <vector>
-#include <numeric>
 
 int main() {
-    std::vector<int> arr = {10, 20, 30, 40, 50};
-    int sum = std::accumulate(arr.begin(), arr.end(), 0);
-    std::cout << "Dynamic Array Sum: " << sum << "\\n";
+    // TODO: Populate array with 10, 20, 30, 40, 50 and print sum
     return 0;
 }
 `,
@@ -474,7 +431,9 @@ ORDER BY name ASC;
       type: 'coding',
       marks: 25,
       starterCode: {
-        sql: `SELECT name, email, country FROM customers WHERE country = 'USA' ORDER BY name ASC;`,
+        sql: `-- TODO: Write a query selecting name, email, and country from customers
+-- where country = 'USA', ordered alphabetically by name ASC
+`,
       },
       hints: [
         'Use WHERE country = \'USA\' and ORDER BY name ASC.',
@@ -510,11 +469,9 @@ ORDER BY total_spent DESC;
       type: 'coding',
       marks: 30,
       starterCode: {
-        sql: `SELECT c.name, SUM(o.amount) as total_spent
-FROM customers c
-INNER JOIN orders o ON c.id = o.customer_id
-GROUP BY c.name
-ORDER BY total_spent DESC;`,
+        sql: `-- TODO: Write a query selecting customer name and total_spent (SUM of order amounts)
+-- Join customers c and orders o on customer_id, group by customer name, order by total_spent DESC
+`,
       },
       hints: [
         'Join customers c and orders o on c.id = o.customer_id.',
@@ -562,30 +519,17 @@ The parent calls \`wait()\` or \`waitpid()\` to prevent zombie processes.
 #include <sys/wait.h>
 
 int main() {
-    pid_t pid = fork();
+    // TODO: Create a child process using fork()
+    // In child (pid == 0): print "Child Process: Execution Complete\\n"
+    // In parent: wait for child using wait(NULL) and print "Parent Process: Child Reaped\\n"
 
-    if (pid < 0) {
-        printf("Fork failed\\n");
-        return 1;
-    } else if (pid == 0) {
-        // Child process
-        printf("Child Process: Execution Complete\\n");
-    } else {
-        // Parent process waits for child
-        wait(NULL);
-        printf("Parent Process: Child Reaped\\n");
-    }
     return 0;
 }
 `,
         python: `import os
 
-pid = os.fork()
-if pid == 0:
-    print("Child Process: Execution Complete")
-else:
-    os.wait()
-    print("Parent Process: Child Reaped")
+# TODO: Fork process and have child print "Child Process: Execution Complete"
+# and parent wait and print "Parent Process: Child Reaped"
 `,
       },
       hints: [
