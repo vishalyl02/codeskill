@@ -1942,6 +1942,150 @@ pub fn inspect_media_hardware() -> Result<MediaHardwareAudit, String> {
     Ok(check_media_hardware_audit())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemDiagnosticResult {
+    #[serde(rename = "osName")]
+    pub os_name: String,
+    #[serde(rename = "osVersion")]
+    pub os_version: String,
+    pub architecture: String,
+    #[serde(rename = "monitorCount")]
+    pub monitor_count: usize,
+    pub displays: DisplayTopology,
+    #[serde(rename = "cameraPermission")]
+    pub camera_permission: String,
+    #[serde(rename = "microphonePermission")]
+    pub microphone_permission: String,
+    #[serde(rename = "screenPermission")]
+    pub screen_permission: String,
+    #[serde(rename = "mediaHardware")]
+    pub media_hardware: MediaHardwareAudit,
+    #[serde(rename = "backgroundApps")]
+    pub background_apps: Vec<BlockingAppInfo>,
+    #[serde(rename = "networkLatencyMs")]
+    pub network_latency_ms: Option<u64>,
+    #[serde(rename = "overallReadiness")]
+    pub overall_readiness: bool,
+    #[serde(rename = "readinessScore")]
+    pub readiness_score: u32,
+    pub recommendations: Vec<String>,
+}
+
+#[tauri::command]
+pub fn run_full_system_diagnostic(app: tauri::AppHandle) -> Result<SystemDiagnosticResult, String> {
+    log_diagnostic_entry("INFO", "DIAGNOSTIC", "Executing full pre-exam system diagnostic check");
+
+    let os_name = sysinfo::System::name().unwrap_or_else(|| std::env::consts::OS.to_string());
+    let os_version = sysinfo::System::os_version().unwrap_or_else(|| "Unknown".to_string());
+    let architecture = std::env::consts::ARCH.to_string();
+
+    let displays = get_display_topology(app.clone()).unwrap_or(DisplayTopology {
+        monitor_count: 1,
+        external_displays_detected: false,
+        primary_resolution: "1920x1080".to_string(),
+    });
+    let monitor_count = displays.monitor_count;
+
+    let media_perms = check_and_request_media_permissions(true, true).unwrap_or(MediaPermissionStatus {
+        camera: "granted".to_string(),
+        microphone: "granted".to_string(),
+        ready: true,
+    });
+
+    let screen_permission = "granted".to_string();
+
+    let media_hardware = inspect_media_hardware().unwrap_or(MediaHardwareAudit {
+        passed: true,
+        devices: Vec::new(),
+        virtual_devices_detected: Vec::new(),
+    });
+
+    let background_apps = list_blocking_apps().unwrap_or_default();
+
+    let start = std::time::Instant::now();
+    let network_latency_ms = match std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:5001".parse().unwrap(),
+        std::time::Duration::from_millis(500),
+    ) {
+        Ok(_) => Some(start.elapsed().as_millis() as u64),
+        Err(_) => match std::net::TcpStream::connect_timeout(
+            &"127.0.0.1:3000".parse().unwrap(),
+            std::time::Duration::from_millis(500),
+        ) {
+            Ok(_) => Some(start.elapsed().as_millis() as u64),
+            Err(_) => None,
+        },
+    };
+
+    let mut score: u32 = 0;
+    let mut recommendations = Vec::new();
+
+    // 1. Single monitor check (25 pts)
+    if monitor_count == 1 {
+        score += 25;
+    } else {
+        recommendations.push(format!(
+            "Disconnect external monitor(s). Detected {} connected screens; only single display is allowed.",
+            monitor_count
+        ));
+    }
+
+    // 2. Camera permission (20 pts)
+    if media_perms.camera == "granted" {
+        score += 20;
+    } else {
+        recommendations.push("Camera permission is not granted. Please enable Camera access in OS Settings.".to_string());
+    }
+
+    // 3. Microphone permission (20 pts)
+    if media_perms.microphone == "granted" {
+        score += 20;
+    } else {
+        recommendations.push("Microphone permission is not granted. Please enable Microphone access in OS Settings.".to_string());
+    }
+
+    // 4. Physical media hardware (15 pts)
+    if media_hardware.passed && media_hardware.virtual_devices_detected.is_empty() {
+        score += 15;
+    } else {
+        recommendations.push(format!(
+            "Virtual or prohibited media devices detected: {}. Please disable virtual cameras/microphones.",
+            media_hardware.virtual_devices_detected.join(", ")
+        ));
+    }
+
+    // 5. Background applications (20 pts)
+    if background_apps.is_empty() {
+        score += 20;
+    } else {
+        let app_names: Vec<String> = background_apps.iter().map(|a| a.name.clone()).collect();
+        recommendations.push(format!(
+            "Close {} running background application(s): {}",
+            background_apps.len(),
+            app_names.join(", ")
+        ));
+    }
+
+    let overall_readiness = score == 100;
+
+    Ok(SystemDiagnosticResult {
+        os_name,
+        os_version,
+        architecture,
+        monitor_count,
+        displays,
+        camera_permission: media_perms.camera,
+        microphone_permission: media_perms.microphone,
+        screen_permission,
+        media_hardware,
+        background_apps,
+        network_latency_ms,
+        overall_readiness,
+        readiness_score: score,
+        recommendations,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

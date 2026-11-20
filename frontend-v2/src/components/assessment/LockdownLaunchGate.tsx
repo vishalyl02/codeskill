@@ -85,6 +85,24 @@ export default function LockdownLaunchGate({
             <RefreshCw className="w-4 h-4" />
             Check LockDown Status Again
           </button>
+
+          <a
+            href="codeskill-lockdown://system-check"
+            onClick={(e) => {
+              // Try deep-link first, fallback to browser page if not in client
+              if (typeof window !== "undefined") {
+                window.location.href = "codeskill-lockdown://system-check";
+                setTimeout(() => {
+                  window.open("/lockdown-system-check", "_blank");
+                }, 1000);
+                e.preventDefault();
+              }
+            }}
+            className="w-full py-2.5 px-4 rounded-xl border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+          >
+            <Monitor className="w-4 h-4" />
+            Test My LockDown Setup (Pre-Exam Diagnostics)
+          </a>
         </div>
 
         {/* Linux Wayland Guidance */}

@@ -28,6 +28,7 @@ window.__TAURI_ISOLATION_HOOK__ = function (payload) {
       'list_blocking_apps',
       'kill_blocking_app',
       'kill_all_blocking_apps',
+      'run_full_system_diagnostic',
       'get_lockdown_diagnostic_logs',
       'get_display_topology',
       'enable_kiosk_mode',

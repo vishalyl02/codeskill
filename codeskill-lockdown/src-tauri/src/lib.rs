@@ -30,8 +30,36 @@ struct DeepLinkPayload {
 
 fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
     let clean_url = url_str.trim().trim_matches('"').trim_matches('\'');
-    // Expected format: codeskill-exam://start?examId={id}&token={token}
+    // Expected format: codeskill-exam://start?examId={id}&token={token} or codeskill-lockdown://system-check
     if let Ok(parsed) = url::Url::parse(clean_url) {
+        let is_system_check = parsed.host_str() == Some("system-check")
+            || parsed.path() == "/system-check"
+            || parsed.path() == "system-check"
+            || parsed.query_pairs().any(|(k, v)| k == "mode" && v == "system-check");
+
+        if is_system_check {
+            security::log_diagnostic_entry(
+                "INFO",
+                "DEEP_LINK",
+                "Launched in Non-Trapping System Diagnostic Check Mode",
+            );
+
+            if let Some(window) = app.get_webview_window("exam-kiosk") {
+                let _ = window.set_focus();
+                let _ = window.unminimize();
+
+                let frontend_origin = get_frontend_origin();
+                let target_url = format!("{}/lockdown-system-check", frontend_origin.trim_end_matches('/'));
+
+                if let Ok(target_url_obj) = url::Url::parse(&target_url) {
+                    let _ = window.navigate(target_url_obj);
+                }
+
+                let _ = window.emit("exam:system-check-launch", ());
+            }
+            return;
+        }
+
         let mut exam_id = None;
         let mut token = None;
 
@@ -458,6 +486,7 @@ pub fn run() {
             security::list_blocking_apps,
             security::kill_blocking_app,
             security::kill_all_blocking_apps,
+            security::run_full_system_diagnostic,
             security::get_lockdown_diagnostic_logs,
             security::get_display_topology,
             kiosk_os::enable_kiosk_mode,

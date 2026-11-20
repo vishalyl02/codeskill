@@ -47,6 +47,7 @@ fn main() {
             "list_blocking_apps",
             "kill_blocking_app",
             "kill_all_blocking_apps",
+            "run_full_system_diagnostic",
         ]),
     );
     tauri_build::try_build(attributes).expect("failed to run tauri-build");

@@ -54,6 +54,7 @@
     "allow-check-and-request-media-permissions",
     "allow-list-blocking-apps",
     "allow-kill-blocking-app",
-    "allow-kill-all-blocking-apps"
+    "allow-kill-all-blocking-apps",
+    "allow-run-full-system-diagnostic"
   ]
 }

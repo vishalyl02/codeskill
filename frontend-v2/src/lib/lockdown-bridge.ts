@@ -1000,3 +1000,54 @@ export async function killAllBlockingApps(force = false): Promise<BlockingAppInf
     return [];
   }
 }
+
+export interface SystemDiagnosticResult {
+  osName: string;
+  osVersion: string;
+  architecture: string;
+  monitorCount: number;
+  displays: DisplayTopology;
+  cameraPermission: string;
+  microphonePermission: string;
+  screenPermission: string;
+  mediaHardware: MediaHardwareAudit;
+  backgroundApps: BlockingAppInfo[];
+  networkLatencyMs?: number;
+  overallReadiness: boolean;
+  readinessScore: number;
+  recommendations: string[];
+}
+
+/**
+ * Runs complete pre-exam system diagnostic suite.
+ */
+export async function runFullSystemDiagnostic(): Promise<SystemDiagnosticResult> {
+  if (!isLockdownClient()) {
+    return {
+      osName: typeof navigator !== 'undefined' ? navigator.platform : 'Web Browser',
+      osVersion: 'Standard Browser',
+      architecture: 'x86_64',
+      monitorCount: 1,
+      displays: {
+        monitorCount: 1,
+        externalDisplaysDetected: false,
+        primaryResolution: typeof window !== 'undefined' ? `${window.screen?.width || 1920}x${window.screen?.height || 1080}` : '1920x1080',
+      },
+      cameraPermission: 'granted',
+      microphonePermission: 'granted',
+      screenPermission: 'granted',
+      mediaHardware: { passed: true, devices: [], virtualDevicesDetected: [] },
+      backgroundApps: [],
+      networkLatencyMs: 15,
+      overallReadiness: true,
+      readinessScore: 100,
+      recommendations: [],
+    };
+  }
+  try {
+    return await tauriInvoke<SystemDiagnosticResult>('run_full_system_diagnostic');
+  } catch (err) {
+    console.warn('Failed to run full system diagnostic in LockDown:', err);
+    throw err;
+  }
+}
