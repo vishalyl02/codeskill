@@ -186,12 +186,12 @@ export function ChandigarhUniversityCertificate({
           {/* TOP ROW: Official University Logo (Left) & Application Brand Lockup (Right) */}
           <div className="flex items-start justify-between w-full">
 
-            {/* Top-Left: Chandigarh University Official Brand Logo */}
+            {/* Top-Left: Chandigarh University Official Brand Logo (Beige background matched #faf6ea) */}
             <div className="flex items-center">
               <img
-                src="/cu-logo-tight.png"
+                src="/cu-logo-beige.png"
                 alt="Chandigarh University"
-                className="h-9 sm:h-11 md:h-13 print:h-15 w-auto object-contain block"
+                className="h-9 sm:h-11 md:h-13 print:h-15 w-auto object-contain block mix-blend-multiply"
               />
             </div>
 
@@ -310,7 +310,7 @@ export function ChandigarhUniversityCertificate({
                       {sigLeft.title}
                     </div>
                     {sigLeft.subtext && (
-                      <div className="text-[6.5px] sm:text-[7.5px] md:text-[8.5px] print:text-[9.5px] font-mono text-slate-600 mt-0.5 leading-none">
+                      <div className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-sans font-bold tracking-wide text-slate-700 mt-0.5 leading-tight">
                         {sigLeft.subtext}
                       </div>
                     )}
@@ -363,7 +363,7 @@ export function ChandigarhUniversityCertificate({
                       {sigRight.title}
                     </div>
                     {sigRight.subtext && (
-                      <div className="text-[6.5px] sm:text-[7.5px] md:text-[8.5px] print:text-[9.5px] font-mono text-slate-600 mt-0.5 leading-none">
+                      <div className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-sans font-bold tracking-wide text-slate-700 mt-0.5 leading-tight">
                         {sigRight.subtext}
                       </div>
                     )}
