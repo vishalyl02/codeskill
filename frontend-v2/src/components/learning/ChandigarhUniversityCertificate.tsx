@@ -277,17 +277,50 @@ export function ChandigarhUniversityCertificate({
               />
             </div>
 
-            {/* Top-Right: Clean Typographic CodeSkill Brand Lockup matching official certificate */}
-            <div className="flex flex-col text-right pr-6 sm:pr-10 md:pr-14">
-              <span className="text-[7.5px] sm:text-[8.5px] font-sans font-semibold tracking-wider text-slate-500 uppercase leading-tight">
-                SKILL DEVELOPMENT
-              </span>
-              <span className="font-sans font-black text-lg sm:text-xl md:text-2xl tracking-tight text-[#c0262b] uppercase leading-tight">
-                CODESKILL
-              </span>
-              <span className="text-[7px] sm:text-[8px] font-sans font-semibold tracking-wider text-slate-500 uppercase leading-tight">
-                CHANDIGARH UNIVERSITY
-              </span>
+            {/* Top-Right: Application Logo, Name & Skill Development with generous clearance space */}
+            <div className="flex items-center gap-2 sm:gap-2.5 pr-14 sm:pr-20 md:pr-28">
+              {/* Application Logo Icon */}
+              <div className="relative w-8 h-8 sm:w-10 sm:h-10 rounded-lg overflow-hidden bg-slate-950 border border-black/10 shadow-xs flex items-center justify-center p-1.5 shrink-0">
+                <svg viewBox="0 0 160 160" className="w-full h-full" fill="none">
+                  <polygon
+                    points="80,10 145,45 145,115 80,150 15,115 15,45"
+                    fill="#0F172A"
+                    stroke="#FFFFFF"
+                    strokeWidth="8"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M60 62 L40 80 L60 98"
+                    stroke="#FFFFFF"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M85 55 L75 105"
+                    stroke="#FFFFFF"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M100 62 L120 80 L100 98"
+                    stroke="#38BDF8"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+
+              {/* Application Name & Subtitle */}
+              <div className="flex flex-col text-left">
+                <span className="font-sans font-extrabold text-base sm:text-lg md:text-xl tracking-tight text-slate-900 leading-tight">
+                  CodeSkill
+                </span>
+                <span className="text-[7.5px] sm:text-[8.5px] font-sans font-semibold tracking-wider text-slate-500 uppercase leading-none">
+                  Skill Development
+                </span>
+              </div>
             </div>
           </div>
 
