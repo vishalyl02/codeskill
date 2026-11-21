@@ -398,11 +398,10 @@ export default function LearningPathDetailPage({
                           <span className="text-xs sm:text-sm text-muted-foreground capitalize font-medium">{course.difficulty}</span>
                           <span className="text-muted-foreground">·</span>
                           <span
-                            className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded border ${
-                              course.isMandatory !== false
-                                ? "bg-primary/10 text-primary border-primary/20"
-                                : "bg-muted text-muted-foreground border-border"
-                            }`}
+                            className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded border ${course.isMandatory !== false
+                              ? "bg-primary/10 text-primary border-primary/20"
+                              : "bg-muted text-muted-foreground border-border"
+                              }`}
                           >
                             {course.isMandatory !== false ? "Required" : "Optional"}
                           </span>

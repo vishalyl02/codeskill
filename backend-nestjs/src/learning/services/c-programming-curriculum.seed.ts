@@ -102,9 +102,11 @@ int main(void) {
 }
 \`\`\`
 
-- **\`#include <stdio.h>\`**: Standard input/output library header providing formatted I/O declarations.
-- **\`int main(void)\`**: The mandatory entry point where execution begins. Returns an integer exit code to the operating system shell.
-- **\`return 0\`**: Informs the operating system kernel that the process terminated cleanly without errors.
+A standard C program is organized into three primary architectural parts:
+
+- **Standard Header Inclusion:** Includes the standard input/output header (\`#include <stdio.h>\`) which provides foundational declarations for stream I/O functions like \`printf()\`.
+- **Primary Program Entry Point:** The function \`int main(void)\` represents the mandatory entry point where program execution initiates upon invocation by the operating system runtime.
+- **Exit Code Transmission:** The statement \`return 0;\` communicates directly to the operating system kernel that the program terminated cleanly and successfully.
 
 ---
 
@@ -313,9 +315,9 @@ switch (op) {
 ---
 
 ## 3. Loop Constructs Compared
-- **\`for (init; cond; step)\`**: Ideal for index-based, bounded traversals with predetermined loop counts.
-- **\`while (cond)\`**: Pre-tested loop; executes 0 or more times until the predicate evaluates to false.
-- **\`do { ... } while (cond);\`**: Post-tested loop; guaranteed to execute **at least once** before evaluating the exit condition.`,
+- **Count-Controlled Loop (\`for\`):** Ideal for index-based, bounded traversals with predetermined loop counts and explicit iteration counters.
+- **Pre-Tested Conditional Loop (\`while\`):** Evaluates the loop condition prior to execution; iterates zero or more times until the condition evaluates to false.
+- **Post-Tested Conditional Loop (\`do-while\`):** Evaluates the condition after the block body executes; guaranteed to run **at least once** before evaluating continuation.`,
     });
 
     await adminService.createExercise(l3_1.id, {
@@ -383,10 +385,10 @@ char greeting[] = "Hello";
 
 ---
 
-## 3. Essential <string.h> Functions
-- **\`size_t strlen(const char *s)\`**: Returns number of characters excluding \`'\\0'\`.
-- **\`int strcmp(const char *s1, const char *s2)\`**: Lexicographical comparison. Returns 0 if identical, <0 if $s1 < s2$, >0 if $s1 > s2$.
-- **\`char *strncpy(char *dest, const char *src, size_t n)\`**: Safely copies up to $n$ bytes preventing buffer overflow.`,
+## 3. Essential String Library Functions
+- **String Length (\`strlen\`):** Computes and returns the exact number of characters preceding the terminating null character (\`'\\0'\`).
+- **Lexicographical Comparison (\`strcmp\`):** Performs byte-by-byte lexicographical evaluation. Returns 0 if identical, a negative integer if the first string precedes the second, and a positive integer otherwise.
+- **Bounded Buffer Copy (\`strncpy\`):** Safely copies up to $n$ characters from source to destination buffer, preventing buffer overflow vulnerabilities in systems software.`,
     });
 
     await adminService.createExercise(l4_1.id, {
@@ -531,11 +533,11 @@ int *ptr = &x; // ptr points to memory address of x
 - **Stack:** Fast, automated memory management with fixed size bounded by OS limits.
 - **Heap:** Dynamic, runtime-resizable pool of memory allocated explicitly by the programmer.
 
-### The 4 Heap Functions in \`<stdlib.h>\`:
-1. **\`malloc(size_t size)\`**: Allocates raw uninitialized bytes. Returns \`NULL\` if out of memory.
-2. **\`calloc(size_t num, size_t size)\`**: Allocates memory and clears all bytes to zero (\`0\`).
-3. **\`realloc(void *ptr, size_t new_size)\`**: Resizes an existing heap allocation in-place or copies to a new block.
-4. **\`free(void *ptr)\`**: Releases allocated memory back to the operating system heap manager.
+### Core Heap Memory Functions
+1. **Raw Memory Allocation (\`malloc\`):** Allocates a contiguous block of uninitialized raw bytes. Returns \`NULL\` if heap memory is exhausted.
+2. **Zero-Cleared Allocation (\`calloc\`):** Allocates memory for multiple elements and automatically clears every byte to zero (\`0\`).
+3. **Buffer Resizing (\`realloc\`):** Resizes an active heap allocation in-place or copies content to an expanded contiguous block.
+4. **Memory Deallocation (\`free\`):** Releases previously allocated memory back to the operating system heap manager to prevent memory leaks.
 
 ---
 
@@ -611,13 +613,13 @@ printf("ID: %d\\n", sPtr->id); // Equivalent to (*sPtr).id
 
 ---
 
-## 2. Disk File Streams (\`<stdio.h>\`)
-C treats files as sequential byte streams accessed via \`FILE*\` pointers:
+## 2. Disk File Streams
+C treats files as sequential byte streams accessed via \`FILE*\` descriptors:
 
-- **\`fopen(filename, mode)\`**: Opens a file. Modes: \`"r"\` (read), \`"w"\` (write/truncate), \`"a"\` (append).
-- **\`fprintf(fp, format, ...)\`**: Writes formatted text to the file stream.
-- **\`fscanf(fp, format, ...)\`**: Reads formatted text from the file stream.
-- **\`fclose(fp)\`**: Flushes unwritten buffers and closes the system file descriptor.`,
+- **Open File Stream (\`fopen\`):** Binds a filesystem path to a buffered file stream with access modes like \`"r"\` (read), \`"w"\` (create/truncate for writing), or \`"a"\` (append).
+- **Formatted File Output (\`fprintf\`):** Writes formatted text directly into the specified file stream descriptor.
+- **Formatted File Input (\`fscanf\`):** Scans and parses formatted character data directly from the target file stream into memory variables.
+- **Close File Stream (\`fclose\`):** Flushes pending buffered write operations and releases the operating system file descriptor.`,
     });
 
     await adminService.createExercise(l7_1.id, {
@@ -680,10 +682,11 @@ int result = operation(10, 20); // Calls add(10, 20) -> 30
 
 ---
 
-## 2. Command-Line Arguments (\`argc\`, \`argv\`)
-The signature \`int main(int argc, char *argv[])\` allows passing arguments from the OS shell:
-- **\`argc\` (Argument Count):** Integer count of command-line tokens (including program name).
-- **\`argv\` (Argument Vector):** Array of null-terminated strings where \`argv[0]\` is the executable name.`,
+## 2. Command-Line Arguments
+The signature \`int main(int argc, char *argv[])\` enables command-line interaction directly from the terminal shell:
+
+- **Argument Counter (\`argc\`):** Non-negative integer representing the total count of command-line tokens passed from the shell, including the executable binary name.
+- **Argument Vector (\`argv\`):** Null-terminated array of character pointers where \`argv[0]\` holds the program name and subsequent indices store individual argument strings.`,
     });
 
     await adminService.createExercise(l8_1.id, {

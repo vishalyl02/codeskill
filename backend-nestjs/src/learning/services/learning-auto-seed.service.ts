@@ -380,8 +380,8 @@ CREATE TABLE orders (
 - **CROSS JOIN**: Cartesian product (m × n rows).
 
 #### 2. WHERE vs HAVING:
-- **\`WHERE\`** filters individual rows **before** aggregation occurs.
-- **\`HAVING\`** filters aggregate groups **after** \`GROUP BY\` has executed.
+- **Row Filtering (\`WHERE\`):** Filters individual records **before** grouping or aggregation occurs.
+- **Aggregate Group Filtering (\`HAVING\`):** Filters summarized groups **after** \`GROUP BY\` operations have completed.
 
 \`\`\`sql
 -- Find customers who placed orders exceeding $500 total

@@ -33,30 +33,74 @@ const Editor = dynamic(() => import("@monaco-editor/react"), {
 export const MINIMAL_STARTER_CODES: Record<string, string> = {
   c: `#include <stdio.h>
 
-// TODO: Implement your logic
 int main() {
+    // Read input from stdin or display computed result
+    char input[256];
+    if (fgets(input, sizeof(input), stdin)) {
+        printf("Output: %s", input);
+    } else {
+        printf("C Programming Execution Complete.\\n");
+    }
     return 0;
 }
 `,
   cpp: `#include <iostream>
+#include <string>
 using namespace std;
 
-// TODO: Implement your logic
 int main() {
+    string input;
+    if (getline(cin, input)) {
+        cout << "Output: " << input << endl;
+    } else {
+        cout << "C++ Execution Complete." << endl;
+    }
     return 0;
 }
 `,
-  python: `# TODO: Implement your logic
+  python: `import sys
+
+def main():
+    lines = sys.stdin.read().splitlines()
+    if lines:
+        for line in lines:
+            print(f"Output: {line}")
+    else:
+        print("Python Execution Complete.")
+
+if __name__ == "__main__":
+    main()
 `,
-  java: `public class Main {
+  java: `import java.util.Scanner;
+
+public class Main {
     public static void main(String[] args) {
-        // TODO: Implement your logic
+        Scanner scanner = new Scanner(System.in);
+        if (scanner.hasNextLine()) {
+            System.out.println("Output: " + scanner.nextLine());
+        } else {
+            System.out.println("Java Execution Complete.");
+        }
     }
 }
 `,
-  javascript: `// TODO: Implement your logic
+  javascript: `const fs = require("fs");
+
+function solve() {
+    const input = fs.readFileSync(0, "utf-8").trim();
+    if (input) {
+        console.log("Output: " + input);
+    } else {
+        console.log("JavaScript Execution Complete.");
+    }
+}
+
+solve();
 `,
-  sql: `-- TODO: Write your SQL query here
+  sql: `-- Production sandbox SQL execution
+SELECT id, name, category, price, stock
+FROM products
+ORDER BY id ASC;
 `,
 };
 
@@ -64,6 +108,15 @@ export interface ExerciseData {
   id: string;
   title: string;
   type: string;
+  description?: string;
+  problemStatement?: {
+    description?: string;
+    inputFormat?: string;
+    outputFormat?: string;
+    exampleInput?: string;
+    exampleOutput?: string;
+    constraints?: string;
+  };
   starterCode?: Record<string, string>;
   hints?: string[];
   marks?: number;
@@ -542,6 +595,61 @@ export function IndependentQuestionCompiler({
             </div>
           )}
 
+          {/* Interview-Style Problem Statement & Verification Card */}
+          <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                <Terminal className="w-3.5 h-3.5" />
+                Problem Statement & Verification Spec
+              </span>
+              <span className="text-[11px] font-medium text-muted-foreground">
+                Standard I/O · 2.0s Time Limit · 256MB
+              </span>
+            </div>
+
+            <p className="text-xs sm:text-sm text-foreground leading-relaxed">
+              {exercise.description ||
+                exercise.problemStatement?.description ||
+                `Write a modular, robust program in ${language.toUpperCase()} matching this lesson's concepts. Your implementation will be compiled and executed against isolated sandbox test vectors.`}
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
+              <div className="p-2.5 rounded-lg bg-background border border-border">
+                <span className="font-semibold text-muted-foreground block mb-1">Input Format</span>
+                <code className="font-mono text-foreground text-[11px]">
+                  {exercise.problemStatement?.inputFormat || "Standard input (stdin) or interactive stream"}
+                </code>
+              </div>
+              <div className="p-2.5 rounded-lg bg-background border border-border">
+                <span className="font-semibold text-muted-foreground block mb-1">Expected Output</span>
+                <code className="font-mono text-foreground text-[11px]">
+                  {exercise.problemStatement?.outputFormat || "Deterministic output matching standard format"}
+                </code>
+              </div>
+            </div>
+
+            {(exercise.problemStatement?.exampleInput || exercise.problemStatement?.exampleOutput) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
+                {exercise.problemStatement?.exampleInput && (
+                  <div className="p-2.5 rounded-lg bg-background border border-border">
+                    <span className="font-semibold text-muted-foreground block mb-1">Sample Input</span>
+                    <pre className="font-mono text-foreground text-[11px] whitespace-pre-wrap">
+                      {exercise.problemStatement.exampleInput}
+                    </pre>
+                  </div>
+                )}
+                {exercise.problemStatement?.exampleOutput && (
+                  <div className="p-2.5 rounded-lg bg-background border border-border">
+                    <span className="font-semibold text-muted-foreground block mb-1">Sample Output</span>
+                    <pre className="font-mono text-foreground text-[11px] whitespace-pre-wrap">
+                      {exercise.problemStatement.exampleOutput}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Compiler Control Toolbar */}
           <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
             <div className="flex items-center gap-2">
@@ -579,7 +687,7 @@ export function IndependentQuestionCompiler({
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 px-4 shadow-xs gap-1.5 cursor-pointer transition-all disabled:opacity-50"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
-                <span>{isExecuting ? "Executing..." : "▶ Run Code"}</span>
+                <span>{isExecuting ? "Executing..." : "Run Code"}</span>
               </Button>
 
               <Button
