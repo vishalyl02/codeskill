@@ -186,12 +186,12 @@ export function ChandigarhUniversityCertificate({
           {/* TOP ROW: Official University Logo (Left) & Application Brand Lockup (Right) */}
           <div className="flex items-start justify-between w-full">
 
-            {/* Top-Left: Chandigarh University Official Brand Logo (Beige background matched #faf6ea) */}
+            {/* Top-Left: Chandigarh University Official Brand Logo (Fully transparent background, blends flawlessly) */}
             <div className="flex items-center">
               <img
-                src="/cu-logo-beige.png"
+                src="/cu-logo-transparent.png"
                 alt="Chandigarh University"
-                className="h-9 sm:h-11 md:h-13 print:h-15 w-auto object-contain block mix-blend-multiply"
+                className="h-9 sm:h-11 md:h-13 print:h-15 w-auto object-contain block"
               />
             </div>
 
