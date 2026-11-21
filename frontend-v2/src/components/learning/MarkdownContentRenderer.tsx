@@ -264,7 +264,7 @@ function renderBlockToken(token: Token, idx: number): React.ReactNode {
       return (
         <p
           key={key}
-          className="my-3 text-xs sm:text-sm text-foreground/90 leading-relaxed font-normal"
+          className="my-3 text-sm sm:text-base text-foreground/90 leading-relaxed font-normal"
         >
           {renderInlineTokens(p.tokens, key)}
         </p>
@@ -288,31 +288,33 @@ function renderBlockToken(token: Token, idx: number): React.ReactNode {
       return (
         <Tag
           key={key}
-          className={`my-3.5 pl-6 space-y-1.5 text-xs sm:text-sm text-foreground leading-relaxed ${
+          className={`my-3.5 pl-6 space-y-2 text-sm sm:text-base text-foreground leading-relaxed ${
             listToken.ordered ? "list-decimal" : "list-disc"
           }`}
           start={listToken.ordered && typeof listToken.start === "number" ? listToken.start : undefined}
         >
           {listToken.items.map((item, itemIdx) => {
             const itemKey = `${key}-item-${itemIdx}`;
-            // If item has block tokens, render them recursively; else render inline tokens
-            const hasBlockTokens = item.tokens && item.tokens.some((t) => t.type !== "text");
             return (
-              <li key={itemKey} className="pl-1">
-                {hasBlockTokens ? (
+              <li key={itemKey} className="pl-1 leading-relaxed">
+                {item.tokens && item.tokens.length > 0 ? (
                   item.tokens.map((t, subIdx) => {
                     if (t.type === "text") {
                       const textToken = t as Tokens.Text;
                       return (
                         <span key={`${itemKey}-text-${subIdx}`}>
-                          {textToken.tokens ? renderInlineTokens(textToken.tokens, itemKey) : textToken.text}
+                          {textToken.tokens && textToken.tokens.length > 0
+                            ? renderInlineTokens(textToken.tokens, `${itemKey}-${subIdx}`)
+                            : renderInlineTokens(marked.Lexer.lexInline(textToken.text), `${itemKey}-${subIdx}`)}
                         </span>
                       );
                     }
                     return renderBlockToken(t, subIdx);
                   })
                 ) : (
-                  <span>{item.text}</span>
+                  <span>
+                    {renderInlineTokens(marked.Lexer.lexInline(item.text), itemKey)}
+                  </span>
                 )}
               </li>
             );

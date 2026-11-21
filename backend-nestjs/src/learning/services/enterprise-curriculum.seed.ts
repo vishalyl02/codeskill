@@ -1454,8 +1454,8 @@ for num in fibonacci_stream(6):
 JavaScript executes in two phases: **Creation Phase** (memory allocation/hoisting) and **Execution Phase** (line-by-line interpretation).
 
 #### 1. \`var\` vs \`let\` / \`const\`
-- **\`var\`**: Function-scoped or globally-scoped. Hoisted and initialized with \`undefined\`.
-- **\`let\` and \`const\`**: Block-scoped (enclosed within curly braces \`{ ... }\`). Hoisted to the top of the block, but **NOT** initialized.
+- **Function-Scoped Declarations (\`var\`):** Accessible throughout the enclosing function or globally. Hoisted and initialized with \`undefined\`.
+- **Block-Scoped Declarations (\`let\` and \`const\`):** Scoped strictly to the enclosing block (\`{ ... }\`). Hoisted without initial values to guard against premature access.
 
 #### 2. The Temporal Dead Zone (TDZ)
 The **Temporal Dead Zone** is the period between entering a scope and the actual line where the variable is declared:
