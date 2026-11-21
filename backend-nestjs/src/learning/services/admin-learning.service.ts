@@ -270,6 +270,19 @@ export class AdminLearningService {
     return this.courseRepo.save(course);
   }
 
+  async cleanupLegacyModules(courseId: string, allowedTitles: string[]): Promise<void> {
+    try {
+      const allModules = await this.moduleRepo.find({ where: { courseId } });
+      for (const mod of allModules) {
+        if (!allowedTitles.includes(mod.title)) {
+          await this.moduleRepo.delete(mod.id);
+        }
+      }
+    } catch (err: any) {
+      this.logger.debug(`cleanupLegacyModules notice: ${err?.message}`);
+    }
+  }
+
   async createModule(courseId: string, dto: CreateCourseModuleDto) {
     const course = await this.courseRepo.findOne({ where: { id: courseId } });
     if (!course) throw new NotFoundException(`Course not found: ${courseId}`);
