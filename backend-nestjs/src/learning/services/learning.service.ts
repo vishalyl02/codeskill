@@ -35,7 +35,7 @@ export class LearningService {
     private readonly courseProgressRepo: Repository<CourseProgress>,
     @InjectRepository(PathProgress)
     private readonly pathProgressRepo: Repository<PathProgress>,
-  ) {}
+  ) { }
 
   /**
    * List published learning paths with enrollment and progress stats
@@ -348,7 +348,7 @@ export class LearningService {
             await this.enrollStudent(p.id, studentId);
           }
         }
-      } catch (_err: any) {
+      } catch (err: any) {
         // Silently preserve course details retrieval
       }
     }
