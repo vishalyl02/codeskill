@@ -235,7 +235,7 @@ export function ChandigarhUniversityCertificate({
                 <span className="font-sans font-extrabold text-sm sm:text-base md:text-lg print:text-xl tracking-tight text-[#1a2d57] leading-tight">
                   CodeSkill
                 </span>
-                <span className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-sans font-bold tracking-wider text-slate-500 uppercase leading-none mt-0.5">
+                <span className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-sans font-bold tracking-wider text-[#292929] uppercase leading-none mt-0.5">
                   Skill Development
                 </span>
               </div>
@@ -372,8 +372,8 @@ export function ChandigarhUniversityCertificate({
               </div>
             </div>
 
-            {/* Credential ID Verification Footer Strip */}
-            <div className="mt-1.5 sm:mt-2 print:mt-2.5 pt-0.5 sm:pt-1 border-t border-slate-300/70 flex items-center justify-center text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-mono text-slate-500">
+            {/* Credential ID Verification Footer Strip (Continuous divider removed for clean presentation) */}
+            <div className="mt-1.5 sm:mt-2 print:mt-2.5 pt-0.5 sm:pt-1 flex items-center justify-center text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-mono text-slate-500">
               <span>
                 CREDENTIAL ID:{" "}
                 <strong className="text-slate-800 font-bold tracking-wider">{data.credentialId}</strong>
