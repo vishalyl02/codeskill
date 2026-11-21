@@ -236,7 +236,9 @@ export class PracticeService implements OnModuleInit {
     } finally {
       try {
         await qr.query('RESET search_path; RESET statement_timeout;');
-      } catch (_) {}
+      } catch (resetErr: any) {
+        this.logger.debug(`Sandbox query runner reset notice: ${resetErr?.message}`);
+      }
       await qr.release();
     }
   }
@@ -994,10 +996,14 @@ export class PracticeService implements OnModuleInit {
       if (qr) {
         try {
           await qr.query('RESET search_path; RESET statement_timeout;');
-        } catch (_) {}
+        } catch (resetErr: any) {
+          this.logger.debug(`Sandbox query runner reset notice: ${resetErr?.message}`);
+        }
         try {
           await qr.release();
-        } catch (_) {}
+        } catch (relErr: any) {
+          this.logger.debug(`Sandbox query runner release notice: ${relErr?.message}`);
+        }
       }
       if (releaseSlot) releaseSlot();
     }
