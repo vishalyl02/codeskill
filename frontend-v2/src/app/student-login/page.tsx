@@ -7,7 +7,8 @@ export default function StudentLoginPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/login");
+    const search = typeof window !== "undefined" ? window.location.search : "";
+    router.replace(`/login${search}`);
   }, [router]);
 
   return (

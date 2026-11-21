@@ -1,7 +1,6 @@
 import {
   Injectable,
   NotFoundException,
-  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -36,7 +35,7 @@ export class LearningService {
     private readonly courseProgressRepo: Repository<CourseProgress>,
     @InjectRepository(PathProgress)
     private readonly pathProgressRepo: Repository<PathProgress>,
-  ) {}
+  ) { }
 
   /**
    * List published learning paths with enrollment and progress stats
@@ -163,12 +162,29 @@ export class LearningService {
           let isCourseCompleted = false;
 
           if (studentId && c) {
+            // Count total and completed lessons dynamically for maximum accuracy
+            const courseLessons: string[] = [];
+            (c.modules || []).forEach((m) => {
+              (m.lessons || []).forEach((l) => courseLessons.push(l.id));
+            });
+
+            if (courseLessons.length > 0) {
+              const completedLessonsCount = await this.lessonProgressRepo
+                .createQueryBuilder('lp')
+                .where('lp.studentId = :studentId', { studentId })
+                .andWhere('lp.lessonId IN (:...courseLessons)', { courseLessons })
+                .andWhere('lp.status = :status', { status: 'completed' })
+                .getCount();
+
+              courseProgressPercent = Math.round((completedLessonsCount / courseLessons.length) * 100);
+            }
+
             const cp = await this.courseProgressRepo.findOne({
               where: { studentId, courseId: c.id },
             });
             if (cp) {
-              courseProgressPercent = cp.percentage;
-              isCourseCompleted = cp.status === 'completed';
+              courseProgressPercent = Math.max(courseProgressPercent, cp.percentage || 0);
+              isCourseCompleted = cp.status === 'completed' || courseProgressPercent === 100;
             }
           }
 
@@ -207,6 +223,17 @@ export class LearningService {
         }),
     );
 
+    const totalCoursesCount = sortedCourses.length;
+    const completedCoursesCount = sortedCourses.filter((c) => c.isCompleted).length;
+    const avgProgress =
+      totalCoursesCount > 0
+        ? Math.round(
+            sortedCourses.reduce((sum, c) => sum + (c.progressPercent || 0), 0) /
+              totalCoursesCount,
+          )
+        : 0;
+    const effectivePercentage = Math.max(pathProgress?.percentage || 0, avgProgress);
+
     return {
       id: path.id,
       title: path.title,
@@ -218,13 +245,15 @@ export class LearningService {
       version: path.version,
       completionCriteria: path.completionCriteria,
       isEnrolled,
-      progress: pathProgress
+      progress: isEnrolled || pathProgress
         ? {
-            percentage: pathProgress.percentage,
-            completedCourses: pathProgress.completedCoursesCount,
-            totalCourses: pathProgress.totalCoursesCount,
-            status: pathProgress.status,
-            isCertified: pathProgress.isCertified,
+            percentage: effectivePercentage,
+            completedCourses: completedCoursesCount,
+            totalCourses: totalCoursesCount,
+            status:
+              pathProgress?.status ||
+              (effectivePercentage === 100 ? 'completed' : 'in_progress'),
+            isCertified: pathProgress?.isCertified || false,
           }
         : null,
       courses: sortedCourses,
@@ -300,6 +329,28 @@ export class LearningService {
     });
     if (!course) {
       throw new NotFoundException(`Course not found: ${courseId}`);
+    }
+
+    // Auto-enroll authenticated student into the associated learning path if not already enrolled
+    if (studentId) {
+      try {
+        const pathCourses = await this.pathRepo
+          .createQueryBuilder('p')
+          .innerJoin('learning_path_courses', 'lpc', 'lpc.path_id = p.id')
+          .where('lpc.course_id = :courseId', { courseId: course.id })
+          .getMany();
+
+        for (const p of pathCourses) {
+          const existing = await this.enrollmentRepo.findOne({
+            where: { studentId, pathId: p.id },
+          });
+          if (!existing) {
+            await this.enrollStudent(p.id, studentId);
+          }
+        }
+      } catch (err: any) {
+        // Silently preserve course details retrieval
+      }
     }
 
     // Fetch all completed lessons for this student
@@ -402,15 +453,34 @@ export class LearningService {
         };
       });
 
-    // Find next lesson in the course
-    const allModuleLessons = await this.lessonRepo.find({
-      where: { moduleId: lesson.moduleId },
-      order: { order: 'ASC' },
-    });
-    const currentIndex = allModuleLessons.findIndex((l) => l.id === lessonId);
+    // Find next lesson across ALL modules in the course
     let nextLessonId: string | null = null;
-    if (currentIndex >= 0 && currentIndex < allModuleLessons.length - 1) {
-      nextLessonId = allModuleLessons[currentIndex + 1].id;
+    const courseId = lesson.module?.course?.id;
+
+    if (courseId) {
+      const courseModules = await this.moduleRepo.find({
+        where: { courseId },
+        order: { order: 'ASC' },
+        relations: { lessons: true },
+      });
+      const allCourseLessons: Lesson[] = [];
+      for (const mod of courseModules) {
+        const sortedLessons = (mod.lessons || []).sort((a, b) => a.order - b.order);
+        allCourseLessons.push(...sortedLessons);
+      }
+      const currentIndex = allCourseLessons.findIndex((l) => l.id === lessonId);
+      if (currentIndex >= 0 && currentIndex < allCourseLessons.length - 1) {
+        nextLessonId = allCourseLessons[currentIndex + 1].id;
+      }
+    } else {
+      const allModuleLessons = await this.lessonRepo.find({
+        where: { moduleId: lesson.moduleId },
+        order: { order: 'ASC' },
+      });
+      const currentIndex = allModuleLessons.findIndex((l) => l.id === lessonId);
+      if (currentIndex >= 0 && currentIndex < allModuleLessons.length - 1) {
+        nextLessonId = allModuleLessons[currentIndex + 1].id;
+      }
     }
 
     return {
@@ -460,14 +530,27 @@ export class LearningService {
       };
     }
 
-    const paths = await this.pathRepo.findBy({ id: In(pathIds) });
+    const paths = await this.pathRepo.find({
+      where: { id: In(pathIds) },
+      relations: {
+        pathCourses: {
+          course: true,
+        },
+      },
+    });
     const pathProgresses = await this.pathProgressRepo.find({
       where: { studentId },
     });
     const progressMap = new Map(pathProgresses.map((p) => [p.pathId, p]));
 
-    const activePaths = paths.map((p: LearningPath) => {
+    const activePaths = paths.map((p: any) => {
       const prog = progressMap.get(p.id);
+      const sortedCourses = (p.pathCourses || [])
+        .sort((a: any, b: any) => a.order - b.order)
+        .map((pc: any) => pc.course)
+        .filter(Boolean);
+      const firstCourseSlug = sortedCourses[0]?.slug || null;
+
       return {
         id: p.id,
         title: p.title,
@@ -475,9 +558,13 @@ export class LearningService {
         difficulty: p.difficulty,
         percentage: prog?.percentage || 0,
         completedCourses: prog?.completedCoursesCount || 0,
-        totalCourses: prog?.totalCoursesCount || 0,
+        totalCourses: prog?.totalCoursesCount || (sortedCourses.length > 0 ? sortedCourses.length : 1),
         status: prog?.status || 'in_progress',
         isCertified: prog?.isCertified || false,
+        firstCourseSlug,
+        resumeUrl: firstCourseSlug
+          ? `/learning/${p.slug}/${firstCourseSlug}`
+          : `/learning/${p.slug}`,
       };
     });
 

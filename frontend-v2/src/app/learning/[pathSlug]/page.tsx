@@ -123,11 +123,30 @@ export default function LearningPathDetailPage({
       setEnrolling(true);
       await learningAPI.enroll(path.id);
       await loadPath();
+      // Seamlessly transition the student into the first course!
+      if (path.courses?.[0]?.slug) {
+        router.push(`/learning/${path.slug}/${path.courses[0].slug}`);
+      }
     } catch (err) {
       console.error("Enrollment failed", err);
     } finally {
       setEnrolling(false);
     }
+  };
+
+  const handleStartCourse = async (courseSlug: string) => {
+    if (!user) {
+      router.push(`/login?redirect=/learning/${pathSlug}/${courseSlug}`);
+      return;
+    }
+    if (path && !path.isEnrolled) {
+      try {
+        await learningAPI.enroll(path.id);
+      } catch (err) {
+        // Proceed even if already enrolled
+      }
+    }
+    router.push(`/learning/${pathSlug}/${courseSlug}`);
   };
 
   const handleClaimCertificate = async () => {
@@ -200,7 +219,7 @@ export default function LearningPathDetailPage({
         <div>
           <Link
             href="/learning"
-            className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>All Learning Paths</span>
@@ -208,45 +227,45 @@ export default function LearningPathDetailPage({
         </div>
 
         {/* Hero Card */}
-        <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-sm">
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+        <div className="bg-card border border-border rounded-2xl p-6 sm:p-10 shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-8">
             <div className="max-w-3xl">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20 capitalize">
+              <div className="flex flex-wrap items-center gap-3 mb-4">
+                <span className="px-3.5 py-1 rounded-full text-xs sm:text-sm font-bold bg-primary/10 text-primary border border-primary/20 capitalize">
                   {path.difficulty}
                 </span>
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="w-3.5 h-3.5" />
+                <span className="flex items-center gap-1.5 text-xs sm:text-sm text-muted-foreground font-medium">
+                  <Clock className="w-4 h-4 text-primary" />
                   <span>~{path.estimatedHours} Hours</span>
                 </span>
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <BookOpen className="w-3.5 h-3.5" />
+                <span className="flex items-center gap-1.5 text-xs sm:text-sm text-muted-foreground font-medium">
+                  <BookOpen className="w-4 h-4 text-primary" />
                   <span>{path.courses.length} Courses</span>
                 </span>
               </div>
 
               <div className="flex items-center gap-4 mt-2">
-                <div className="w-14 h-14 rounded-xl bg-muted/60 border border-border p-2.5 flex items-center justify-center shadow-sm">
+                <div className="w-16 h-16 rounded-2xl bg-muted/60 border border-border p-3 flex items-center justify-center shadow-xs shrink-0">
                   <img
                     src={techIconSrc}
                     alt={path.title}
                     className="w-full h-full object-contain"
                   />
                 </div>
-                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-foreground leading-tight">
                   {path.title}
                 </h1>
               </div>
 
-              <p className="mt-4 text-sm sm:text-base text-muted-foreground leading-relaxed">
+              <p className="mt-5 text-base sm:text-lg text-muted-foreground leading-relaxed font-normal">
                 {path.description}
               </p>
 
-              <div className="flex flex-wrap gap-2 mt-4">
+              <div className="flex flex-wrap gap-2.5 mt-5">
                 {path.tags.map((t, idx) => (
                   <span
                     key={idx}
-                    className="px-2.5 py-1 rounded-md bg-muted text-xs text-muted-foreground font-medium border border-border"
+                    className="px-3 py-1 rounded-lg bg-muted text-xs sm:text-sm text-muted-foreground font-semibold border border-border"
                   >
                     #{t}
                   </span>
@@ -255,18 +274,18 @@ export default function LearningPathDetailPage({
             </div>
 
             {/* Action Card */}
-            <div className="bg-muted/40 border border-border p-6 rounded-xl w-full md:w-80 shadow-sm flex flex-col justify-between">
+            <div className="bg-muted/40 border border-border p-6 rounded-2xl w-full md:w-84 shadow-sm flex flex-col justify-between">
               {path.isEnrolled ? (
                 <div>
-                  <div className="flex justify-between text-xs font-bold mb-2">
-                    <span className="text-muted-foreground">Roadmap Progress</span>
-                    <span className="text-primary font-bold">
+                  <div className="flex items-center justify-between text-sm font-bold mb-3">
+                    <span className="text-foreground">Roadmap Progress</span>
+                    <span className="text-primary font-black font-mono text-lg">
                       {path.progress?.percentage || 0}%
                     </span>
                   </div>
-                  <div className="w-full bg-muted h-2.5 rounded-full overflow-hidden mb-6">
+                  <div className="w-full bg-muted h-3 rounded-full overflow-hidden mb-6 border border-border">
                     <div
-                      className="bg-primary h-full rounded-full transition-all duration-500"
+                      className="bg-primary h-full rounded-full transition-all duration-700 ease-out shadow-xs shadow-primary/30"
                       style={{ width: `${path.progress?.percentage || 0}%` }}
                     />
                   </div>
@@ -275,15 +294,15 @@ export default function LearningPathDetailPage({
                     <Button
                       onClick={handleClaimCertificate}
                       disabled={claimingCert}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-sm flex items-center justify-center gap-2"
+                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base shadow-sm flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <Trophy className="w-4 h-4 text-amber-300" />
+                      <Trophy className="w-5 h-5 text-amber-300" />
                       <span>{claimingCert ? "Issuing..." : "Claim Certificate"}</span>
                     </Button>
                   ) : (
                     <Link
                       href={`/learning/${path.slug}/${path.courses[0]?.slug}`}
-                      className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-sm shadow-sm transition-colors"
+                      className="w-full inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm sm:text-base shadow-sm transition-colors cursor-pointer"
                     >
                       <span>Resume Learning</span>
                       <ArrowRight className="w-4 h-4" />
@@ -292,14 +311,14 @@ export default function LearningPathDetailPage({
                 </div>
               ) : user ? (
                 <div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-emerald-600 dark:text-emerald-400 mb-4">
                     <ShieldCheck className="w-4 h-4" />
                     <span>Includes Verifiable Certificate</span>
                   </div>
                   <Button
                     onClick={handleEnroll}
                     disabled={enrolling}
-                    className="w-full py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm shadow-sm flex items-center justify-center gap-2"
+                    className="w-full py-3 px-5 bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm sm:text-base shadow-sm flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <span>{enrolling ? "Enrolling..." : "Enroll in Learning Path"}</span>
                     <ArrowRight className="w-4 h-4" />
@@ -307,13 +326,13 @@ export default function LearningPathDetailPage({
                 </div>
               ) : (
                 <div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-emerald-600 dark:text-emerald-400 mb-4">
                     <ShieldCheck className="w-4 h-4" />
                     <span>Includes Verifiable Certificate</span>
                   </div>
                   <Link
                     href={`/login?redirect=/learning/${path.slug}`}
-                    className="w-full py-2.5 px-4 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all hover:shadow-md"
+                    className="w-full py-3 px-5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm sm:text-base shadow-sm flex items-center justify-center gap-2 transition-all hover:shadow-md"
                   >
                     <LogIn className="w-4 h-4" />
                     <span>Log in to Enroll</span>
@@ -328,15 +347,15 @@ export default function LearningPathDetailPage({
         <div className="pt-4">
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-foreground flex items-center gap-2">
-                <Zap className="w-5 h-5 text-primary" />
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-foreground flex items-center gap-2.5">
+                <Zap className="w-6 h-6 text-primary" />
                 <span>Learning Roadmap & Milestones</span>
               </h2>
-              <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+              <p className="text-sm sm:text-base text-muted-foreground mt-1.5 font-normal">
                 Follow this step-by-step path to master all concepts and achieve certification.
               </p>
             </div>
-            <span className="text-xs text-muted-foreground font-medium px-3 py-1 bg-card rounded-md border border-border shadow-sm">
+            <span className="text-xs sm:text-sm text-foreground font-semibold px-3.5 py-1.5 bg-card rounded-lg border border-border shadow-xs">
               {path.courses.length} Milestones
             </span>
           </div>
@@ -351,11 +370,10 @@ export default function LearningPathDetailPage({
                 <div key={course.id} className="relative group">
                   {/* Node Indicator on Timeline */}
                   <div
-                    className={`absolute -left-6 sm:-left-10 top-5 w-6 sm:w-10 h-6 sm:h-10 rounded-full flex items-center justify-center border-2 transition-all ${
-                      isCourseDone
-                        ? "bg-emerald-600 border-emerald-500 text-white shadow-sm"
-                        : "bg-background border-primary text-primary shadow-sm"
-                    }`}
+                    className={`absolute -left-6 sm:-left-10 top-5 w-6 sm:w-10 h-6 sm:h-10 rounded-full flex items-center justify-center border-2 transition-all ${isCourseDone
+                      ? "bg-emerald-600 border-emerald-500 text-white shadow-sm"
+                      : "bg-background border-primary text-primary shadow-sm"
+                      }`}
                   >
                     {isCourseDone ? (
                       <Check className="w-3.5 sm:w-5 h-3.5 sm:h-5 stroke-[3]" />
@@ -365,22 +383,22 @@ export default function LearningPathDetailPage({
                   </div>
 
                   {/* Milestone Course Card */}
-                  <div className="bg-card border border-border rounded-xl p-6 transition-all hover:border-foreground/20 hover:shadow-md shadow-sm">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-xs font-bold text-primary">
+                  <div className="bg-card border border-border rounded-xl p-6 sm:p-8 transition-all hover:border-foreground/20 hover:shadow-md shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-border">
+                      <div className="flex-1 min-w-0 pr-4">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <span className="text-xs sm:text-sm font-black text-primary tracking-wide">
                             MILESTONE {cIdx + 1}
                           </span>
                           <span className="text-muted-foreground">·</span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs sm:text-sm text-muted-foreground font-medium">
                             ~{course.estimatedMinutes} mins
                           </span>
                           <span className="text-muted-foreground">·</span>
-                          <span className="text-xs text-muted-foreground capitalize">{course.difficulty}</span>
+                          <span className="text-xs sm:text-sm text-muted-foreground capitalize font-medium">{course.difficulty}</span>
                           <span className="text-muted-foreground">·</span>
                           <span
-                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+                            className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded border ${
                               course.isMandatory !== false
                                 ? "bg-primary/10 text-primary border-primary/20"
                                 : "bg-muted text-muted-foreground border-border"
@@ -389,20 +407,20 @@ export default function LearningPathDetailPage({
                             {course.isMandatory !== false ? "Required" : "Optional"}
                           </span>
                         </div>
-                        <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors">
+                        <h3 className="text-xl sm:text-2xl font-extrabold text-foreground group-hover:text-primary transition-colors">
                           <Link href={`/learning/${path.slug}/${course.slug}`} className="hover:underline">
                             {course.title}
                           </Link>
                         </h3>
-                        <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                        <p className="text-sm sm:text-base text-muted-foreground mt-2 leading-relaxed">
                           {course.description}
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 shrink-0">
                         {isCourseDone && (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                            <CheckCircle2 className="w-4 h-4" />
                             <span>Passed</span>
                           </span>
                         )}
@@ -410,24 +428,24 @@ export default function LearningPathDetailPage({
                         {!user ? (
                           <Link
                             href={`/login?redirect=/learning/${path.slug}/${course.slug}`}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-xs font-semibold text-primary-foreground shadow-sm transition-colors"
+                            className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-sm font-bold text-primary-foreground shadow-sm transition-colors"
                           >
-                            <LogIn className="w-3.5 h-3.5" />
+                            <LogIn className="w-4 h-4" />
                             <span>Log In to Start</span>
                           </Link>
                         ) : (
-                          <Link
-                            href={`/learning/${path.slug}/${course.slug}`}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-xs font-semibold text-primary-foreground shadow-sm transition-colors"
+                          <button
+                            onClick={() => handleStartCourse(course.slug)}
+                            className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-sm font-bold text-primary-foreground shadow-sm transition-colors cursor-pointer"
                           >
                             <span>Start Course</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </Link>
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
                         )}
 
                         <button
                           onClick={() => toggleCourseExpand(course.id)}
-                          className="p-2 rounded-md border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          className="p-2.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                           aria-label="Toggle modules"
                         >
                           {isExpanded ? (
@@ -441,31 +459,31 @@ export default function LearningPathDetailPage({
 
                     {/* Accordion Modules & Lessons */}
                     {isExpanded && (
-                      <div className="mt-5 space-y-3">
+                      <div className="mt-6 space-y-4">
                         {course.modules.map((mod) => (
                           <div
                             key={mod.id}
-                            className="bg-muted/30 border border-border rounded-lg p-4"
+                            className="bg-muted/30 border border-border rounded-xl p-5"
                           >
-                            <div className="flex items-center justify-between text-xs font-bold text-foreground mb-2">
+                            <div className="flex items-center justify-between text-sm sm:text-base font-bold text-foreground mb-3">
                               <span className="flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-primary" />
+                                <span className="w-2.5 h-2.5 rounded-full bg-primary" />
                                 <span>{mod.title}</span>
                               </span>
-                              <span className="text-muted-foreground font-normal">
+                              <span className="text-xs sm:text-sm text-muted-foreground font-medium">
                                 {mod.lessons.length} lessons
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3">
                               {mod.lessons.map((lesson) => (
                                 <div
                                   key={lesson.id}
-                                  className="flex items-center gap-2.5 px-3 py-2 rounded-md bg-card border border-border text-xs text-foreground shadow-sm"
+                                  className="flex items-center gap-3 px-4 py-3 rounded-lg bg-card border border-border text-xs sm:text-sm text-foreground shadow-xs hover:border-foreground/20 transition-colors"
                                 >
                                   {getLessonIcon(lesson.type)}
-                                  <span className="truncate font-medium">{lesson.title}</span>
-                                  <span className="text-[10px] text-muted-foreground uppercase ml-auto font-semibold">
+                                  <span className="truncate font-semibold text-foreground">{lesson.title}</span>
+                                  <span className="text-[11px] text-muted-foreground uppercase ml-auto font-bold tracking-wider">
                                     {lesson.type}
                                   </span>
                                 </div>
@@ -486,16 +504,16 @@ export default function LearningPathDetailPage({
                 <Trophy className="w-3.5 sm:w-5 h-3.5 sm:h-5" />
               </div>
 
-              <div className="bg-card border border-amber-500/30 rounded-xl p-6 shadow-sm">
+              <div className="bg-card border border-amber-500/30 rounded-xl p-6 sm:p-8 shadow-sm">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <span className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
+                    <span className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
                       FINAL CREDENTIAL
                     </span>
-                    <h3 className="text-lg font-bold text-foreground mt-1">
+                    <h3 className="text-xl sm:text-2xl font-extrabold text-foreground mt-1">
                       Verified Digital Certificate of Completion
                     </h3>
-                    <p className="text-xs sm:text-sm text-muted-foreground mt-1 max-w-xl">
+                    <p className="text-sm sm:text-base text-muted-foreground mt-1.5 max-w-xl leading-relaxed">
                       Upon passing all mandatory course exercises and quizzes with a score of 70%+, your tamper-proof digital credential will be generated with a public verification URL.
                     </p>
                   </div>
@@ -504,12 +522,12 @@ export default function LearningPathDetailPage({
                     <Button
                       onClick={handleClaimCertificate}
                       disabled={claimingCert}
-                      className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold shadow-sm"
+                      className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-bold shadow-sm cursor-pointer"
                     >
                       Claim Certificate
                     </Button>
                   ) : (
-                    <span className="text-xs text-muted-foreground font-semibold px-4 py-2 rounded-md bg-muted border border-border">
+                    <span className="text-xs sm:text-sm text-muted-foreground font-semibold px-4 py-2.5 rounded-lg bg-muted border border-border">
                       Locked until 100%
                     </span>
                   )}

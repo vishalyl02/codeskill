@@ -748,8 +748,23 @@ export class PracticeService implements OnModuleInit {
 
         const completedCourseIds = new Set(completedCourses.map((c) => c.courseId));
         const completedCoursesCount = completedCourses.length;
-        const pathPercentage = Math.round(
-          (completedCoursesCount / totalCourses) * 100,
+        // Query all courses in this path to get granular course percentages
+        const allCourseProgresses = await this.courseProgressRepo
+          .createQueryBuilder('cp')
+          .where('cp.studentId = :studentId', { studentId })
+          .andWhere('cp.courseId IN (:...pathCourseIds)', { pathCourseIds })
+          .getMany();
+
+        const cpMap = new Map(allCourseProgresses.map((c) => [c.courseId, c.percentage]));
+        // Make sure current course progress is updated
+        cpMap.set(courseId, courseProgress.percentage);
+
+        const totalCoursePercentages = pathCourseIds.reduce(
+          (sum, cid) => sum + (cpMap.get(cid) || 0),
+          0,
+        );
+        const granularPathPercentage = Math.round(
+          totalCoursePercentages / totalCourses,
         );
 
         // Dynamic Requirement Check: Path is completed when all mandatory courses are completed
@@ -766,14 +781,14 @@ export class PracticeService implements OnModuleInit {
           pathProgress = this.pathProgressRepo.create({
             studentId,
             pathId,
-            percentage: isPathCompleted && pathPercentage < 100 ? 100 : pathPercentage,
+            percentage: isPathCompleted && granularPathPercentage < 100 ? 100 : granularPathPercentage,
             completedCoursesCount,
             totalCoursesCount: totalCourses,
             status: isPathCompleted ? 'completed' : 'in_progress',
             completedAt: isPathCompleted ? new Date() : undefined,
           });
         } else {
-          pathProgress.percentage = isPathCompleted && pathPercentage < 100 ? 100 : pathPercentage;
+          pathProgress.percentage = isPathCompleted && granularPathPercentage < 100 ? 100 : granularPathPercentage;
           pathProgress.completedCoursesCount = completedCoursesCount;
           pathProgress.totalCoursesCount = totalCourses;
           if (isPathCompleted && pathProgress.status !== 'completed') {

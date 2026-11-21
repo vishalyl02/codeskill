@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use, useMemo, useRef } from "react";
+import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActivityTimer } from "@/hooks/useActivityTimer";
@@ -46,6 +46,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
+import { MarkdownContentRenderer } from "@/components/learning/MarkdownContentRenderer";
 
 interface LessonData {
   id: string;
@@ -105,171 +106,7 @@ interface CourseSidebarData {
 
 // Professional Markdown Content Renderer with high-contrast Light & Dark typography
 function RichContentRenderer({ content }: { content: string }) {
-  const renderedSections = useMemo(() => {
-    if (!content) return [];
-    const lines = content.split("\n");
-    const sections: React.ReactNode[] = [];
-    let inCodeBlock = false;
-    let codeLanguage = "";
-    let codeLines: string[] = [];
-    let tableLines: string[] = [];
-
-    const flushTable = (key: string) => {
-      if (tableLines.length === 0) return;
-      const rows = tableLines.map((l) =>
-        l
-          .split("|")
-          .map((c) => c.trim())
-          .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1)
-      );
-      if (rows.length >= 2) {
-        const headers = rows[0];
-        const dataRows = rows.slice(2);
-        sections.push(
-          <div
-            key={key}
-            className="my-5 overflow-x-auto border border-border rounded-xl bg-card shadow-xs"
-          >
-            <table className="w-full text-left text-xs sm:text-sm border-collapse">
-              <thead className="bg-muted/70 border-b border-border">
-                <tr>
-                  {headers.map((h, hIdx) => (
-                    <th
-                      key={hIdx}
-                      className="px-4 py-3 font-bold text-foreground"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {dataRows.map((row, rIdx) => (
-                  <tr key={rIdx} className="hover:bg-muted/40 transition-colors">
-                    {row.map((cell, cIdx) => (
-                      <td
-                        key={cIdx}
-                        className="px-4 py-3 text-foreground font-mono text-xs"
-                      >
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
-      }
-      tableLines = [];
-    };
-
-    lines.forEach((line, idx) => {
-      // Code block start / end
-      if (line.trim().startsWith("```")) {
-        if (inCodeBlock) {
-          const codeSnippet = codeLines.join("\n");
-          sections.push(
-            <div
-              key={`code-${idx}`}
-              className="my-5 rounded-xl border border-border bg-muted/60 p-4 font-mono text-xs overflow-x-auto text-foreground shadow-xs relative group"
-            >
-              {codeLanguage && (
-                <span className="absolute top-2.5 right-3 text-[10px] font-bold text-muted-foreground uppercase tracking-wider bg-background/80 px-2 py-0.5 rounded border border-border">
-                  {codeLanguage}
-                </span>
-              )}
-              <pre className="text-foreground">
-                <code>{codeSnippet}</code>
-              </pre>
-            </div>
-          );
-          codeLines = [];
-          codeLanguage = "";
-          inCodeBlock = false;
-        } else {
-          flushTable(`table-before-code-${idx}`);
-          inCodeBlock = true;
-          codeLanguage = line.trim().replace(/^```/, "").trim();
-        }
-        return;
-      }
-
-      if (inCodeBlock) {
-        codeLines.push(line);
-        return;
-      }
-
-      // Table line
-      if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
-        tableLines.push(line.trim());
-        return;
-      } else {
-        flushTable(`table-${idx}`);
-      }
-
-      // Headers
-      if (line.startsWith("### ")) {
-        sections.push(
-          <h3
-            key={`h3-${idx}`}
-            className="text-lg sm:text-xl font-bold tracking-tight text-foreground mt-7 mb-3"
-          >
-            {line.replace(/^### /, "")}
-          </h3>
-        );
-      } else if (line.startsWith("#### ")) {
-        sections.push(
-          <h4
-            key={`h4-${idx}`}
-            className="text-base font-semibold text-foreground mt-5 mb-2"
-          >
-            {line.replace(/^#### /, "")}
-          </h4>
-        );
-      } else if (line.startsWith("> ")) {
-        // Blockquote callout
-        sections.push(
-          <div
-            key={`quote-${idx}`}
-            className="my-4 border-l-4 border-primary bg-primary/5 p-4 rounded-r-xl text-xs sm:text-sm text-foreground flex items-start gap-3 shadow-xs"
-          >
-            <Lightbulb className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-            <div className="leading-relaxed font-medium">
-              {line.replace(/^> /, "").replace(/\*\*(.*?)\*\*/g, "$1")}
-            </div>
-          </div>
-        );
-      } else if (line.trim().startsWith("- ")) {
-        // Bullet list item
-        sections.push(
-          <div
-            key={`li-${idx}`}
-            className="flex items-start gap-2.5 my-1.5 text-xs sm:text-sm text-foreground"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
-            <span className="leading-relaxed">
-              {line.trim().replace(/^- /, "")}
-            </span>
-          </div>
-        );
-      } else if (line.trim().length > 0) {
-        sections.push(
-          <p
-            key={`p-${idx}`}
-            className="my-2.5 text-xs sm:text-sm text-foreground leading-relaxed font-normal"
-          >
-            {line}
-          </p>
-        );
-      }
-    });
-
-    flushTable("table-end");
-    return sections;
-  }, [content]);
-
-  return <div className="space-y-1">{renderedSections}</div>;
+  return <MarkdownContentRenderer content={content} />;
 }
 
 interface W3BlankItem {
@@ -762,6 +599,33 @@ export default function CourseWorkspacePage({
     }
   }, [activityTimer.hasMetRequirement, requiredTime]);
 
+  const navigateToLesson = (lessonId: string) => {
+    if (!lessonId) return;
+    setActiveLessonId(lessonId);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("lesson") !== lessonId) {
+        url.searchParams.set("lesson", lessonId);
+        window.history.pushState({ lessonId }, "", url.toString());
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        const lessonParam = url.searchParams.get("lesson") || url.searchParams.get("lessonId");
+        if (lessonParam && lessonParam !== activeLessonId) {
+          setActiveLessonId(lessonParam);
+        }
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [activeLessonId]);
+
   useEffect(() => {
     loadCourse();
   }, [pathSlug, courseSlug]);
@@ -794,9 +658,24 @@ export default function CourseWorkspacePage({
 
       setCourse(courseData);
 
-      const firstLesson = courseData?.modules?.[0]?.lessons?.[0];
-      if (firstLesson) {
-        setActiveLessonId(firstLesson.id);
+      // Support direct lesson URLs and retain active lesson on refresh
+      const allCourseLessons = (courseData?.modules || []).flatMap((m: any) => m.lessons || []);
+      const searchParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+      const requestedLessonId = searchParams.get("lesson") || searchParams.get("lessonId");
+      const matchedLesson = requestedLessonId
+        ? allCourseLessons.find((l: any) => l.id === requestedLessonId || l.slug === requestedLessonId)
+        : null;
+
+      const targetLessonId = matchedLesson ? matchedLesson.id : allCourseLessons[0]?.id;
+      if (targetLessonId) {
+        setActiveLessonId(targetLessonId);
+        if (typeof window !== "undefined") {
+          const url = new URL(window.location.href);
+          if (url.searchParams.get("lesson") !== targetLessonId) {
+            url.searchParams.set("lesson", targetLessonId);
+            window.history.replaceState({ lessonId: targetLessonId }, "", url.toString());
+          }
+        }
       }
     } catch (err) {
       console.error("Failed to load course workspace", err);
@@ -1256,8 +1135,15 @@ export default function CourseWorkspacePage({
       setXpCelebration(25);
       setTimeout(() => setXpCelebration(null), 3000);
 
-      if (lesson.nextLessonId) {
-        setActiveLessonId(lesson.nextLessonId);
+      // Advance to next lesson: prefer authoritative lesson.nextLessonId or next lesson across modules
+      const nextId =
+        lesson.nextLessonId ||
+        (currentLessonIndex >= 0 && currentLessonIndex < allLessons.length - 1
+          ? allLessons[currentLessonIndex + 1]?.id
+          : null);
+
+      if (nextId) {
+        navigateToLesson(nextId);
       } else {
         router.push(`/learning/${pathSlug}`);
       }
@@ -1957,9 +1843,9 @@ export default function CourseWorkspacePage({
           <div className="flex items-center gap-2">
             {/* Live Stopwatch Tracker Badge */}
             <div
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all duration-500 ${
                 hasMetTimeRequirement
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 shadow-xs"
                   : "bg-muted/60 border-border text-foreground"
               }`}
               title={
@@ -1968,11 +1854,15 @@ export default function CourseWorkspacePage({
                   : `Study time remaining: ${remainingSeconds}s`
               }
             >
-              <Timer
-                className={`w-3.5 h-3.5 ${
-                  hasMetTimeRequirement ? "text-emerald-500" : "text-amber-500 animate-pulse"
-                }`}
-              />
+              {hasMetTimeRequirement ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 animate-in fade-in zoom-in duration-300" />
+              ) : (
+                <Timer
+                  className={`w-3.5 h-3.5 text-amber-500 ${
+                    activityTimer.isRunning ? "animate-pulse" : ""
+                  }`}
+                />
+              )}
               <span>{formatTime(timeSpent)}</span>
               <span className="text-muted-foreground font-normal text-[10px]">
                 / {formatTime(requiredTime)}
@@ -1984,7 +1874,7 @@ export default function CourseWorkspacePage({
               variant="outline"
               onClick={() => {
                 if (currentLessonIndex > 0) {
-                  setActiveLessonId(allLessons[currentLessonIndex - 1].id);
+                  navigateToLesson(allLessons[currentLessonIndex - 1].id);
                 }
               }}
               disabled={currentLessonIndex <= 0}
@@ -2000,7 +1890,7 @@ export default function CourseWorkspacePage({
               variant="outline"
               onClick={() => {
                 if (currentLessonIndex < allLessons.length - 1) {
-                  setActiveLessonId(allLessons[currentLessonIndex + 1].id);
+                  navigateToLesson(allLessons[currentLessonIndex + 1].id);
                 }
               }}
               disabled={currentLessonIndex >= allLessons.length - 1}
@@ -2087,7 +1977,7 @@ export default function CourseWorkspacePage({
                           )}
 
                           <button
-                            onClick={() => setActiveLessonId(l.id)}
+                            onClick={() => navigateToLesson(l.id)}
                             className={`w-full text-left pl-7 pr-3 py-2 rounded-lg text-xs font-medium flex items-center justify-between transition-all duration-200 cursor-pointer ${
                               isActive
                                 ? "bg-primary/10 text-primary font-bold shadow-xs translate-x-1"
@@ -2138,29 +2028,37 @@ export default function CourseWorkspacePage({
               <div className="space-y-8">
                 {/* Interactive Module Stopwatch & Requirement Bar */}
                 <div
-                  className={`relative overflow-hidden rounded-xl border p-4 transition-all duration-300 shadow-xs ${
+                  className={`relative overflow-hidden rounded-xl border p-4 sm:p-5 transition-all duration-700 ease-out shadow-xs ${
                     hasMetTimeRequirement
-                      ? "bg-gradient-to-r from-emerald-500/10 via-card to-emerald-500/5 border-emerald-500/30"
-                      : "bg-gradient-to-r from-muted/50 via-card to-muted/30 border-border"
+                      ? "bg-card border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-emerald-500/5 shadow-md"
+                      : "bg-card border-border hover:border-border/80"
                   }`}
                 >
-                  {celebrationGlow && (
-                    <div className="absolute inset-0 bg-emerald-500/20 animate-pulse pointer-events-none" />
-                  )}
-                  <div className="flex flex-wrap items-center justify-between gap-4">
+                  {/* Smooth Ambient Celebration Glow */}
+                  <div
+                    className={`absolute -inset-1 bg-gradient-to-r from-emerald-500/10 via-emerald-500/20 to-teal-500/10 rounded-xl blur-lg transition-opacity duration-1000 pointer-events-none ${
+                      celebrationGlow ? "opacity-100" : "opacity-0"
+                    }`}
+                  />
+
+                  <div className="relative z-10 flex flex-wrap items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
+                        className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-500 ease-out ${
                           hasMetTimeRequirement
-                            ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30 scale-105"
+                            ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30 scale-100"
                             : "bg-primary/10 text-primary border border-primary/20"
                         }`}
                       >
-                        <Timer
-                          className={`w-5 h-5 ${
-                            activityTimer.isRunning && !hasMetTimeRequirement ? "animate-pulse" : ""
-                          }`}
-                        />
+                        {hasMetTimeRequirement ? (
+                          <CheckCircle2 className="w-5 h-5 text-white animate-in zoom-in-75 duration-300" />
+                        ) : (
+                          <Timer
+                            className={`w-5 h-5 ${
+                              activityTimer.isRunning ? "animate-pulse" : ""
+                            }`}
+                          />
+                        )}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
@@ -2168,9 +2066,9 @@ export default function CourseWorkspacePage({
                             Module Study Stopwatch
                           </h4>
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all duration-500 ${
                               hasMetTimeRequirement
-                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-xs"
                                 : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 animate-pulse"
                             }`}
                           >
@@ -2179,7 +2077,7 @@ export default function CourseWorkspacePage({
                               : `⏱️ ${remainingSeconds}s Remaining`}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-muted-foreground mt-0.5 transition-colors duration-500">
                           {hasMetTimeRequirement
                             ? "Engagement criteria satisfied! You can now complete this step and continue."
                             : `Admin requires minimum ${Math.ceil(
@@ -2202,8 +2100,8 @@ export default function CourseWorkspacePage({
                       <div className="w-28 sm:w-36 flex flex-col gap-1">
                         <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden border border-border">
                           <div
-                            className={`h-full transition-all duration-500 rounded-full ${
-                              hasMetTimeRequirement ? "bg-emerald-500" : "bg-primary"
+                            className={`h-full transition-all duration-700 ease-out rounded-full ${
+                              hasMetTimeRequirement ? "bg-emerald-500 shadow-xs shadow-emerald-500/50" : "bg-primary"
                             }`}
                             style={{ width: `${progressPercent}%` }}
                           />
@@ -2385,7 +2283,7 @@ export default function CourseWorkspacePage({
                       variant="outline"
                       onClick={() => {
                         if (currentLessonIndex > 0) {
-                          setActiveLessonId(allLessons[currentLessonIndex - 1].id);
+                          navigateToLesson(allLessons[currentLessonIndex - 1].id);
                         }
                       }}
                       disabled={currentLessonIndex <= 0}
@@ -2399,7 +2297,7 @@ export default function CourseWorkspacePage({
                       variant="outline"
                       onClick={() => {
                         if (currentLessonIndex < allLessons.length - 1) {
-                          setActiveLessonId(allLessons[currentLessonIndex + 1].id);
+                          navigateToLesson(allLessons[currentLessonIndex + 1].id);
                         }
                       }}
                       disabled={currentLessonIndex >= allLessons.length - 1}
