@@ -175,7 +175,7 @@ export function ChandigarhUniversityCertificate({
   // Citation text matching the certificate reference and curriculum
   const citation =
     data.citationText ||
-    `in recognition of successfully completing the prescribed algorithmic curriculum, coding assessments, and practical challenges in`;
+    `in recognition of successfully completing the prescribed curriculum, coding assessments, and practical challenges in`;
 
   return (
     <>
