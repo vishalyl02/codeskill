@@ -80,20 +80,20 @@ export default function PublicCertificateVerificationPage({
           status: "valid",
           issuer: "CodeSkill · Chandigarh University",
           institution: "Chandigarh University",
-          department: "Department of Computer Science & Engineering · Centre for Professional & Skill Development",
+          department: "Department of Skill Development",
           accreditation: "NAAC A+ Accredited University · Punjab, India",
           grade: "Distinction (Score: 100%)",
           skills: ["Data Structures", "Algorithm Design", "Dynamic Programming", "Graph Theory", "System Optimization"],
           estimatedHours: 45,
           signatoryRight: {
             name: "Prof. (Dr.) Satbir Singh Sehgal",
-            title: "Pro-Vice Chancellor & Registrar",
+            title: "Vice Chancellor",
             subtext: "E18146 · vc@cumail.in",
             signatureSvg: "/signatures/sehgal-signature.png",
           },
           signatoryLeft: {
-            name: "Ishdeep Singla",
-            title: "Head - Technical Training (CSE)",
+            name: "Dr. Ishdeep Singla",
+            title: "Assistant Director – Skill Development",
             subtext: "E16430 · ad.skill@cumail.in",
             signatureSvg: "/signatures/singla-signature.png",
           },
@@ -436,7 +436,7 @@ export default function PublicCertificateVerificationPage({
                     Prof. (Dr.) Satbir Singh Sehgal
                   </div>
                   <div className="text-[10px] text-muted-foreground leading-tight">
-                    Vice-Chancellor · E18146 · vc@cumail.in
+                    Vice Chancellor · E18146 · vc@cumail.in
                   </div>
                 </div>
               </div>
@@ -444,15 +444,15 @@ export default function PublicCertificateVerificationPage({
               <div className="flex items-center gap-2.5">
                 <img
                   src="/ishdeep-singla.png"
-                  alt="Ishdeep Singla"
+                  alt="Dr. Ishdeep Singla"
                   className="w-8 h-8 rounded-full border border-amber-500/60 object-cover shadow-2xs"
                 />
                 <div>
                   <div className="font-bold text-foreground text-[11px] leading-tight">
-                    Ishdeep Singla
+                    Dr. Ishdeep Singla
                   </div>
                   <div className="text-[10px] text-muted-foreground leading-tight">
-                    Head - Technical Training (CSE) · E16430 · ad.skill@cumail.in
+                    Assistant Director – Skill Development · E16430 · ad.skill@cumail.in
                   </div>
                 </div>
               </div>

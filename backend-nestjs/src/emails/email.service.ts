@@ -340,7 +340,7 @@ Verify URL: ${verificationUrl}
             </p>
           </div>
           <div class="footer">
-            <p style="margin: 0;">Chandigarh University · Department of Computer Science & Engineering · Apex Institute of Technology</p>
+            <p style="margin: 0;">Chandigarh University · Department of Skill Development · CodeSkill</p>
             <p style="margin: 4px 0 0 0; color: #475569;">NAAC Grade A+ Accredited University · Punjab, India</p>
           </div>
         </div>
