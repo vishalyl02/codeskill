@@ -251,12 +251,38 @@ export class PracticeService implements OnModuleInit {
     studentId: string,
     dto: SubmitExerciseDto,
   ) {
-    const exercise = await this.exerciseRepo.findOne({
-      where: { id: exerciseId },
-      relations: { lesson: true },
-    });
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let exercise: CourseExercise | null = null;
+    let syntheticLesson: Lesson | null = null;
+
+    if (UUID_REGEX.test(exerciseId)) {
+      exercise = await this.exerciseRepo.findOne({
+        where: { id: exerciseId },
+        relations: { lesson: true },
+      });
+    } else if (exerciseId.startsWith('sandbox-')) {
+      const rawLessonId = exerciseId.replace('sandbox-', '');
+      if (UUID_REGEX.test(rawLessonId)) {
+        syntheticLesson = await this.lessonRepo.findOne({
+          where: { id: rawLessonId },
+        });
+      }
+    }
+
     if (!exercise) {
-      throw new NotFoundException(`Exercise not found: ${exerciseId}`);
+      if (exerciseId.startsWith('sandbox-') || !UUID_REGEX.test(exerciseId)) {
+        exercise = {
+          id: exerciseId,
+          title: syntheticLesson?.title ? `Practice Sandbox: ${syntheticLesson.title}` : 'Interactive Coding Sandbox',
+          type: (dto.language === 'sql' ? 'sql' : 'coding') as any,
+          lessonId: syntheticLesson?.id || '',
+          lesson: syntheticLesson,
+          isMandatory: false,
+          passingScore: 70,
+        } as unknown as CourseExercise;
+      } else {
+        throw new NotFoundException(`Exercise not found: ${exerciseId}`);
+      }
     }
 
     let passed = false;
@@ -449,7 +475,9 @@ export class PracticeService implements OnModuleInit {
       );
 
       // Check if all mandatory exercises in lesson are passed
-      await this.evaluateLessonCompletion(exercise.lessonId, studentId);
+      if (exercise.lessonId && UUID_REGEX.test(exercise.lessonId)) {
+        await this.evaluateLessonCompletion(exercise.lessonId, studentId);
+      }
     }
 
     return {

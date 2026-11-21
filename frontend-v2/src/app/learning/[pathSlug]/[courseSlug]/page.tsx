@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, use, useRef } from "react";
+import { useState, useEffect, use, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActivityTimer } from "@/hooks/useActivityTimer";
 import { ModuleCompletionModal, CompletionCriteria } from "@/components/learning/ModuleCompletionModal";
 import {
   ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   BookOpen,
   Check,
@@ -33,6 +34,7 @@ import {
   Send,
   Lock,
   LogIn,
+  Trophy,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
@@ -568,6 +570,9 @@ export default function CourseWorkspacePage({
     reasons: [],
   });
 
+  // Course Completion Celebration Modal State
+  const [courseCompletedModal, setCourseCompletedModal] = useState<boolean>(false);
+
   // Stopwatch & Minimum Time Spent Tracker
   const [requiredTime, setRequiredTime] = useState<number>(30); // 30s standardized default
   const [initialSpent, setInitialSpent] = useState<number>(0);
@@ -583,7 +588,7 @@ export default function CourseWorkspacePage({
     checkpointIntervalSeconds: 15,
     onCheckpoint: async (spent) => {
       if (activeLessonId) {
-        await learningAPI.trackTimeSpent(activeLessonId, spent).catch(() => {});
+        await learningAPI.trackTimeSpent(activeLessonId, spent).catch(() => { });
       }
     },
   });
@@ -831,12 +836,12 @@ export default function CourseWorkspacePage({
       text: string;
       time: string;
     }> = [
-      {
-        type: "system",
-        text: `> [Run ID: ${executionId.slice(0, 8)}] Compiling & Executing ${language.toUpperCase()} in live sandbox...`,
-        time: timestamp,
-      },
-    ];
+        {
+          type: "system",
+          text: `> [Run ID: ${executionId.slice(0, 8)}] Compiling & Executing ${language.toUpperCase()} in live sandbox...`,
+          time: timestamp,
+        },
+      ];
     setTerminalLogs(newLogs);
 
     if (language === "javascript") {
@@ -852,23 +857,23 @@ export default function CourseWorkspacePage({
           info: (...args: any[]) =>
             capturedLogs.push(
               "[INFO] " +
-                args
-                  .map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
-                  .join(" ")
+              args
+                .map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
+                .join(" ")
             ),
           warn: (...args: any[]) =>
             capturedLogs.push(
               "[WARN] " +
-                args
-                  .map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
-                  .join(" ")
+              args
+                .map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
+                .join(" ")
             ),
           error: (...args: any[]) =>
             capturedLogs.push(
               "[ERROR] " +
-                args
-                  .map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
-                  .join(" ")
+              args
+                .map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
+                .join(" ")
             ),
         };
 
@@ -893,9 +898,8 @@ export default function CourseWorkspacePage({
         if (returned !== undefined) {
           newLogs.push({
             type: "return",
-            text: `[Return Value]: ${
-              typeof returned === "object" ? JSON.stringify(returned, null, 2) : String(returned)
-            }`,
+            text: `[Return Value]: ${typeof returned === "object" ? JSON.stringify(returned, null, 2) : String(returned)
+              }`,
             time: new Date().toLocaleTimeString(),
           });
         }
@@ -992,9 +996,8 @@ export default function CourseWorkspacePage({
         const elapsed = Math.round(performance.now() - startTime);
         newLogs.push({
           type: "stderr",
-          text: `Execution notice: ${
-            err?.response?.data?.message || err?.message || "Execution completed"
-          }`,
+          text: `Execution notice: ${err?.response?.data?.message || err?.message || "Execution completed"
+            }`,
           time: new Date().toLocaleTimeString(),
         });
         newLogs.push({
@@ -1145,7 +1148,7 @@ export default function CourseWorkspacePage({
       if (nextId) {
         navigateToLesson(nextId);
       } else {
-        router.push(`/learning/${pathSlug}`);
+        setCourseCompletedModal(true);
       }
     } catch (err: any) {
       const errorData = err.response?.data?.data || err.response?.data;
@@ -1235,11 +1238,10 @@ export default function CourseWorkspacePage({
             <button
               type="button"
               onClick={() => setActiveTabMode("coding")}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeTabMode === "coding" || activeTabMode === "content"
-                  ? "bg-card text-foreground shadow-xs border border-border"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTabMode === "coding" || activeTabMode === "content"
+                ? "bg-card text-foreground shadow-xs border border-border"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <Code2 className="w-3.5 h-3.5 text-primary" />
               <span>Live Code Compiler</span>
@@ -1247,11 +1249,10 @@ export default function CourseWorkspacePage({
             <button
               type="button"
               onClick={() => setActiveTabMode("w3")}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeTabMode === "w3"
-                  ? "bg-card text-foreground shadow-xs border border-border"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTabMode === "w3"
+                ? "bg-card text-foreground shadow-xs border border-border"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
               <span>Chandigarh University Practice</span>
@@ -1432,11 +1433,10 @@ export default function CourseWorkspacePage({
                     <button
                       type="button"
                       onClick={() => setTerminalTab("output")}
-                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer ${
-                        terminalTab === "output"
-                          ? "bg-slate-700 text-white shadow-xs"
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer ${terminalTab === "output"
+                        ? "bg-slate-700 text-white shadow-xs"
+                        : "text-slate-400 hover:text-slate-200"
+                        }`}
                     >
                       Console Output
                     </button>
@@ -1444,11 +1444,10 @@ export default function CourseWorkspacePage({
                       <button
                         type="button"
                         onClick={() => setTerminalTab("table")}
-                        className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                          terminalTab === "table"
-                            ? "bg-slate-700 text-white shadow-xs"
-                            : "text-slate-400 hover:text-slate-200"
-                        }`}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${terminalTab === "table"
+                          ? "bg-slate-700 text-white shadow-xs"
+                          : "text-slate-400 hover:text-slate-200"
+                          }`}
                       >
                         <span>Result Table</span>
                         <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-primary/20 text-primary font-bold">
@@ -1459,22 +1458,20 @@ export default function CourseWorkspacePage({
                     <button
                       type="button"
                       onClick={() => setTerminalTab("tests")}
-                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer ${
-                        terminalTab === "tests"
-                          ? "bg-slate-700 text-white shadow-xs"
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer ${terminalTab === "tests"
+                        ? "bg-slate-700 text-white shadow-xs"
+                        : "text-slate-400 hover:text-slate-200"
+                        }`}
                     >
                       Test Results
                     </button>
                     <button
                       type="button"
                       onClick={() => setTerminalTab("stdin")}
-                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                        terminalTab === "stdin"
-                          ? "bg-slate-700 text-white shadow-xs"
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${terminalTab === "stdin"
+                        ? "bg-slate-700 text-white shadow-xs"
+                        : "text-slate-400 hover:text-slate-200"
+                        }`}
                     >
                       <span>Custom Input</span>
                       {customStdin.trim().length > 0 && (
@@ -1605,11 +1602,10 @@ export default function CourseWorkspacePage({
                       executionFeedback.results.map((res: any, idx: number) => (
                         <div
                           key={idx}
-                          className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${
-                            res.passed
-                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-                              : "bg-destructive/10 border-destructive/30 text-rose-300"
-                          }`}
+                          className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${res.passed
+                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                            : "bg-destructive/10 border-destructive/30 text-rose-300"
+                            }`}
                         >
                           <span className="font-semibold">
                             Test Case #{idx + 1}: {res.passed ? "Passed ✓" : "Failed ✗"}
@@ -1809,10 +1805,10 @@ export default function CourseWorkspacePage({
 
   return (
     <div className="min-h-screen bg-background text-foreground pt-24 pb-16 px-4 sm:px-6 lg:px-8 flex flex-col font-sans">
-      
+
       {/* ── Standard Studio Card Layout ───────────────────────────────────────── */}
       <div className="max-w-[1600px] mx-auto w-full flex-1 flex flex-col space-y-6">
-        
+
         {/* Sub-Header Bar (Clear from floating Navbar) */}
         <div className="bg-card border border-border rounded-xl px-5 py-3.5 shadow-xs flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 truncate text-xs">
@@ -1843,11 +1839,10 @@ export default function CourseWorkspacePage({
           <div className="flex items-center gap-2">
             {/* Live Stopwatch Tracker Badge */}
             <div
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all duration-500 ${
-                hasMetTimeRequirement
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 shadow-xs"
-                  : "bg-muted/60 border-border text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all duration-500 ${hasMetTimeRequirement
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 shadow-xs"
+                : "bg-muted/60 border-border text-foreground"
+                }`}
               title={
                 hasMetTimeRequirement
                   ? "Required study time satisfied"
@@ -1858,9 +1853,8 @@ export default function CourseWorkspacePage({
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 animate-in fade-in zoom-in duration-300" />
               ) : (
                 <Timer
-                  className={`w-3.5 h-3.5 text-amber-500 ${
-                    activityTimer.isRunning ? "animate-pulse" : ""
-                  }`}
+                  className={`w-3.5 h-3.5 text-amber-500 ${activityTimer.isRunning ? "animate-pulse" : ""
+                    }`}
                 />
               )}
               <span>{formatTime(timeSpent)}</span>
@@ -1905,11 +1899,10 @@ export default function CourseWorkspacePage({
               size="sm"
               onClick={handleCompleteAndNext}
               disabled={completing}
-              className={`h-8 px-3.5 text-xs font-semibold shadow-xs gap-1.5 cursor-pointer transition-all ${
-                hasMetTimeRequirement
-                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                  : "bg-amber-600 hover:bg-amber-700 text-white"
-              }`}
+              className={`h-8 px-3.5 text-xs font-semibold shadow-xs gap-1.5 cursor-pointer transition-all ${hasMetTimeRequirement
+                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                : "bg-amber-600 hover:bg-amber-700 text-white"
+                }`}
             >
               {completing ? (
                 <span>Saving...</span>
@@ -1934,7 +1927,7 @@ export default function CourseWorkspacePage({
 
         {/* Studio Workspace Content */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-          
+
           {/* Left Navigation Sidebar with Connecting Step Lines */}
           <aside className="md:col-span-4 lg:col-span-3 bg-card border border-border rounded-xl p-4 shadow-xs sticky top-28 space-y-5">
             <div className="flex items-center justify-between px-2">
@@ -1968,33 +1961,30 @@ export default function CourseWorkspacePage({
                           {/* Vertical Connecting Line */}
                           {!isLast && (
                             <div
-                              className={`absolute left-[11px] top-6 bottom-[-8px] w-0.5 transition-all duration-300 ${
-                                l.isCompleted
-                                  ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]"
-                                  : "bg-border"
-                              }`}
+                              className={`absolute left-[11px] top-6 bottom-[-8px] w-0.5 transition-all duration-300 ${l.isCompleted
+                                ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]"
+                                : "bg-border"
+                                }`}
                             />
                           )}
 
                           <button
                             onClick={() => navigateToLesson(l.id)}
-                            className={`w-full text-left pl-7 pr-3 py-2 rounded-lg text-xs font-medium flex items-center justify-between transition-all duration-200 cursor-pointer ${
-                              isActive
-                                ? "bg-primary/10 text-primary font-bold shadow-xs translate-x-1"
-                                : l.isCompleted
+                            className={`w-full text-left pl-7 pr-3 py-2 rounded-lg text-xs font-medium flex items-center justify-between transition-all duration-200 cursor-pointer ${isActive
+                              ? "bg-primary/10 text-primary font-bold shadow-xs translate-x-1"
+                              : l.isCompleted
                                 ? "text-foreground hover:bg-muted/60"
                                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                            }`}
+                              }`}
                           >
                             {/* Step Indicator Node */}
                             <div
-                              className={`absolute left-0 top-2 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all z-10 ${
-                                l.isCompleted
-                                  ? "bg-emerald-500 text-white shadow-xs scale-105"
-                                  : isActive
-                                  ? "bg-primary text-primary-foreground ring-4 ring-primary/25 shadow-xs scale-110 animate-pulse"
+                              className={`absolute left-0 top-2 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all z-10 ${l.isCompleted
+                                ? "bg-emerald-500 text-white shadow-xs scale-105"
+                                : isActive
+                                  ? "bg-primary text-primary-foreground ring-2 ring-primary/40 shadow-sm font-extrabold"
                                   : "bg-card border border-border text-muted-foreground group-hover:border-foreground/40"
-                              }`}
+                                }`}
                             >
                               {l.isCompleted ? (
                                 <Check className="w-3.5 h-3.5 stroke-[3]" />
@@ -2028,35 +2018,31 @@ export default function CourseWorkspacePage({
               <div className="space-y-8">
                 {/* Interactive Module Stopwatch & Requirement Bar */}
                 <div
-                  className={`relative overflow-hidden rounded-xl border p-4 sm:p-5 transition-all duration-700 ease-out shadow-xs ${
-                    hasMetTimeRequirement
-                      ? "bg-card border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-emerald-500/5 shadow-md"
-                      : "bg-card border-border hover:border-border/80"
-                  }`}
+                  className={`relative overflow-hidden rounded-xl border p-4 sm:p-5 transition-all duration-700 ease-out shadow-xs ${hasMetTimeRequirement
+                    ? "bg-card border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-emerald-500/5 shadow-md"
+                    : "bg-card border-border hover:border-border/80"
+                    }`}
                 >
                   {/* Smooth Ambient Celebration Glow */}
                   <div
-                    className={`absolute -inset-1 bg-gradient-to-r from-emerald-500/10 via-emerald-500/20 to-teal-500/10 rounded-xl blur-lg transition-opacity duration-1000 pointer-events-none ${
-                      celebrationGlow ? "opacity-100" : "opacity-0"
-                    }`}
+                    className={`absolute -inset-1 bg-gradient-to-r from-emerald-500/10 via-emerald-500/20 to-teal-500/10 rounded-xl blur-lg transition-opacity duration-1000 pointer-events-none ${celebrationGlow ? "opacity-100" : "opacity-0"
+                      }`}
                   />
 
                   <div className="relative z-10 flex flex-wrap items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-500 ease-out ${
-                          hasMetTimeRequirement
-                            ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30 scale-100"
-                            : "bg-primary/10 text-primary border border-primary/20"
-                        }`}
+                        className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-500 ease-out ${hasMetTimeRequirement
+                          ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30 scale-100"
+                          : "bg-primary/10 text-primary border border-primary/20"
+                          }`}
                       >
                         {hasMetTimeRequirement ? (
                           <CheckCircle2 className="w-5 h-5 text-white animate-in zoom-in-75 duration-300" />
                         ) : (
                           <Timer
-                            className={`w-5 h-5 ${
-                              activityTimer.isRunning ? "animate-pulse" : ""
-                            }`}
+                            className={`w-5 h-5 ${activityTimer.isRunning ? "animate-pulse" : ""
+                              }`}
                           />
                         )}
                       </div>
@@ -2066,11 +2052,10 @@ export default function CourseWorkspacePage({
                             Module Study Stopwatch
                           </h4>
                           <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all duration-500 ${
-                              hasMetTimeRequirement
-                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-xs"
-                                : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 animate-pulse"
-                            }`}
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all duration-500 ${hasMetTimeRequirement
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-xs"
+                              : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 animate-pulse"
+                              }`}
                           >
                             {hasMetTimeRequirement
                               ? "✓ Required Time Completed"
@@ -2081,8 +2066,8 @@ export default function CourseWorkspacePage({
                           {hasMetTimeRequirement
                             ? "Engagement criteria satisfied! You can now complete this step and continue."
                             : `Admin requires minimum ${Math.ceil(
-                                requiredTime / 60
-                              )} min of active reading & practice.`}
+                              requiredTime / 60
+                            )} min of active reading & practice.`}
                         </p>
                       </div>
                     </div>
@@ -2100,9 +2085,8 @@ export default function CourseWorkspacePage({
                       <div className="w-28 sm:w-36 flex flex-col gap-1">
                         <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden border border-border">
                           <div
-                            className={`h-full transition-all duration-700 ease-out rounded-full ${
-                              hasMetTimeRequirement ? "bg-emerald-500 shadow-xs shadow-emerald-500/50" : "bg-primary"
-                            }`}
+                            className={`h-full transition-all duration-700 ease-out rounded-full ${hasMetTimeRequirement ? "bg-emerald-500 shadow-xs shadow-emerald-500/50" : "bg-primary"
+                              }`}
                             style={{ width: `${progressPercent}%` }}
                           />
                         </div>
@@ -2143,15 +2127,22 @@ export default function CourseWorkspacePage({
                   </h1>
 
                   {lesson.learningObjectives && lesson.learningObjectives.length > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {lesson.learningObjectives.map((obj, i) => (
-                        <span
-                          key={i}
-                          className="px-2.5 py-1 rounded-md bg-muted text-xs text-foreground font-medium border border-border"
-                        >
-                          🎯 {obj}
-                        </span>
-                      ))}
+                    <div className="mt-6 p-5 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10">
+                      <h3 className="text-sm font-bold text-foreground flex items-center gap-2 mb-3">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        <span>What You'll Learn</span>
+                      </h3>
+                      <ul className="space-y-2">
+                        {lesson.learningObjectives.map((obj, i) => (
+                          <li
+                            key={i}
+                            className="flex items-start gap-2.5 text-xs sm:text-sm text-foreground/90 leading-relaxed font-medium"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-2 shrink-0" />
+                            <span>{obj.replace(/^🎯\s*/, "")}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </div>
@@ -2271,7 +2262,7 @@ export default function CourseWorkspacePage({
                         ],
                         marks: 25,
                       }}
-                      onPassed={() => {}}
+                      onPassed={() => { }}
                     />
                   </div>
                 )}
@@ -2311,11 +2302,10 @@ export default function CourseWorkspacePage({
                   <Button
                     onClick={handleCompleteAndNext}
                     disabled={completing}
-                    className={`gap-2 font-semibold text-xs h-9 px-5 shadow-xs cursor-pointer transition-all ${
-                      hasMetTimeRequirement
-                        ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20"
-                        : "bg-amber-600 hover:bg-amber-700 text-white"
-                    }`}
+                    className={`gap-2 font-semibold text-xs h-9 px-5 shadow-xs cursor-pointer transition-all ${hasMetTimeRequirement
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20"
+                      : "bg-amber-600 hover:bg-amber-700 text-white"
+                      }`}
                   >
                     {completing ? (
                       <>
@@ -2389,6 +2379,64 @@ export default function CourseWorkspacePage({
                 className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs px-5 h-9"
               >
                 Got it, Continue Practice
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Course Completion Celebration Modal ── */}
+      {courseCompletedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative space-y-6 text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center mx-auto shadow-sm">
+              <Trophy className="w-8 h-8 text-emerald-500" />
+            </div>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>100% Curriculum Completed</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
+                Congratulations! Course Completed!
+              </h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                You have successfully completed all modules, lessons, and hands-on practice challenges for this course.
+              </p>
+            </div>
+
+            <div className="bg-muted/40 rounded-xl p-4 border border-border text-left space-y-2 text-xs">
+              <div className="flex justify-between py-1.5 border-b border-border/60">
+                <span className="text-muted-foreground font-medium">Course:</span>
+                <span className="font-bold text-foreground">{course?.title}</span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-border/60">
+                <span className="text-muted-foreground font-medium">Completion Date:</span>
+                <span className="font-semibold text-foreground">
+                  {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+                </span>
+              </div>
+              <div className="flex justify-between py-1.5">
+                <span className="text-muted-foreground font-medium">Verification Status:</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">Verified & Authenticated</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+              <Button
+                onClick={() => router.push(`/learning/${pathSlug}`)}
+                className="w-full sm:flex-1 h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm shadow-sm"
+              >
+                <span>View Learning Path & Certificate</span>
+                <ArrowRight className="w-4 h-4 ml-1.5" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setCourseCompletedModal(false)}
+                className="w-full sm:w-auto h-11 border-border text-foreground hover:bg-muted font-medium text-sm"
+              >
+                Close
               </Button>
             </div>
           </div>

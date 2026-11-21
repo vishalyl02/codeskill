@@ -48,6 +48,8 @@ export class LearningService {
       .createQueryBuilder('path')
       .leftJoinAndSelect('path.pathCourses', 'pc')
       .leftJoinAndSelect('pc.course', 'course')
+      .leftJoinAndSelect('course.modules', 'modules')
+      .leftJoinAndSelect('modules.lessons', 'lessons')
       .where('path.status = :status', { status: 'published' })
       .orderBy('path.createdAt', 'DESC');
 
@@ -72,6 +74,17 @@ export class LearningService {
         let progressPercent = 0;
         let completedCourses = 0;
 
+        const allLessonIds: string[] = [];
+        let totalModules = 0;
+        (p.pathCourses || []).forEach((pc) => {
+          (pc.course?.modules || []).forEach((m) => {
+            totalModules++;
+            (m.lessons || []).forEach((l) => {
+              if (l?.id) allLessonIds.push(l.id);
+            });
+          });
+        });
+
         if (studentId) {
           const enrollment = await this.enrollmentRepo.findOne({
             where: { studentId, pathId: p.id },
@@ -84,6 +97,21 @@ export class LearningService {
           if (progress) {
             progressPercent = progress.percentage;
             completedCourses = progress.completedCoursesCount;
+          }
+
+          if (allLessonIds.length > 0) {
+            const completedCount = await this.lessonProgressRepo
+              .createQueryBuilder('lp')
+              .where('lp.studentId = :studentId', { studentId })
+              .andWhere('lp.lessonId IN (:...allLessonIds)', { allLessonIds })
+              .andWhere('lp.status = :status', { status: 'completed' })
+              .getCount();
+
+            if (completedCount > 0) {
+              isEnrolled = true;
+              const lessonPercent = Math.min(100, Math.round((completedCount / allLessonIds.length) * 100));
+              progressPercent = Math.max(progressPercent, lessonPercent);
+            }
           }
         }
 
@@ -98,6 +126,13 @@ export class LearningService {
             isMandatory: pc.isMandatory,
           }));
 
+        const status =
+          progressPercent === 100
+            ? 'Completed'
+            : progressPercent > 0
+            ? 'In Progress'
+            : 'Not Started';
+
         return {
           id: p.id,
           title: p.title,
@@ -108,10 +143,13 @@ export class LearningService {
           tags: p.tags,
           version: p.version,
           courseCount: courses.length,
+          totalModules,
+          totalLessons: allLessonIds.length,
           courses,
           isEnrolled,
           progressPercent,
           completedCourses,
+          status,
         };
       }),
     );
