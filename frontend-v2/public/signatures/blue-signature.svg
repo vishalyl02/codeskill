@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80" fill="none">
+  <!-- Ishdeep Singla Authentic Blue Handwritten Executive Signature -->
+  <path
+    d="M 20 52 
+       C 24 38, 28 22, 34 16 
+       C 39 12, 44 14, 45 22 
+       C 47 34, 42 56, 38 64 
+       C 46 54, 56 42, 66 40 
+       C 74 38, 77 46, 73 54 
+       C 70 60, 64 63, 60 61 
+       C 56 58, 62 48, 76 46 
+       C 90 44, 98 52, 106 48 
+       C 114 44, 118 36, 124 34 
+       C 130 32, 134 40, 138 46 
+       C 144 54, 150 48, 158 42 
+       C 166 36, 174 44, 180 50 
+       C 188 58, 196 46, 208 38 
+       M 28 42 
+       C 55 42, 110 38, 170 34 
+       M 35 68 
+       C 65 65, 130 63, 215 56"
+    stroke="#1d4ed8"
+    stroke-width="2.6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <!-- Subtle natural ink loop -->
+  <path
+    d="M 172 44 C 182 32, 192 30, 190 42 C 188 52, 178 54, 175 52 C 172 48, 184 38, 204 36"
+    stroke="#1d4ed8"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

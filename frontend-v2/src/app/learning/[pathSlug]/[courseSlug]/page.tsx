@@ -36,6 +36,11 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
+import {
+  IndependentQuestionCompiler,
+  MINIMAL_STARTER_CODES,
+} from "@/components/learning/IndependentQuestionCompiler";
+import { IndependentQuizRunner } from "@/components/learning/IndependentQuizRunner";
 import { learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
@@ -513,68 +518,138 @@ const W3_EXERCISES_DATABASE: Record<string, W3ExerciseItem[]> = {
       hint: "Zero temperature.",
       explanation: "temperature: 0.0 forces argmax greedy token sampling for deterministic and consistent formatting."
     }
+  ],
+  c: [
+    {
+      id: "w3-c-1",
+      title: "C Standard I/O Preprocessor Header",
+      instruction: "Fill in the standard I/O library header to enable printf and scanf.",
+      language: "c",
+      codeTemplate: "#include <[b1].h>\n\nint main() {\n  printf(\"Chandigarh University\\n\");\n  return 0;\n}",
+      blanks: [{ id: "b1", answer: "stdio", placeholder: "header", caseSensitive: true }],
+      hint: "Standard input/output header name.",
+      explanation: "<stdio.h> provides essential declarations for standard console I/O functions like printf() and scanf()."
+    },
+    {
+      id: "w3-c-2",
+      title: "C Pointer Value Dereferencing",
+      instruction: "Insert the dereference operator to print the integer value stored at memory address ptr.",
+      language: "c",
+      codeTemplate: "int score = 95;\nint *ptr = &score;\n// Dereference pointer to print value:\nprintf(\"Score: %d\\n\", [b1]ptr);",
+      blanks: [{ id: "b1", answer: "*", placeholder: "op", caseSensitive: true }],
+      hint: "Unary asterisk * dereference operator.",
+      explanation: "The asterisk (*) dereferences a pointer, resolving to the value stored in the referenced memory address."
+    },
+    {
+      id: "w3-c-3",
+      title: "C Heap Allocation & Deallocation",
+      instruction: "Insert the heap allocation and deallocation functions to manage dynamic array memory.",
+      language: "c",
+      codeTemplate: "int *arr = (int *)[b1](5 * sizeof(int));\n// Process dynamic array elements...\n[b2](arr);\narr = NULL;",
+      blanks: [
+        { id: "b1", answer: "malloc", placeholder: "alloc func", caseSensitive: true },
+        { id: "b2", answer: "free", placeholder: "dealloc func", caseSensitive: true }
+      ],
+      hint: "malloc allocates heap bytes, free releases them back to the operating system.",
+      explanation: "malloc() allocates contiguous uninitialized bytes on the heap; free() prevents memory leaks."
+    },
+    {
+      id: "w3-c-4",
+      title: "C Structure Member Access through Pointer",
+      instruction: "Insert the member selection operator used to access structure fields through a pointer.",
+      language: "c",
+      codeTemplate: "struct Student s = { 2024, \"CU Student\" };\nstruct Student *ptr = &s;\n// Access year through pointer:\nprintf(\"Year: %d\\n\", ptr[b1]year);",
+      blanks: [{ id: "b1", answer: "->", placeholder: "op", caseSensitive: true }],
+      hint: "Arrow operator ->",
+      explanation: "The arrow operator (->) dereferences the structure pointer and accesses the member in one step."
+    },
+    {
+      id: "w3-c-5",
+      title: "C Address-Of Operator with scanf",
+      instruction: "Pass the memory address of the integer variable so scanf can store the input value.",
+      language: "c",
+      codeTemplate: "int rollNumber;\nprintf(\"Enter your roll number: \");\nscanf(\"%d\", [b1]rollNumber);",
+      blanks: [{ id: "b1", answer: "&", placeholder: "op", caseSensitive: true }],
+      hint: "Ampersand & address-of operator.",
+      explanation: "scanf requires a pointer to the variable's memory address to write the parsed user input."
+    }
   ]
 };
 
-function getW3ExercisesForCourse(courseSlug: string, pathSlug: string): W3ExerciseItem[] {
-  const slug = `${courseSlug || ""} ${pathSlug || ""}`.toLowerCase();
-  if (slug.includes("dbms") || slug.includes("database") || slug.includes("sql")) {
+function getW3ExercisesForCourse(
+  courseSlug: string,
+  pathSlug: string,
+  lessonTitle?: string,
+): W3ExerciseItem[] {
+  const combined = `${courseSlug || ""} ${pathSlug || ""} ${lessonTitle || ""}`.toLowerCase();
+
+  // Contextual matching by current lesson topic
+  if (combined.includes("pointer") || combined.includes("dereference")) {
+    return [W3_EXERCISES_DATABASE.c[1], W3_EXERCISES_DATABASE.c[3], W3_EXERCISES_DATABASE.c[4]];
+  }
+  if (combined.includes("malloc") || combined.includes("heap") || combined.includes("memory")) {
+    return [W3_EXERCISES_DATABASE.c[2], W3_EXERCISES_DATABASE.c[1], W3_EXERCISES_DATABASE.c[0]];
+  }
+  if (combined.includes("dbms") || combined.includes("database") || combined.includes("sql")) {
     return W3_EXERCISES_DATABASE.dbms;
   }
-  if (slug.includes("java")) {
-    return W3_EXERCISES_DATABASE.java;
-  }
-  if (slug.includes("os") || slug.includes("operating-systems")) {
+  if (combined.includes("os") || combined.includes("operating-systems") || combined.includes("system call") || combined.includes("fork")) {
     return W3_EXERCISES_DATABASE.os;
   }
-  if (slug.includes("cf") || slug.includes("computer-fundamentals") || slug.includes("architecture")) {
-    return W3_EXERCISES_DATABASE.cf;
+  if (combined.includes("java")) {
+    return W3_EXERCISES_DATABASE.java;
   }
-  if (slug.includes("ai") || slug.includes("prompt") || slug.includes("genai")) {
+  if (combined.includes("ai") || combined.includes("prompt") || combined.includes("genai")) {
     return W3_EXERCISES_DATABASE.ai;
   }
-  return W3_EXERCISES_DATABASE.dbms;
+  if (combined.includes("cf") || combined.includes("computer-fundamentals") || combined.includes("architecture")) {
+    return W3_EXERCISES_DATABASE.cf;
+  }
+  if (
+    combined.includes("c-programming") ||
+    combined.includes("c-lang") ||
+    combined.includes("interactive-practice") ||
+    combined.includes("cu-practice")
+  ) {
+    return W3_EXERCISES_DATABASE.c;
+  }
+  return W3_EXERCISES_DATABASE.c;
 }
 
 const DEFAULT_STARTER_CODES: Record<string, string> = {
-  javascript: `// CodeSkill Real-Time JavaScript Sandbox
-console.log("Hello from CodeSkill Real-Time Sandbox!");
+  c: `#include <stdio.h>
 
-function calculate(x, y) {
-  return x * y + 42;
+// TODO: Implement your logic
+int main() {
+    return 0;
 }
-
-console.log("Result:", calculate(10, 5));
+`,
+  sql: `-- CodeSkill Interactive SQL Sandbox (PostgreSQL)
+-- TODO: Write your query below
+SELECT 1;
+`,
+  javascript: `// CodeSkill Real-Time JavaScript Sandbox
+// TODO: Implement your logic
+function solution() {
+  return null;
+}
 `,
   python: `# CodeSkill Real-Time Python 3 Runner
-def calculate(a, b):
-    return a * b + 42
-
-print("Hello from CodeSkill Python 3!")
-print("Result:", calculate(10, 5))
+# TODO: Implement your logic
+def solution():
+    pass
 `,
   java: `public class Main {
     public static void main(String[] args) {
-        System.out.println("Hello from CodeSkill Java 21!");
-        int result = calculate(10, 5);
-        System.out.println("Result: " + result);
-    }
-
-    public static int calculate(int a, int b) {
-        return a * b + 42;
+        // TODO: Implement your logic
     }
 }
 `,
   cpp: `#include <iostream>
 using namespace std;
 
-int calculate(int a, int b) {
-    return a * b + 42;
-}
-
+// TODO: Implement your logic
 int main() {
-    cout << "Hello from CodeSkill C++ 20!" << endl;
-    cout << "Result: " << calculate(10, 5) << endl;
     return 0;
 }
 `,
@@ -626,7 +701,14 @@ export default function CourseWorkspacePage({
       time: "--:--:--",
     },
   ]);
-  const [terminalTab, setTerminalTab] = useState<"output" | "tests">("output");
+  const [terminalTab, setTerminalTab] = useState<"output" | "table" | "tests" | "stdin">("output");
+  const [customStdin, setCustomStdin] = useState("");
+  const [sqlResult, setSqlResult] = useState<{
+    columns: string[];
+    rows: any[];
+    rowCount: number;
+    durationMs?: number;
+  } | null>(null);
   const [isExecutingRealtime, setIsExecutingRealtime] = useState(false);
 
   // Chandigarh University Practice Exercises state
@@ -724,6 +806,7 @@ export default function CourseWorkspacePage({
       setExecutionFeedback(null);
       setXpCelebration(null);
       setSelectedAnswers({});
+      setSqlResult(null);
       const res = await learningAPI.getLesson(id);
       const lessonData = res.data?.data || res.data;
       setLesson(lessonData);
@@ -741,7 +824,13 @@ export default function CourseWorkspacePage({
       const codingEx = lessonData?.exercises?.find(
         (e: any) => e.type === "coding" || e.type === "debugging",
       );
-      if (codingEx?.starterCode?.[language]) {
+      if (codingEx?.starterCode?.c) {
+        setLanguage("c");
+        setCode(codingEx.starterCode.c);
+      } else if (codingEx?.starterCode?.sql) {
+        setLanguage("sql");
+        setCode(codingEx.starterCode.sql);
+      } else if (codingEx?.starterCode?.[language]) {
         setCode(codingEx.starterCode[language]);
       } else if (codingEx?.starterCode?.java && !codingEx?.starterCode?.[language]) {
         setLanguage("java");
@@ -760,6 +849,19 @@ export default function CourseWorkspacePage({
         } else {
           setCode(DEFAULT_STARTER_CODES[language] || "// Write your solution below\n");
         }
+      } else if (
+        courseSlug.includes("c-programming") ||
+        courseSlug.includes("c-lang") ||
+        courseSlug.includes("interactive-practice") ||
+        courseSlug.includes("cu-practice")
+      ) {
+        setLanguage("c");
+        setCode(
+          `#include <stdio.h>\n\n// TODO: Implement your logic for: ${lessonData?.title || "Exercise"}\nint main() {\n    return 0;\n}\n`,
+        );
+      } else if (courseSlug.includes("dbms") || courseSlug.includes("sql")) {
+        setLanguage("sql");
+        setCode(DEFAULT_STARTER_CODES.sql);
       } else {
         setCode(DEFAULT_STARTER_CODES[language] || "// Write your solution below\n");
       }
@@ -939,12 +1041,28 @@ export default function CourseWorkspacePage({
         }
       }
     } else {
-      // Server-side real-time execution runner for Python/Java/C++
+      // Server-side real-time execution runner for C/C++/Python/Java/SQL
       try {
-        const res = await learningAPI.runPlayground({ code, language });
+        const res = await learningAPI.runPlayground({
+          code,
+          language,
+          stdin: customStdin.trim() ? customStdin : undefined,
+        });
         if (activeExecutionIdRef.current !== executionId) return;
         const resultData = (res.data as any)?.data || res.data;
         const elapsed = resultData?.durationMs ?? Math.round(performance.now() - startTime);
+
+        if (resultData?.isSql || language === "sql") {
+          if (resultData?.columns && Array.isArray(resultData?.rows)) {
+            setSqlResult({
+              columns: resultData.columns,
+              rows: resultData.rows,
+              rowCount: resultData.rowCount ?? resultData.rows.length,
+              durationMs: elapsed,
+            });
+            setTerminalTab("table");
+          }
+        }
 
         if (resultData?.output) {
           const lines = String(resultData.output).split("\n");
@@ -1105,12 +1223,13 @@ export default function CourseWorkspacePage({
 
       // 1. Verify lesson completion requirements from authoritative status endpoint
       const statusRes = await learningAPI.getLessonCompletionStatus(lesson.id).catch(() => null);
-      if (statusRes?.data && !statusRes.data.canComplete) {
+      const statusData = (statusRes?.data as any)?.data || statusRes?.data;
+      if (statusData && statusData.canComplete === false) {
         setCompletionModal({
           isOpen: true,
           title: "Module Incomplete",
-          reasons: statusRes.data.reasons || [],
-          criteria: statusRes.data.criteria,
+          reasons: statusData.reasons || [],
+          criteria: statusData.criteria,
         });
         return;
       }
@@ -1137,7 +1256,7 @@ export default function CourseWorkspacePage({
         router.push(`/learning/${pathSlug}`);
       }
     } catch (err: any) {
-      const errorData = err.response?.data;
+      const errorData = err.response?.data?.data || err.response?.data;
       const reasons = errorData?.reasons || [
         errorData?.message ||
         "Please complete and pass all required practice exercises in this lesson before proceeding.",
@@ -1209,7 +1328,7 @@ export default function CourseWorkspacePage({
   const currentLessonIndex = allLessons.findIndex((l) => l.id === activeLessonId);
 
   const renderInteractivePracticeSuite = (ex?: any) => {
-    const w3List = getW3ExercisesForCourse(courseSlug, pathSlug);
+    const w3List = getW3ExercisesForCourse(courseSlug, pathSlug, lesson?.title);
     const safeIdx = Math.min(Math.max(0, w3Index), w3List.length - 1);
     const currentEx = w3List[safeIdx];
     const feedback = currentEx ? w3Feedback[currentEx.id] : undefined;
@@ -1258,6 +1377,38 @@ export default function CourseWorkspacePage({
         {/* MODE A: Real-Time Coding Compiler & Live Terminal */}
         {(activeTabMode === "coding" || activeTabMode === "content") && (
           <div className="space-y-4">
+            {ex && (
+              <div className="p-4 rounded-xl bg-card border border-border shadow-xs space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                      Hands-On Challenge
+                    </span>
+                    <h3 className="text-sm font-bold text-foreground">
+                      {ex.title}
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold text-[11px]">
+                      +{ex.marks || 25} XP
+                    </span>
+                    <span className="text-[11px] font-semibold text-muted-foreground uppercase">
+                      {language}
+                    </span>
+                  </div>
+                </div>
+
+                {ex.hints && ex.hints.length > 0 && (
+                  <div className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2 bg-amber-500/5 p-2.5 rounded-lg border border-amber-500/20">
+                    <Lightbulb className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <div className="leading-relaxed font-medium">
+                      <strong>Problem Clue:</strong> {ex.hints[0]}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <select
@@ -1274,28 +1425,36 @@ export default function CourseWorkspacePage({
                   className="h-9 bg-card text-foreground text-xs font-semibold rounded-lg px-3 border border-border shadow-xs focus:outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
                 >
                   <option value="javascript">JavaScript (Real-Time Sandbox)</option>
+                  <option value="c">C (GCC 13 / C11)</option>
+                  <option value="cpp">C++ 20</option>
+                  <option value="sql">SQL (PostgreSQL Sandbox)</option>
                   <option value="python">Python 3</option>
                   <option value="java">Java 21</option>
-                  <option value="cpp">C++ 20</option>
                 </select>
 
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    if (ex?.starterCode?.[language]) {
-                      setCode(ex.starterCode[language]);
-                    } else if (DEFAULT_STARTER_CODES[language]) {
-                      setCode(DEFAULT_STARTER_CODES[language]);
-                    } else {
-                      setCode("// Write your solution below\n");
-                    }
+                    const defaultCode =
+                      ex?.starterCode?.[language] ||
+                      DEFAULT_STARTER_CODES[language] ||
+                      "// Write your solution below\n";
+                    setCode(defaultCode);
+                    setSqlResult(null);
+                    setTerminalLogs([
+                      {
+                        type: "system",
+                        text: `> Workspace and execution output cleared. Ready.`,
+                        time: new Date().toLocaleTimeString(),
+                      },
+                    ]);
                   }}
                   className="h-9 text-xs gap-1 border-border text-muted-foreground hover:text-foreground cursor-pointer"
-                  title="Reset to starter code"
+                  title="Reset to starter code and clear output"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Reset Code</span>
+                  <span className="hidden sm:inline">Reset / Clear</span>
                 </Button>
               </div>
 
@@ -1311,7 +1470,7 @@ export default function CourseWorkspacePage({
             <div className="border border-border rounded-xl overflow-hidden h-72 shadow-inner">
               <Editor
                 height="100%"
-                language={language === "cpp" ? "cpp" : language}
+                language={language === "cpp" ? "cpp" : language === "c" ? "c" : language === "sql" ? "sql" : language}
                 theme={isDark ? "vs-dark" : "light"}
                 value={code || DEFAULT_STARTER_CODES[language] || "// Write code here\n"}
                 onChange={(val) => setCode(val || "")}
@@ -1389,6 +1548,22 @@ export default function CourseWorkspacePage({
                     >
                       Console Output
                     </button>
+                    {sqlResult && (
+                      <button
+                        type="button"
+                        onClick={() => setTerminalTab("table")}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          terminalTab === "table"
+                            ? "bg-slate-700 text-white shadow-xs"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        <span>Result Table</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-primary/20 text-primary font-bold">
+                          {sqlResult.rowCount}
+                        </span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setTerminalTab("tests")}
@@ -1400,19 +1575,34 @@ export default function CourseWorkspacePage({
                     >
                       Test Results
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setTerminalTab("stdin")}
+                      className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        terminalTab === "stdin"
+                          ? "bg-slate-700 text-white shadow-xs"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      <span>Custom Input</span>
+                      {customStdin.trim().length > 0 && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                      )}
+                    </button>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                      setSqlResult(null);
                       setTerminalLogs([
                         {
                           type: "system",
                           text: "> Console cleared.",
                           time: new Date().toLocaleTimeString(),
                         },
-                      ])
-                    }
+                      ]);
+                    }}
                     className="p-1 rounded text-slate-400 hover:text-white transition-colors cursor-pointer"
                     title="Clear Console"
                   >
@@ -1422,7 +1612,48 @@ export default function CourseWorkspacePage({
               </div>
 
               <div className="p-4 max-h-56 overflow-y-auto space-y-1.5 text-slate-200 select-text">
-                {terminalTab === "output" ? (
+                {terminalTab === "table" && sqlResult ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pb-1 border-b border-slate-700/60 font-mono">
+                      <span>✓ {sqlResult.rowCount} rows returned from sandbox</span>
+                      {sqlResult.durationMs !== undefined && (
+                        <span>Executed in {sqlResult.durationMs}ms</span>
+                      )}
+                    </div>
+                    {sqlResult.columns.length === 0 ? (
+                      <p className="text-slate-400 italic text-xs">Query executed with 0 rows returned.</p>
+                    ) : (
+                      <div className="overflow-x-auto rounded border border-slate-700/80 max-h-44 overflow-y-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead className="sticky top-0 bg-slate-800 text-slate-200 border-b border-slate-700">
+                            <tr>
+                              {sqlResult.columns.map((col) => (
+                                <th key={col} className="px-3 py-1.5 font-bold uppercase tracking-wider text-[10px] whitespace-nowrap">
+                                  {col}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sqlResult.rows.map((row, rIdx) => (
+                              <tr key={rIdx} className="border-b border-slate-800/80 hover:bg-slate-800/40">
+                                {sqlResult.columns.map((col) => (
+                                  <td key={col} className="px-3 py-1 text-slate-300 font-mono text-[11px] whitespace-nowrap">
+                                    {row[col] !== null && row[col] !== undefined ? (
+                                      String(row[col])
+                                    ) : (
+                                      <span className="text-slate-500 italic">NULL</span>
+                                    )}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ) : terminalTab === "output" ? (
                   terminalLogs.map((log, idx) => (
                     <div key={idx} className="flex items-start gap-2.5 leading-relaxed">
                       <span className="text-slate-500 text-[10px] select-none flex-shrink-0 pt-0.5">
@@ -1450,6 +1681,32 @@ export default function CourseWorkspacePage({
                       )}
                     </div>
                   ))
+                ) : terminalTab === "stdin" ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono pb-1 border-b border-slate-700/60">
+                      <span>Standard Input (stdin)</span>
+                      <span>Passed to program during execution</span>
+                    </div>
+                    <textarea
+                      value={customStdin}
+                      onChange={(e) => setCustomStdin(e.target.value)}
+                      placeholder="Enter custom program input (e.g. scanf / input() data separated by lines)..."
+                      rows={4}
+                      className="w-full bg-slate-950/80 text-emerald-300 font-mono text-xs p-2.5 rounded border border-slate-700/80 focus:outline-hidden focus:border-emerald-500/60 resize-none placeholder:text-slate-600"
+                    />
+                    <div className="flex items-center justify-between text-[10px] text-slate-500">
+                      <span>Tip: Useful for testing interactive user input before submitting</span>
+                      {customStdin && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomStdin("")}
+                          className="hover:text-rose-400 transition-colors cursor-pointer"
+                        >
+                          Clear Input
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {executionFeedback?.results ? (
@@ -1666,19 +1923,25 @@ export default function CourseWorkspacePage({
         
         {/* Sub-Header Bar (Clear from floating Navbar) */}
         <div className="bg-card border border-border rounded-xl px-5 py-3.5 shadow-xs flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 truncate">
+          <div className="flex items-center gap-2 truncate text-xs">
             <Link
-              href={`/learning/${pathSlug}`}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+              href="/learning"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              title="Return to Learning Paths Overview"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Path Syllabus</span>
+              <span className="hidden sm:inline">Overview</span>
             </Link>
-            <span className="text-border">|</span>
+            <span className="text-border">/</span>
+            <Link
+              href={`/learning/${pathSlug}`}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors truncate max-w-[140px] sm:max-w-xs"
+              title="View Path Syllabus and Milestones"
+            >
+              <span className="truncate">{pathTitle || "Syllabus"}</span>
+            </Link>
+            <span className="text-border">/</span>
             <div className="truncate">
-              <span className="text-xs text-muted-foreground hidden md:inline">
-                {pathTitle} /{" "}
-              </span>
               <span className="text-sm font-bold text-foreground truncate">
                 {course.title}
               </span>
@@ -2019,202 +2282,61 @@ export default function CourseWorkspacePage({
                           </span>
                         </div>
 
-                        {/* Quiz Runner */}
+                        {/* Independent Quiz Runner with Draft Persistence & Retakes */}
                         {ex.type === "quiz" && ex.quizConfig?.questions && (
-                          <div className="space-y-6">
-                            {/* Quiz Progress & Question Quick-Jump Stepper */}
-                            <div className="bg-muted/40 border border-border rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-foreground">
-                                  {ex.quizConfig.questions.length} Practice MCQs
-                                </span>
-                                <span className="text-[11px] text-muted-foreground">
-                                  · {Object.keys(selectedAnswers).length} of {ex.quizConfig.questions.length} answered
-                                </span>
-                              </div>
-
-                              {/* Question Quick Jump Pills */}
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {ex.quizConfig.questions.map((q, qIdx) => {
-                                  const isAnswered = selectedAnswers[q.id] !== undefined;
-                                  const qResult = quizResults?.results?.find(
-                                    (r: any) => r.questionId === q.id,
-                                  );
-                                  return (
-                                    <button
-                                      key={q.id}
-                                      type="button"
-                                      onClick={() => {
-                                        const el = document.getElementById(`quiz-q-${q.id}`);
-                                        el?.scrollIntoView({ behavior: "smooth", block: "center" });
-                                      }}
-                                      className={`w-7 h-7 rounded-lg text-xs font-bold transition-all flex items-center justify-center cursor-pointer ${
-                                        qResult
-                                          ? qResult.isCorrect
-                                            ? "bg-emerald-500 text-white shadow-xs"
-                                            : "bg-destructive text-destructive-foreground shadow-xs"
-                                          : isAnswered
-                                          ? "bg-primary text-primary-foreground shadow-xs"
-                                          : "bg-card border border-border text-muted-foreground hover:border-foreground/30"
-                                      }`}
-                                      title={`Jump to Question ${qIdx + 1}`}
-                                    >
-                                      {qIdx + 1}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            {ex.quizConfig.questions.map((q, qIdx) => (
-                              <div
-                                key={q.id}
-                                id={`quiz-q-${q.id}`}
-                                className="p-5 rounded-xl border border-border bg-card/60 space-y-3.5 shadow-xs"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary px-2 py-0.5 rounded bg-primary/10 border border-primary/20">
-                                    Question {qIdx + 1} of {ex.quizConfig?.questions?.length || 0}
-                                  </span>
-                                  {selectedAnswers[q.id] !== undefined && (
-                                    <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                      ✓ Option Selected
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-base font-bold text-foreground leading-snug">
-                                  {q.question}
-                                </p>
-                                
-                                <div className="space-y-2.5">
-                                  {q.options.map((opt, optIdx) => {
-                                    const isSelected = selectedAnswers[q.id] === optIdx;
-                                    const qResult = quizResults?.results?.find(
-                                      (r: any) => r.questionId === q.id,
-                                    );
-
-                                    let containerStyle =
-                                      "border-slate-200 dark:border-border bg-white dark:bg-card text-slate-900 dark:text-foreground hover:bg-slate-50 dark:hover:bg-muted/60 hover:border-primary/50 shadow-xs";
-                                    let letterBadgeStyle =
-                                      "bg-slate-100 dark:bg-muted text-slate-800 dark:text-foreground border border-slate-300 dark:border-border";
-
-                                    if (qResult) {
-                                      if (optIdx === qResult.correctAnswer) {
-                                        containerStyle =
-                                          "border-emerald-500 bg-emerald-500/15 text-emerald-950 dark:text-emerald-100 font-bold ring-2 ring-emerald-500/40 shadow-sm";
-                                        letterBadgeStyle = "bg-emerald-600 text-white font-bold";
-                                      } else if (isSelected && !qResult.isCorrect) {
-                                        containerStyle =
-                                          "border-rose-500 bg-rose-500/15 text-rose-950 dark:text-rose-100 font-bold ring-2 ring-rose-500/40 shadow-sm";
-                                        letterBadgeStyle =
-                                          "bg-rose-600 text-white font-bold";
-                                      }
-                                    } else if (isSelected) {
-                                      containerStyle =
-                                        "border-primary bg-primary/10 text-slate-950 dark:text-foreground font-bold ring-2 ring-primary/40 shadow-sm";
-                                      letterBadgeStyle =
-                                        "bg-primary text-primary-foreground font-bold";
-                                    }
-
-                                    return (
-                                      <button
-                                        key={optIdx}
-                                        type="button"
-                                        onClick={() =>
-                                          setSelectedAnswers({
-                                            ...selectedAnswers,
-                                            [q.id]: optIdx,
-                                          })
-                                        }
-                                        className={`w-full text-left px-4 py-3.5 rounded-xl text-sm font-semibold border-2 transition-all duration-150 cursor-pointer flex items-center justify-between ${containerStyle}`}
-                                      >
-                                        <div className="flex items-center gap-3">
-                                          <span
-                                            className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 transition-colors ${letterBadgeStyle}`}
-                                          >
-                                            {qResult && optIdx === qResult.correctAnswer
-                                              ? "✓"
-                                              : qResult && isSelected && !qResult.isCorrect
-                                              ? "✗"
-                                              : String.fromCharCode(65 + optIdx)}
-                                          </span>
-                                          <span className="leading-snug">{opt}</span>
-                                        </div>
-                                        {isSelected && !qResult && (
-                                          <span className="w-2.5 h-2.5 rounded-full bg-primary flex-shrink-0 animate-pulse" />
-                                        )}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-
-                                {/* Question Explanation Callout */}
-                                {quizResults?.results?.find((r: any) => r.questionId === q.id) && (
-                                  <div
-                                    className={`mt-3 p-4 rounded-xl border text-xs leading-relaxed ${
-                                      quizResults.results.find((r: any) => r.questionId === q.id)
-                                        ?.isCorrect
-                                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
-                                        : "bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-200"
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-1.5 font-bold mb-1">
-                                      <Lightbulb className="w-4 h-4 text-amber-500" />
-                                      <span>
-                                        {quizResults.results.find(
-                                          (r: any) => r.questionId === q.id,
-                                        )?.isCorrect
-                                          ? "Correct Concept Verified"
-                                          : "Explanation & In-Depth Review"}
-                                      </span>
-                                    </div>
-                                    <p className="mt-1 text-foreground text-xs leading-relaxed font-medium">
-                                      {
-                                        quizResults.results.find(
-                                          (r: any) => r.questionId === q.id,
-                                        )?.explanation
-                                      }
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-
-                            {/* Quiz Outcome Banner */}
-                            {quizResults && (
-                              <div
-                                className={`p-4 rounded-xl border text-xs ${
-                                  quizResults.passed
-                                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
-                                    : "bg-destructive/10 border-destructive/30 text-destructive"
-                                }`}
-                              >
-                                <div className="font-bold mb-1">
-                                  {quizResults.passed
-                                    ? "✓ Quiz Passed Successfully!"
-                                    : "✗ Review Incorrect Answers Above"}
-                                </div>
-                                <div>
-                                  Score: {quizResults.score}% (Required:{" "}
-                                  {quizResults.passThreshold}%)
-                                </div>
-                              </div>
-                            )}
-
-                            <Button
-                              onClick={() => handleQuizSubmit(ex.id)}
-                              disabled={submittingExercise}
-                              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs h-9 px-5 shadow-xs cursor-pointer"
-                            >
-                              {submittingExercise ? "Evaluating..." : "Check Answers"}
-                            </Button>
-                          </div>
+                          <IndependentQuizRunner
+                            key={ex.id}
+                            exerciseId={ex.id}
+                            title={ex.title}
+                            quizConfig={ex.quizConfig}
+                            marks={ex.marks}
+                            userId={user?.id}
+                            onPassed={(exerciseId, result) => {
+                              if (result?.xpAwarded > 0) {
+                                setXpCelebration(result.xpAwarded);
+                              }
+                              // Update sidebar without unmounting or reloading lesson
+                              setCourse((prev) => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  modules: prev.modules.map((m) => ({
+                                    ...m,
+                                    lessons: m.lessons.map((l) =>
+                                      l.id === activeLessonId ? { ...l, isCompleted: true } : l
+                                    ),
+                                  })),
+                                };
+                              });
+                            }}
+                          />
                         )}
 
-                        {/* Coding & Chandigarh University Practice Suite */}
-                        {(ex.type === "coding" || ex.type === "debugging") &&
-                          renderInteractivePracticeSuite(ex)
-                        }
+                        {/* Independent Isolated Coding Compiler for Every Question */}
+                        {(ex.type === "coding" || ex.type === "debugging") && (
+                          <IndependentQuestionCompiler
+                            key={ex.id}
+                            exercise={ex}
+                            userId={user?.id}
+                            onPassed={(exerciseId, result) => {
+                              if (result?.xpAwarded > 0) {
+                                setXpCelebration(result.xpAwarded);
+                              }
+                              setCourse((prev) => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  modules: prev.modules.map((m) => ({
+                                    ...m,
+                                    lessons: m.lessons.map((l) =>
+                                      l.id === activeLessonId ? { ...l, isCompleted: true } : l
+                                    ),
+                                  })),
+                                };
+                              });
+                            }}
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2233,9 +2355,20 @@ export default function CourseWorkspacePage({
                       </span>
                     </div>
 
-                    <div className="bg-muted/20 border border-border rounded-xl p-6 shadow-xs space-y-6">
-                      {renderInteractivePracticeSuite()}
-                    </div>
+                    <IndependentQuestionCompiler
+                      key={`sandbox-${lesson.id}`}
+                      exercise={{
+                        id: `sandbox-${lesson.id}`,
+                        title: `Chandigarh University Interactive Practice Lab: ${lesson.title || "Sandbox"}`,
+                        type: "coding",
+                        starterCode: MINIMAL_STARTER_CODES,
+                        hints: [
+                          "Write, test, and execute your code in real-time. Use the language selector to switch environments.",
+                        ],
+                        marks: 25,
+                      }}
+                      onPassed={() => {}}
+                    />
                   </div>
                 )}
 

@@ -57,6 +57,10 @@ export class CreateCourseModuleDto {
   @IsInt()
   @IsOptional()
   requiredTimeSeconds?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isMandatory?: boolean;
 }
 
 export class UpdateCourseModuleDto {
@@ -79,6 +83,10 @@ export class UpdateCourseModuleDto {
   @IsInt()
   @IsOptional()
   requiredTimeSeconds?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isMandatory?: boolean;
 }
 
 export class TrackTimeSpentDto {
@@ -121,6 +129,45 @@ export class CreateLessonDto {
   @IsInt()
   @IsOptional()
   passingScore?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isMandatory?: boolean;
+}
+
+export class UpdateLessonDto {
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
+  slug?: string;
+
+  @IsString()
+  @IsOptional()
+  content?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  learningObjectives?: string[];
+
+  @IsInt()
+  @IsOptional()
+  order?: number;
+
+  @IsIn(['reading', 'quiz', 'coding', 'debugging'])
+  @IsOptional()
+  type?: 'reading' | 'quiz' | 'coding' | 'debugging';
+
+  @IsInt()
+  @IsOptional()
+  passingScore?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isMandatory?: boolean;
 }
 
 export class CreateCourseExerciseDto {

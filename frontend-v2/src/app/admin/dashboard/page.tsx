@@ -21,8 +21,11 @@ import {
   Cpu,
   AlertTriangle,
   Zap,
+  Award,
+  Sparkles,
+  Compass,
 } from "lucide-react";
-import { adminDashboardAPI } from "@/config/api";
+import { adminDashboardAPI, adminLearningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 import { AnalyticsDashboardView } from "@/components/analytics";
 import gsap from "gsap";
@@ -69,6 +72,8 @@ export default function AdminDashboardPage() {
     totalAssessments: 0,
     totalQuestions: 0,
     activeToday: 0,
+    totalCertificates: 0,
+    totalLearningPaths: 0,
   });
 
   const [recentActivity, setRecentActivity] = useState<{
@@ -84,6 +89,14 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useGSAP(
     () => {
@@ -106,33 +119,66 @@ export default function AdminDashboardPage() {
 
   const fetchStats = useCallback(async (isRefreshCall = false) => {
     if (isTeacher) {
-      setLoading(false);
-      setIsRefreshing(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
       return;
     }
     if (isRefreshCall) setIsRefreshing(true);
     else setLoading(true);
 
     try {
-      const res = await adminDashboardAPI.getStats();
-      if (res.data.success || res.data.stats) {
+      const statsPromise = (typeof adminDashboardAPI !== "undefined" && adminDashboardAPI?.getStats)
+        ? adminDashboardAPI.getStats()
+        : Promise.resolve({ data: { success: false, stats: null } });
+
+      const learningPromise = (typeof adminLearningAPI !== "undefined" && adminLearningAPI?.getOverview)
+        ? adminLearningAPI.getOverview()
+        : Promise.resolve({ data: { success: true, data: { totalCertificates: 0, totalPaths: 0 } } });
+
+      const [res, learningRes] = await Promise.allSettled([
+        statsPromise,
+        learningPromise,
+      ]);
+
+      if (!isMountedRef.current) return;
+
+      if (res.status === "fulfilled" && res.value?.data && (res.value.data.success || res.value.data.stats)) {
         setStats((prev) => ({
           ...prev,
-          ...(res.data.stats || {}),
+          ...(res.value.data.stats || {}),
         }));
-        if (res.data.recentActivity) {
+        if (res.value.data.recentActivity) {
           setRecentActivity({
-            users: res.data.recentActivity.users || [],
-            submissions: res.data.recentActivity.submissions || [],
-            assessments: res.data.recentActivity.assessments || [],
+            users: res.value.data.recentActivity.users || [],
+            submissions: res.value.data.recentActivity.submissions || [],
+            assessments: res.value.data.recentActivity.assessments || [],
           });
+        }
+      } else if (res.status === "rejected") {
+        console.error("Failed to fetch dashboard stats:", res.reason);
+      }
+
+      if (learningRes.status === "fulfilled" && learningRes.value?.data) {
+        const lData = learningRes.value.data?.data || learningRes.value.data;
+        if (lData && typeof lData === "object") {
+          setStats((prev) => ({
+            ...prev,
+            totalCertificates: Number(lData.totalCertificates) || 0,
+            totalLearningPaths: Number(lData.totalPaths) || 0,
+          }));
         }
       }
     } catch (error) {
-      console.error("Failed to fetch dashboard stats:", error);
+      if (isMountedRef.current) {
+        console.error("Failed to fetch dashboard stats:", error);
+      }
     } finally {
-      setLoading(false);
-      setIsRefreshing(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [isTeacher]);
 
@@ -150,6 +196,16 @@ export default function AdminDashboardPage() {
       color: "text-blue-500",
       bg: "bg-blue-500/10",
       border: "hover:border-blue-500/40",
+    },
+    {
+      title: "Certificates & Badges",
+      value: stats.totalCertificates ?? 0,
+      sublabel: "Issued CU Credentials",
+      icon: Award,
+      href: `/admin/learning`,
+      color: "text-amber-500",
+      bg: "bg-amber-500/10",
+      border: "hover:border-amber-500/40",
     },
     {
       title: "Assessments",
@@ -238,6 +294,15 @@ export default function AdminDashboardPage() {
       icon: FileText,
       cta: "View Results",
       accent: "from-emerald-500/20 via-emerald-500/5 to-transparent",
+      btnClass: "admin-action",
+    },
+    {
+      title: "Curriculum & Certification",
+      description: "Manage learning paths, courses, dynamic requirements, badges, and audit student credentials.",
+      href: `/admin/learning`,
+      icon: Award,
+      cta: "Manage Learning",
+      accent: "from-amber-500/20 via-amber-500/5 to-transparent",
       btnClass: "admin-action",
     },
   ];

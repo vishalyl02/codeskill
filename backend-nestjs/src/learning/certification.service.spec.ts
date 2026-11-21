@@ -98,7 +98,7 @@ describe('CertificationService', () => {
     const cert = await service.issueCertificate('path-uuid-1', 'student-uuid-1');
     expect(cert).toBeDefined();
     expect(cert.recipientName).toBe('Test Student');
-    expect(cert.credentialId).toMatch(/^CS-\d{4}-[A-Z0-9]{6}$/);
+    expect(cert.credentialId).toMatch(/^(?:CU-)?CS-\d{4}-[A-Z0-9]{6}$/);
     expect(mockCertRepo.save).toHaveBeenCalled();
   });
 });

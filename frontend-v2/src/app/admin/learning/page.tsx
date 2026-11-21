@@ -24,6 +24,8 @@ import {
   Check,
   Clock,
   Filter,
+  Edit3,
+  Trash2,
 } from "lucide-react";
 import { adminLearningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
@@ -137,6 +139,24 @@ export default function AdminLearningDashboard() {
       await loadAllData();
     } catch (err: any) {
       alert(err.response?.data?.message || "Failed to create learning path");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeletePath = async (id: string, pathTitle: string) => {
+    if (
+      !confirm(
+        `Are you sure you want to delete "${pathTitle}"? This will delete the learning path and its curriculum configuration.`
+      )
+    )
+      return;
+    try {
+      setActionLoading(true);
+      await adminLearningAPI.deletePath(id);
+      await loadAllData();
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Failed to delete learning path");
     } finally {
       setActionLoading(false);
     }
@@ -418,18 +438,24 @@ export default function AdminLearningDashboard() {
       {/* ── TAB 2: LEARNING PATHS ─────────────────────────────────────────────────── */}
       {activeTab === "paths" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-foreground">
-              Learning Paths ({paths.length})
-            </h2>
-            <Button
-              onClick={() => setShowCreatePathModal(true)}
-              size="sm"
-              className="gap-1.5 bg-primary text-primary-foreground font-semibold text-xs"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create Learning Path</span>
-            </Button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-foreground">
+                Learning Paths ({paths.length})
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Manage curricula, course modules, reading lessons, and exercises
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/admin/learning/paths"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-semibold text-foreground transition-colors"
+              >
+                <span>Full Path Manager</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -468,18 +494,37 @@ export default function AdminLearningDashboard() {
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-border flex items-center justify-between text-xs">
-                  <span className="font-mono text-[10px] text-muted-foreground">
+                <div className="pt-3 border-t border-border flex items-center justify-between gap-2 text-xs">
+                  <span className="font-mono text-[10px] text-muted-foreground truncate max-w-[80px]">
                     /{path.slug}
                   </span>
-                  <Link
-                    href={`/learning/${path.slug}`}
-                    target="_blank"
-                    className="inline-flex items-center gap-1 text-primary hover:underline font-semibold text-xs"
-                  >
-                    <span>Preview Path</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </Link>
+                  <div className="flex items-center gap-1.5">
+                    <Link
+                      href={`/admin/learning/paths/${path.id}/edit`}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[11px] font-semibold transition-colors shadow-2xs"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                      <span>Edit</span>
+                    </Link>
+
+                    <Link
+                      href={`/learning/${path.slug}`}
+                      target="_blank"
+                      className="p-1 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      title="Preview Student View"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePath(path.id, path.title)}
+                      className="p-1 rounded-lg border border-border hover:bg-rose-500/10 text-muted-foreground hover:text-rose-500 transition-colors"
+                      title="Delete Path"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

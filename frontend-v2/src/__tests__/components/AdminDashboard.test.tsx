@@ -3,13 +3,19 @@ import "@testing-library/jest-dom";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import gsap from "gsap";
 import AdminDashboard from "@/app/admin/dashboard/page";
-import { adminDashboardAPI } from "@/config/api";
+import { adminDashboardAPI, adminLearningAPI } from "@/config/api";
 
 jest.mock("@/config/api", () => ({
   adminDashboardAPI: { getStats: jest.fn() },
+  adminLearningAPI: {
+    getOverview: jest.fn().mockResolvedValue({
+      data: { success: true, data: { totalCertificates: 12, totalPaths: 4 } },
+    }),
+  },
 }));
 
 const getStats = jest.mocked(adminDashboardAPI.getStats);
+const getOverview = jest.mocked(adminLearningAPI.getOverview);
 const data = { data: { success: true, stats: { totalUsers: 27, activeToday: 0 }, recentActivity: { users: [] } } };
 let reducedMotion = false;
 const removeListener = jest.fn();
@@ -18,6 +24,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   reducedMotion = false;
   getStats.mockResolvedValue(data as Awaited<ReturnType<typeof adminDashboardAPI.getStats>>);
+  getOverview.mockResolvedValue({
+    data: { success: true, data: { totalCertificates: 12, totalPaths: 4 } },
+  } as Awaited<ReturnType<typeof adminLearningAPI.getOverview>>);
   window.matchMedia = jest.fn((query: string) => ({
     matches: query.includes("no-preference") ? !reducedMotion : reducedMotion,
     media: query,
@@ -38,7 +47,7 @@ function finishAnimations() {
 
 function expectContentVisible(container: HTMLElement) {
   const cards = container.querySelectorAll<HTMLElement>(".stat-card, .action-tile, .activity-section");
-  expect(cards).toHaveLength(11);
+  expect(cards).toHaveLength(13);
   cards.forEach((card) => {
     expect(card).toBeVisible();
     expect(card.style.opacity).toBe("");
@@ -92,4 +101,18 @@ it("still displays operations and safe empty data when the API fails", async () 
   } finally {
     error.mockRestore();
   }
+});
+
+it("safely handles empty responses and renders fallback values gracefully", async () => {
+  getStats.mockResolvedValueOnce({
+    data: { success: true, stats: { totalUsers: 0, activeToday: 0 } },
+  } as Awaited<ReturnType<typeof adminDashboardAPI.getStats>>);
+  getOverview.mockResolvedValueOnce({
+    data: { success: true, data: { totalCertificates: 0, totalPaths: 0 } },
+  } as Awaited<ReturnType<typeof adminLearningAPI.getOverview>>);
+
+  const { container } = render(<AdminDashboard />);
+  await waitFor(() => expect(screen.getByRole("heading", { name: /Dashboard/ })).toBeInTheDocument());
+  finishAnimations();
+  expectContentVisible(container);
 });

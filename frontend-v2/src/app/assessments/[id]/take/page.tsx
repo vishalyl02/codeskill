@@ -1213,6 +1213,15 @@ export default function TakeAssessmentPage({
           windowHeight: window.innerHeight,
           scrollX: window.scrollX,
           scrollY: window.scrollY,
+          ignoreElements: (el) => el.classList?.contains("print-hidden") || el.tagName === "FOOTER",
+          onclone: (clonedDoc) => {
+            const styleElements = clonedDoc.querySelectorAll("style");
+            styleElements.forEach((s) => {
+              if (s.textContent?.includes("oklch")) {
+                s.textContent = s.textContent.replace(/color-mix\(in oklch[^)]+\)/g, "rgba(0,0,0,0.1)").replace(/oklch\([^)]+\)/g, "#000000");
+              }
+            });
+          },
         });
         if (cancelled) return;
         const image = canvas.toDataURL("image/jpeg", 0.45);

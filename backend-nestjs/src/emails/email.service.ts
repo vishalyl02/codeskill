@@ -254,4 +254,142 @@ Please sign in and change your password before your examination starts.
       `Failed to send credential email to ${toEmail}. SES Error: ${lastError?.message || 'Unknown'}`,
     );
   }
+
+  async sendCertificateIssuedEmail(
+    toEmail: string,
+    studentName: string,
+    pathTitle: string,
+    credentialId: string,
+    verificationUrl = `http://localhost:3000/verify/${credentialId}`,
+  ): Promise<any> {
+    const subject = `🎓 Congratulations ${studentName}! Your Certificate for "${pathTitle}" is Ready`;
+
+    if (this.isMock) {
+      this.logger.log(`
+=========================================
+[MOCK SES] Certificate Issued Email
+To: ${toEmail}
+Student: ${studentName}
+Path: ${pathTitle}
+Credential ID: ${credentialId}
+Verify URL: ${verificationUrl}
+=========================================`);
+      return { MessageId: 'mock-cert-message-' + Date.now() };
+    }
+
+    const htmlBody = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; margin: 0; padding: 0; color: #f1f5f9; }
+          .container { max-width: 620px; margin: 30px auto; background: #111827; border-radius: 16px; border: 1px solid #1f2937; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); }
+          .header { background: linear-gradient(135deg, #1e1b4b, #312e81, #4c1d95); padding: 36px 28px; text-align: center; color: #ffffff; border-bottom: 2px solid #6366f1; }
+          .header h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+          .badge { display: inline-block; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(129, 140, 248, 0.4); color: #c7d2fe; padding: 6px 16px; border-radius: 9999px; font-size: 12px; font-weight: 700; text-transform: uppercase; margin-top: 10px; letter-spacing: 0.05em; }
+          .content { padding: 32px 28px; }
+          .greeting { font-size: 18px; font-weight: 700; color: #f8fafc; margin-bottom: 12px; }
+          .info-box { background: #1e1b4b/30; border: 1px solid #3730a3; border-radius: 12px; padding: 22px; margin: 24px 0; }
+          .cred-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed #312e81; font-size: 14px; }
+          .cred-row:last-child { border-bottom: none; }
+          .cred-label { color: #a5b4fc; font-weight: 600; }
+          .cred-val { font-family: monospace; font-weight: 700; color: #e0e7ff; font-size: 15px; }
+          .btn-container { text-align: center; margin: 32px 0 20px 0; }
+          .btn { background: linear-gradient(135deg, #4f46e5, #6366f1); color: #ffffff !important; padding: 14px 32px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 15px; display: inline-block; box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.4); }
+          .footer { background: #0f172a; padding: 24px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #1e293b; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Chandigarh University · CodeSkill</h1>
+            <div class="badge">Official Certificate of Completion</div>
+          </div>
+          <div class="content">
+            <p class="greeting">Dear ${studentName},</p>
+            <p style="color: #94a3b8; line-height: 1.6; font-size: 15px;">
+              Congratulations! You have successfully mastered all required curriculum milestones, practice challenges, and rigorous assessments for <strong>${pathTitle}</strong>.
+            </p>
+            
+            <div class="info-box">
+              <div class="cred-row">
+                <span class="cred-label">Recipient:</span>
+                <span class="cred-val">${studentName}</span>
+              </div>
+              <div class="cred-row">
+                <span class="cred-label">Learning Path:</span>
+                <span class="cred-val">${pathTitle}</span>
+              </div>
+              <div class="cred-row">
+                <span class="cred-label">Verified Credential ID:</span>
+                <span class="cred-val">${credentialId}</span>
+              </div>
+              <div class="cred-row">
+                <span class="cred-label">Academic Status:</span>
+                <span class="cred-val" style="color: #34d399;">Verified Distinction</span>
+              </div>
+            </div>
+
+            <div class="btn-container">
+              <a href="${verificationUrl}" class="btn" target="_blank">View & Download Certificate &rarr;</a>
+            </div>
+
+            <p style="color: #64748b; font-size: 13px; text-align: center; margin-top: 16px;">
+              You can download a high-definition PNG/PDF or add this official credential directly to your LinkedIn profile.
+            </p>
+          </div>
+          <div class="footer">
+            <p style="margin: 0;">Chandigarh University · Department of Computer Science & Engineering · Apex Institute of Technology</p>
+            <p style="margin: 4px 0 0 0; color: #475569;">NAAC Grade A+ Accredited University · Punjab, India</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const textBody = `
+Congratulations ${studentName}!
+
+You have successfully completed ${pathTitle} on CodeSkill (Chandigarh University).
+Credential ID: ${credentialId}
+View & Download your certificate here: ${verificationUrl}
+    `.trim();
+
+    const params = {
+      Destination: { ToAddresses: [toEmail] },
+      Message: {
+        Body: {
+          Html: { Charset: 'UTF-8', Data: htmlBody },
+          Text: { Charset: 'UTF-8', Data: textBody },
+        },
+        Subject: { Charset: 'UTF-8', Data: subject },
+      },
+      Source: this.senderEmail,
+    };
+
+    const maxRetries = 2;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const command = new SendEmailCommand(params);
+        const result = await this.sesClient.send(command);
+        this.logger.log(
+          `[SES] Certificate email sent to ${toEmail} (${credentialId}). MessageId: ${result.MessageId}`,
+        );
+        return result;
+      } catch (error: any) {
+        lastError = error;
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        }
+      }
+    }
+
+    this.logger.warn(
+      `Could not send certificate email to ${toEmail}: ${lastError?.message || 'Unknown error'}`,
+    );
+    return null;
+  }
 }

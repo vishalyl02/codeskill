@@ -15,12 +15,17 @@ import {
   AlertCircle,
   Play,
   FileText,
+  Award,
+  Sparkles,
+  Compass,
+  ExternalLink,
+  ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { studentAssessmentsAPI } from "@/config/api";
+import { studentAssessmentsAPI, learningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
 
 interface Assessment {
@@ -46,6 +51,9 @@ export default function DashboardPage() {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [assessmentsLoading, setAssessmentsLoading] = useState(true);
   const [assessmentsError, setAssessmentsError] = useState(false);
+  const [certificates, setCertificates] = useState<any[]>([]);
+  const [achievements, setAchievements] = useState<{ badges?: any[]; xp?: number } | null>(null);
+  const [learningLoading, setLearningLoading] = useState(true);
 
   useEffect(() => {
     setMounted(true);
@@ -71,7 +79,33 @@ export default function DashboardPage() {
         setAssessmentsLoading(false);
       }
     };
+
+    const fetchLearningCredentials = async () => {
+      try {
+        setLearningLoading(true);
+        const [certsRes, achRes] = await Promise.allSettled([
+          learningAPI.getMyCertificates(),
+          learningAPI.getMyAchievements(),
+        ]);
+
+        if (certsRes.status === "fulfilled") {
+          const d = certsRes.value?.data;
+          const list = Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [];
+          setCertificates(list);
+        }
+        if (achRes.status === "fulfilled") {
+          const d = achRes.value?.data;
+          setAchievements(d?.data || d || null);
+        }
+      } catch (err) {
+        console.warn("Learning credentials notice:", err);
+      } finally {
+        setLearningLoading(false);
+      }
+    };
+
     fetchAssessments();
+    fetchLearningCredentials();
   }, [user]);
 
   if (!mounted || loading) {
@@ -199,7 +233,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[
                 {
                   label: "Available Tests",
@@ -209,18 +243,25 @@ export default function DashboardPage() {
                   bg: "bg-muted",
                 },
                 {
-                  label: "Completed",
-                  value: "—",
-                  icon: CheckCircle2,
-                  color: "text-emerald-500",
-                  bg: "bg-emerald-500/10",
-                },
-                {
-                  label: "Best Score",
-                  value: "—",
-                  icon: Trophy,
+                  label: "Certificates",
+                  value: learningLoading ? "—" : String(certificates.length),
+                  icon: Award,
                   color: "text-amber-500",
                   bg: "bg-amber-500/10",
+                },
+                {
+                  label: "Badges Earned",
+                  value: learningLoading ? "—" : String(achievements?.badges?.length ?? 0),
+                  icon: Sparkles,
+                  color: "text-indigo-400",
+                  bg: "bg-indigo-500/10",
+                },
+                {
+                  label: "Total XP",
+                  value: learningLoading ? "—" : String(achievements?.xp ?? 0),
+                  icon: Trophy,
+                  color: "text-emerald-500",
+                  bg: "bg-emerald-500/10",
                 },
               ].map((stat, i) => (
                 <div
@@ -308,12 +349,110 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
+            {/* Official Certificates & Badges Section */}
+            <div className="bg-card rounded-xl border border-border shadow-xs overflow-hidden">
+              <div className="p-4 border-b border-border flex items-center justify-between bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <Award className="w-4 h-4 text-amber-500" />
+                  <h2 className="text-sm font-semibold text-foreground">Earned Certificates & Badges</h2>
+                </div>
+                <Link
+                  href="/learning/me/certificates"
+                  className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center transition-colors"
+                >
+                  View all <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                </Link>
+              </div>
+
+              {learningLoading ? (
+                <div className="p-8 flex items-center justify-center gap-2 text-muted-foreground">
+                  <Spinner className="w-4 h-4 animate-spin" />
+                  <span className="text-xs">Loading credentials…</span>
+                </div>
+              ) : certificates.length > 0 ? (
+                <div className="p-4 space-y-3">
+                  <div className="flex flex-col divide-y divide-border">
+                    {certificates.map((cert: any) => (
+                      <div
+                        key={cert.id || cert.credentialId}
+                        className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                            <p className="font-semibold text-foreground text-xs sm:text-sm truncate">
+                              {cert.pathTitle || "Official Curriculum Certificate"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground font-mono">
+                            <span>ID: {cert.credentialId}</span>
+                            <span className="opacity-40">•</span>
+                            <span className="text-emerald-400 font-sans font-medium">NAAC A+ Verified</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Link
+                            href={`/verify/${cert.credentialId}`}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-semibold hover:opacity-90 transition-opacity"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            View & Download
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {achievements?.badges && achievements.badges.length > 0 && (
+                    <div className="pt-3 border-t border-border">
+                      <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> Earned Badges ({achievements.badges.length})
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {achievements.badges.map((b: any, idx: number) => (
+                          <span
+                            key={b.id || idx}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted border border-border text-[11px] font-medium text-foreground"
+                          >
+                            <span>🏅</span>
+                            <span>{b.badge?.name || b.name || "Scholar Badge"}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-6 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+                    <Award className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-semibold text-foreground">
+                      No Certificates Earned Yet
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                      Complete learning path milestones and practical assessments to earn verifiable credentials signed by Chandigarh University leadership.
+                    </p>
+                  </div>
+                  <Link
+                    href="/learning"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium hover:opacity-90 transition-opacity"
+                  >
+                    <Compass className="w-3.5 h-3.5" />
+                    Explore Learning Paths &rarr;
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Sidebar Column */}
           <div className="space-y-6">
 
-            {/* Quick Links */}
+              {/* Quick Links */}
             <div className="bg-card rounded-xl border border-border shadow-xs p-5">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-foreground">Quick Links</h2>
@@ -321,6 +460,9 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-1">
                 {[
+                  { href: "/learning", label: "Learning Paths", icon: Compass },
+                  { href: "/learning/me/certificates", label: "My Certificates", icon: Award },
+                  { href: "/learning/me/achievements", label: "Badges & XP", icon: Sparkles },
                   { href: "/assessments", label: "My Assessments", icon: ClipboardList },
                   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
                   { href: "/profile", label: "My Profile", icon: BarChart3 },

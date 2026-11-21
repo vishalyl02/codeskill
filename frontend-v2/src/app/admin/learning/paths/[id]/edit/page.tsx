@@ -401,6 +401,24 @@ export default function AdminPathEditPage({
     }
   };
 
+  const handleDeletePath = async () => {
+    if (
+      !confirm(
+        `Are you sure you want to delete "${title || path?.title}"? All associated courses, modules, and lessons in this curriculum will be deleted.`
+      )
+    )
+      return;
+    try {
+      setSaving(true);
+      await adminLearningAPI.deletePath(id);
+      router.push("/admin/learning");
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Failed to delete learning path");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[500px]">
@@ -449,6 +467,17 @@ export default function AdminPathEditPage({
           >
             <Save className="w-3.5 h-3.5" />
             <span>{saving ? "Saving Changes..." : "Save Path Metadata"}</span>
+          </Button>
+
+          <Button
+            onClick={handleDeletePath}
+            disabled={saving}
+            variant="outline"
+            size="sm"
+            className="gap-1.5 border-rose-500/30 text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 font-semibold text-xs shadow-2xs"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete Path</span>
           </Button>
         </div>
       </div>
@@ -635,11 +664,20 @@ export default function AdminPathEditPage({
                       </div>
 
                       <div className="flex items-center gap-2">
+                        <Link
+                          href={`/admin/learning/courses/${course.id}/edit`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs transition-colors"
+                          title="Open dedicated editor for this course"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Edit Course</span>
+                        </Link>
+
                         <Button
                           onClick={() => setShowAddModuleModal(course.id)}
                           variant="outline"
                           size="sm"
-                          className="text-xs h-7 gap-1 border-border bg-card"
+                          className="text-xs h-8 gap-1 border-border bg-card"
                         >
                           <Plus className="w-3 h-3" />
                           <span>Add Module</span>
@@ -647,7 +685,7 @@ export default function AdminPathEditPage({
 
                         <button
                           onClick={() => handleDeleteCourse(course.id)}
-                          className="w-7 h-7 rounded hover:bg-rose-500/10 text-muted-foreground hover:text-rose-500 flex items-center justify-center transition-colors"
+                          className="w-8 h-8 rounded hover:bg-rose-500/10 text-muted-foreground hover:text-rose-500 flex items-center justify-center transition-colors"
                           title="Remove course from path"
                         >
                           <Trash2 className="w-3.5 h-3.5" />

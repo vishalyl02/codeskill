@@ -121,11 +121,12 @@ export class LearningService {
   }
 
   /**
-   * Get path details by slug with full curriculum syllabus
+   * Get path details by slug or UUID with full curriculum syllabus
    */
   async getPathBySlug(slug: string, studentId?: string) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug);
     const path = await this.pathRepo.findOne({
-      where: { slug },
+      where: isUuid ? [{ id: slug }, { slug }] : { slug },
       relations: {
         pathCourses: {
           course: {
@@ -283,11 +284,12 @@ export class LearningService {
   }
 
   /**
-   * Get course details with all modules, lessons, and completion statuses
+   * Get course details by ID or slug with all modules, lessons, and completion statuses
    */
   async getCourseDetails(courseId: string, studentId: string) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(courseId);
     const course = await this.courseRepo.findOne({
-      where: { id: courseId },
+      where: isUuid ? [{ id: courseId }, { slug: courseId }] : { slug: courseId },
       relations: {
         modules: {
           lessons: {

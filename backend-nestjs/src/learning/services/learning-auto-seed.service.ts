@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { AdminLearningService } from './admin-learning.service';
 import { seedEnterpriseCurriculum } from './enterprise-curriculum.seed';
+import { seedCProgrammingCurriculum } from './c-programming-curriculum.seed';
+import { seedInteractiveCUExercisesCurriculum } from './interactive-cu-exercises.seed';
 
 @Injectable()
 export class LearningAutoSeedService implements OnApplicationBootstrap {
@@ -2590,6 +2592,12 @@ print("Total Page Faults (capacity=3):", count_page_faults_lru(refs, 3))
       // ==========================================
       this.logger.log('🚀 Auto-seeding Enterprise AI, Python, JavaScript & DSA Curriculum...');
       await seedEnterpriseCurriculum(this.adminService, this.logger);
+
+      this.logger.log('🚀 Auto-seeding C Programming Fundamentals Curriculum...');
+      await seedCProgrammingCurriculum(this.adminService, this.logger);
+
+      this.logger.log('🚀 Auto-seeding Interactive Practice & Chandigarh University Exercises Curriculum...');
+      await seedInteractiveCUExercisesCurriculum(this.adminService, this.logger);
 
       this.logger.log('✨ All CodeSkill curriculum paths and courses are fully up-to-date.');
     } finally {

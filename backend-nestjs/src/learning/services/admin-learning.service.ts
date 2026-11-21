@@ -3,9 +3,10 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { LearningPath } from '../entities/learning-path.entity';
 import { LearningPathCourse } from '../entities/learning-path-course.entity';
 import { Course } from '../entities/course.entity';
@@ -16,6 +17,9 @@ import { BadgeDefinition } from '../entities/badge-definition.entity';
 import { CertificateTemplate } from '../entities/certificate-template.entity';
 import { Certificate } from '../entities/certificate.entity';
 import { LearningEnrollment } from '../entities/learning-enrollment.entity';
+import { LessonProgress } from '../entities/lesson-progress.entity';
+import { CourseProgress } from '../entities/course-progress.entity';
+import { PathProgress } from '../entities/path-progress.entity';
 import { applyLearningModuleMigration } from '../../database/migrations/learning-module';
 import {
   CreateLearningPathDto,
@@ -58,6 +62,15 @@ export class AdminLearningService {
     private readonly certRepo: Repository<Certificate>,
     @InjectRepository(LearningEnrollment)
     private readonly enrollmentRepo: Repository<LearningEnrollment>,
+    @Optional()
+    @InjectRepository(LessonProgress)
+    private readonly lessonProgressRepo?: Repository<LessonProgress>,
+    @Optional()
+    @InjectRepository(CourseProgress)
+    private readonly courseProgressRepo?: Repository<CourseProgress>,
+    @Optional()
+    @InjectRepository(PathProgress)
+    private readonly pathProgressRepo?: Repository<PathProgress>,
   ) {}
 
   async runMigrationColumnsIfNotExist() {
@@ -283,6 +296,7 @@ export class AdminLearningService {
       dto.requiredTimeSeconds !== undefined
         ? dto.requiredTimeSeconds
         : requiredTimeMinutes * 60;
+    const isMandatory = dto.isMandatory !== undefined ? dto.isMandatory : true;
 
     const mod = this.moduleRepo.create({
       courseId,
@@ -291,6 +305,7 @@ export class AdminLearningService {
       order,
       requiredTimeMinutes,
       requiredTimeSeconds,
+      isMandatory,
     });
     return this.moduleRepo.save(mod);
   }
@@ -302,6 +317,7 @@ export class AdminLearningService {
     if (dto.title !== undefined) mod.title = dto.title;
     if (dto.description !== undefined) mod.description = dto.description;
     if (dto.order !== undefined) mod.order = dto.order;
+    if (dto.isMandatory !== undefined) mod.isMandatory = dto.isMandatory;
     if (dto.requiredTimeMinutes !== undefined) mod.requiredTimeMinutes = dto.requiredTimeMinutes;
     if (dto.requiredTimeSeconds !== undefined) {
       mod.requiredTimeSeconds = dto.requiredTimeSeconds;
@@ -344,6 +360,7 @@ export class AdminLearningService {
 
     const existingLessons = await this.lessonRepo.find({ where: { moduleId } });
     const order = dto.order || existingLessons.length + 1;
+    const isMandatory = dto.isMandatory !== undefined ? dto.isMandatory : true;
 
     const lesson = this.lessonRepo.create({
       moduleId,
@@ -354,6 +371,7 @@ export class AdminLearningService {
       order,
       type: dto.type || 'reading',
       passingScore: dto.passingScore || 0,
+      isMandatory,
     });
     return this.lessonRepo.save(lesson);
   }
@@ -491,8 +509,45 @@ export class AdminLearningService {
     const path = await this.pathRepo.findOne({ where: { id } });
     if (!path) throw new NotFoundException(`Learning path not found: ${id}`);
     await this.lpcRepo.delete({ pathId: id });
+    await this.enrollmentRepo.delete({ pathId: id });
+    await this.pathRepo.query('DELETE FROM "path_progress" WHERE "pathId" = $1', [id]).catch(() => {});
+    await this.pathRepo.query('DELETE FROM "course_progress" WHERE "pathId" = $1', [id]).catch(() => {});
     await this.pathRepo.remove(path);
     return { success: true };
+  }
+
+  async getCourseById(id: string) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      );
+    const course = await this.courseRepo.findOne({
+      where: isUuid ? [{ id }, { slug: id }] : { slug: id },
+      relations: {
+        modules: {
+          lessons: {
+            exercises: true,
+          },
+        },
+      },
+    });
+    if (!course) {
+      throw new NotFoundException(`Course not found: ${id}`);
+    }
+    if (course.modules) {
+      course.modules.sort((a, b) => a.order - b.order);
+      for (const mod of course.modules) {
+        if (mod.lessons) {
+          mod.lessons.sort((a, b) => a.order - b.order);
+          for (const les of mod.lessons) {
+            if (les.exercises) {
+              les.exercises.sort((a, b) => a.order - b.order);
+            }
+          }
+        }
+      }
+    }
+    return course;
   }
 
   async updateCourse(id: string, dto: Partial<CreateCourseDto>) {
@@ -519,7 +574,23 @@ export class AdminLearningService {
     if (dto.content !== undefined) lesson.content = dto.content;
     if (dto.type) lesson.type = dto.type;
     if (dto.learningObjectives) lesson.learningObjectives = dto.learningObjectives;
+    if (dto.isMandatory !== undefined) lesson.isMandatory = dto.isMandatory;
     return this.lessonRepo.save(lesson);
+  }
+
+  async updateExercise(id: string, dto: Partial<CreateCourseExerciseDto>) {
+    const ex = await this.exerciseRepo.findOne({ where: { id } });
+    if (!ex) throw new NotFoundException(`Exercise not found: ${id}`);
+    if (dto.title) ex.title = dto.title;
+    if (dto.type) ex.type = dto.type;
+    if (dto.problemId !== undefined) ex.problemId = dto.problemId;
+    if (dto.quizConfig !== undefined) ex.quizConfig = dto.quizConfig;
+    if (dto.starterCode !== undefined) ex.starterCode = dto.starterCode;
+    if (dto.hints !== undefined) ex.hints = dto.hints;
+    if (dto.marks !== undefined) ex.marks = dto.marks;
+    if (dto.isMandatory !== undefined) ex.isMandatory = dto.isMandatory;
+    if (dto.order !== undefined) ex.order = dto.order;
+    return this.exerciseRepo.save(ex);
   }
 
   async deleteLesson(id: string) {
@@ -546,5 +617,75 @@ export class AdminLearningService {
     return this.templateRepo.find({
       order: { createdAt: 'DESC' },
     });
+  }
+
+  /**
+   * Resets student progress for a course (or all students if studentId is omitted)
+   */
+  async resetCourseProgress(courseId: string, studentId?: string) {
+    const course = await this.courseRepo.findOne({
+      where: { id: courseId },
+      relations: { modules: { lessons: true } },
+    });
+    if (!course) throw new NotFoundException(`Course not found: ${courseId}`);
+
+    const lessonIds = (course.modules || []).flatMap((m) =>
+      (m.lessons || []).map((l) => l.id),
+    );
+
+    let resetLessons = 0;
+    if (this.lessonProgressRepo && lessonIds.length > 0) {
+      if (studentId) {
+        await this.lessonProgressRepo.delete({
+          lessonId: In(lessonIds),
+          studentId,
+        });
+      } else {
+        await this.lessonProgressRepo.delete({
+          lessonId: In(lessonIds),
+        });
+      }
+      resetLessons = lessonIds.length;
+    }
+
+    if (this.courseProgressRepo) {
+      if (studentId) {
+        await this.courseProgressRepo.delete({ courseId, studentId });
+      } else {
+        await this.courseProgressRepo.delete({ courseId });
+      }
+    }
+
+    // If learning paths include this course, reset or adjust path progress
+    if (this.lpcRepo && this.pathProgressRepo) {
+      const lpcs = await this.lpcRepo.find({ where: { courseId } });
+      for (const lpc of lpcs) {
+        if (studentId) {
+          const pp = await this.pathProgressRepo.findOne({
+            where: { pathId: lpc.pathId, studentId },
+          });
+          if (pp) {
+            pp.isCertified = false;
+            pp.percentage = 0;
+            pp.status = 'in_progress';
+            await this.pathProgressRepo.save(pp);
+          }
+        } else {
+          await this.pathProgressRepo.update(
+            { pathId: lpc.pathId },
+            { isCertified: false, percentage: 0, status: 'in_progress' },
+          );
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: studentId
+        ? `Course progress for student ${studentId} has been successfully reset.`
+        : `All student progress for course "${course.title}" has been successfully reset.`,
+      courseId,
+      resetLessonsCount: resetLessons,
+    };
   }
 }

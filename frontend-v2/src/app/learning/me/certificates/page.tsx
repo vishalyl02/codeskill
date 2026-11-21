@@ -157,13 +157,22 @@ export default function MyCertificatesPage() {
             <p className="text-muted-foreground text-sm mt-1 max-w-sm mx-auto">
               Enroll in a learning path, pass all mandatory practice exercises with 70%+ score, and claim your verified digital credential.
             </p>
-            <Link
-              href="/learning"
-              className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-semibold transition-all shadow-sm"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Browse Learning Paths</span>
-            </Link>
+            <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+              <Link
+                href="/learning"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-semibold transition-all shadow-sm"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Browse Learning Paths</span>
+              </Link>
+              <Link
+                href="/verify/demo"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md border border-border bg-card hover:bg-muted text-foreground text-sm font-semibold transition-all shadow-xs"
+              >
+                <Award className="w-4 h-4 text-amber-500" />
+                <span>View Sample Certificate (Demo)</span>
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

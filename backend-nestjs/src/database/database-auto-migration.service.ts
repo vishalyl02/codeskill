@@ -21,6 +21,7 @@ import { applyAssessmentEnterpriseHardeningMigration } from './migrations/assess
 import { applyExamSecurityCompositeIndexesMigration } from './migrations/exam-security-composite-indexes';
 import { applyAssessmentForensicWatermarkMigration } from './migrations/assessment-forensic-watermark';
 import { applyCandidateExamAccommodationsMigration } from './migrations/candidate-exam-accommodations';
+import { applyContestSubmissionScopeMigration } from './migrations/contest-submission-scope';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -179,6 +180,11 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       await this.executeStep('candidate-exam-accommodations', () =>
         applyCandidateExamAccommodationsMigration(queryRunner),
       );
+
+      // 24. Contest submission attempt scope column (contestAttemptId)
+      await this.executeStep('contest-submission-scope', () =>
+        applyContestSubmissionScopeMigration(queryRunner),
+      );
     } finally {
       await queryRunner.release();
     }
@@ -261,7 +267,7 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
   private async seedCertificateTemplatesIfNotExist(queryRunner: any): Promise<void> {
     try {
       const existing = await queryRunner.query(
-        `SELECT id, code FROM "certificate_templates" WHERE "code" = 'CHANDIGARH_UNIVERSITY_DEFAULT' LIMIT 1;`,
+        `SELECT id, name FROM "certificate_templates" WHERE "name" = 'CHANDIGARH_UNIVERSITY_DEFAULT' OR "isDefault" = true LIMIT 1;`,
       );
 
       if (existing && existing.length > 0) {
@@ -270,39 +276,22 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
 
       await queryRunner.query(
         `INSERT INTO "certificate_templates" (
-          "id", "code", "title", "institution", "department", "accreditation",
-          "signatories", "layoutConfig", "isActive", "createdAt", "updatedAt"
+          "id", "name", "title", "issuerTitle", "issuerName", "issuerOrganization",
+          "logoUrl", "signatureUrl", "badgeUrl", "isDefault", "createdAt", "updatedAt"
         ) VALUES (
           gen_random_uuid(),
           'CHANDIGARH_UNIVERSITY_DEFAULT',
           'Chandigarh University Official Certificate of Completion',
-          'Chandigarh University',
-          'Department of Computer Science & Engineering',
-          'NAAC Grade A+ Accredited University · UGC Recognized',
-          $1::jsonb,
-          $2::jsonb,
+          'Vice-Chancellor',
+          'Prof. (Dr.) Satbir Singh Sehgal',
+          'Chandigarh University · Department of Computer Science & Engineering',
+          '/cu-logo-tight.png',
+          '/satbir-singh-sehgal.png',
+          '/cu-emblem.png',
           true,
           now(),
           now()
         );`,
-        [
-          JSON.stringify([
-            {
-              name: 'Mr. Pradeep Rana',
-              title: 'SECRETARY',
-            },
-            {
-              name: 'Mrs. Radha',
-              title: 'FACULTY ADVISOR',
-            },
-          ]),
-          JSON.stringify({
-            orientation: 'landscape',
-            accentColor: '#d91b24',
-            theme: 'modern_geometric',
-            showWatermark: true,
-          }),
-        ],
       );
 
       this.logger.log('✨ Seeded default Chandigarh University Certificate template.');

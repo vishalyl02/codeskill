@@ -40,6 +40,9 @@ export class CourseModule {
   @Column({ type: 'int', default: 30 })
   requiredTimeSeconds: number;
 
+  @Column({ type: 'boolean', default: true })
+  isMandatory: boolean;
+
   @OneToMany(() => Lesson, (l) => l.module, { cascade: true })
   lessons: Lesson[];
 
