@@ -1223,12 +1223,13 @@ export default function CourseWorkspacePage({
 
       // 1. Verify lesson completion requirements from authoritative status endpoint
       const statusRes = await learningAPI.getLessonCompletionStatus(lesson.id).catch(() => null);
-      if (statusRes?.data && !statusRes.data.canComplete) {
+      const statusData = (statusRes?.data as any)?.data || statusRes?.data;
+      if (statusData && statusData.canComplete === false) {
         setCompletionModal({
           isOpen: true,
           title: "Module Incomplete",
-          reasons: statusRes.data.reasons || [],
-          criteria: statusRes.data.criteria,
+          reasons: statusData.reasons || [],
+          criteria: statusData.criteria,
         });
         return;
       }
@@ -1255,7 +1256,7 @@ export default function CourseWorkspacePage({
         router.push(`/learning/${pathSlug}`);
       }
     } catch (err: any) {
-      const errorData = err.response?.data;
+      const errorData = err.response?.data?.data || err.response?.data;
       const reasons = errorData?.reasons || [
         errorData?.message ||
         "Please complete and pass all required practice exercises in this lesson before proceeding.",

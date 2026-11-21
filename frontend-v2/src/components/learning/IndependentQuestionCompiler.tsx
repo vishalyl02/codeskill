@@ -257,6 +257,11 @@ export function IndependentQuestionCompiler({
     ];
     setTerminalLogs(newLogs);
 
+    // Clear stale failure feedback from earlier runs
+    if (submissionFeedback && !submissionFeedback.passed) {
+      setSubmissionFeedback(null);
+    }
+
     try {
       if (language === "javascript") {
         // Safe in-browser execution with isolated console capture
@@ -338,6 +343,36 @@ export function IndependentQuestionCompiler({
               durationMs: elapsed,
             });
             setTerminalTab("table");
+
+            // Auto-mark successful SQL execution
+            if (!resultData?.error) {
+              setSubmissionFeedback({
+                passed: true,
+                error: null,
+              });
+              setTestResults([
+                {
+                  id: 1,
+                  passed: true,
+                  output: `${resultData.rowCount ?? resultData.rows.length} rows retrieved successfully`,
+                  expected: "Valid SQL execution without syntax/runtime errors",
+                },
+              ]);
+              setIsPassed(true);
+
+              // Auto-submit to update backend lesson completion
+              if (exercise.id && !exercise.id.startsWith("sandbox-")) {
+                learningAPI
+                  .submitExercise(exercise.id, { code, language })
+                  .then((submitRes) => {
+                    const submitData = (submitRes?.data as any)?.data || submitRes?.data;
+                    if (onPassed) {
+                      onPassed(exercise.id, submitData);
+                    }
+                  })
+                  .catch(() => {});
+              }
+            }
           }
         }
 
