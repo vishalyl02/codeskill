@@ -123,11 +123,30 @@ export default function LearningPathDetailPage({
       setEnrolling(true);
       await learningAPI.enroll(path.id);
       await loadPath();
+      // Seamlessly transition the student into the first course!
+      if (path.courses?.[0]?.slug) {
+        router.push(`/learning/${path.slug}/${path.courses[0].slug}`);
+      }
     } catch (err) {
       console.error("Enrollment failed", err);
     } finally {
       setEnrolling(false);
     }
+  };
+
+  const handleStartCourse = async (courseSlug: string) => {
+    if (!user) {
+      router.push(`/login?redirect=/learning/${pathSlug}/${courseSlug}`);
+      return;
+    }
+    if (path && !path.isEnrolled) {
+      try {
+        await learningAPI.enroll(path.id);
+      } catch (_err) {
+        // Proceed even if already enrolled
+      }
+    }
+    router.push(`/learning/${pathSlug}/${courseSlug}`);
   };
 
   const handleClaimCertificate = async () => {
@@ -416,13 +435,13 @@ export default function LearningPathDetailPage({
                             <span>Log In to Start</span>
                           </Link>
                         ) : (
-                          <Link
-                            href={`/learning/${path.slug}/${course.slug}`}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-xs font-semibold text-primary-foreground shadow-sm transition-colors"
+                          <button
+                            onClick={() => handleStartCourse(course.slug)}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-xs font-semibold text-primary-foreground shadow-sm transition-colors cursor-pointer"
                           >
                             <span>Start Course</span>
                             <ArrowRight className="w-3.5 h-3.5" />
-                          </Link>
+                          </button>
                         )}
 
                         <button

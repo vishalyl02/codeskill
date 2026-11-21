@@ -53,12 +53,13 @@ export default function DashboardPage() {
   const [assessmentsError, setAssessmentsError] = useState(false);
   const [certificates, setCertificates] = useState<any[]>([]);
   const [achievements, setAchievements] = useState<{ badges?: any[]; xp?: number } | null>(null);
+  const [enrolledPaths, setEnrolledPaths] = useState<any[]>([]);
   const [learningLoading, setLearningLoading] = useState(true);
 
   useEffect(() => {
     setMounted(true);
     if (!loading && !user) {
-      router.push("/login");
+      router.push("/login?redirect=/dashboard");
     }
   }, [user, loading, router]);
 
@@ -83,9 +84,10 @@ export default function DashboardPage() {
     const fetchLearningCredentials = async () => {
       try {
         setLearningLoading(true);
-        const [certsRes, achRes] = await Promise.allSettled([
+        const [certsRes, achRes, progRes] = await Promise.allSettled([
           learningAPI.getMyCertificates(),
           learningAPI.getMyAchievements(),
+          learningAPI.getMyProgress(),
         ]);
 
         if (certsRes.status === "fulfilled") {
@@ -96,6 +98,11 @@ export default function DashboardPage() {
         if (achRes.status === "fulfilled") {
           const d = achRes.value?.data;
           setAchievements(d?.data || d || null);
+        }
+        if (progRes.status === "fulfilled") {
+          const d = progRes.value?.data;
+          const progressData = d?.data || d;
+          setEnrolledPaths(progressData?.activePaths || []);
         }
       } catch (err) {
         console.warn("Learning credentials notice:", err);
@@ -277,6 +284,100 @@ export default function DashboardPage() {
                   <span className="text-xl sm:text-2xl font-semibold text-foreground mt-auto">{stat.value}</span>
                 </div>
               ))}
+            </div>
+
+            {/* In-Progress Learning Paths & Certifications */}
+            <div className="bg-card rounded-xl border border-border shadow-xs overflow-hidden">
+              <div className="p-4 border-b border-border flex items-center justify-between bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-primary" />
+                  <h2 className="text-sm font-semibold text-foreground">
+                    Learning Paths & Course Progress
+                  </h2>
+                </div>
+                <Link
+                  href="/learning"
+                  className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center transition-colors"
+                >
+                  Explore Paths <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                </Link>
+              </div>
+
+              {learningLoading ? (
+                <div className="p-8 flex items-center justify-center gap-2 text-muted-foreground">
+                  <Spinner className="w-4 h-4 animate-spin" />
+                  <span className="text-xs">Loading course progress…</span>
+                </div>
+              ) : enrolledPaths.length === 0 ? (
+                <div className="p-8 flex flex-col items-center text-center gap-2 text-muted-foreground">
+                  <BookOpen className="w-8 h-8 opacity-30 text-muted-foreground mb-1" />
+                  <p className="text-xs sm:text-sm font-medium text-foreground">No Learning Paths Enrolled Yet</p>
+                  <p className="text-xs text-muted-foreground max-w-sm">
+                    Enroll in C Programming or DSA Mastery to earn university-accredited, verifiable credentials.
+                  </p>
+                  <Link
+                    href="/learning"
+                    className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-xs transition-colors"
+                  >
+                    <span>Browse All Paths</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex flex-col divide-y divide-border">
+                  {enrolledPaths.map((path: any) => (
+                    <div
+                      key={path.id}
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
+                            {path.difficulty || "Beginner"}
+                          </span>
+                          {path.isCertified ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3" />
+                              Certified
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">
+                              {path.completedCourses} of {path.totalCourses} courses passed
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="font-semibold text-foreground text-sm truncate">
+                          {path.title}
+                        </h3>
+
+                        {/* Progress Bar */}
+                        <div className="mt-2.5 flex items-center gap-3">
+                          <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden border border-border">
+                            <div
+                              className="bg-primary h-full rounded-full transition-all duration-500"
+                              style={{ width: `${path.percentage || 0}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-bold text-foreground shrink-0 font-mono">
+                            {path.percentage || 0}%
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex items-center gap-2">
+                        <Link
+                          href={path.resumeUrl || `/learning/${path.slug}`}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-xs transition-colors"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>{path.percentage > 0 ? "Resume Learning" : "Start Learning"}</span>
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Active Assessments List */}
