@@ -869,6 +869,7 @@ export const adminLearningAPI = {
   createCourse: (data: any) => api.post("/admin/learning/courses", data),
   updateCourse: (id: string, data: any) => api.patch(`/admin/learning/courses/${id}`, data),
   deleteCourse: (id: string) => api.delete(`/admin/learning/courses/${id}`),
+  resetCourseProgress: (courseId: string, studentId?: string) => api.post(`/admin/learning/courses/${courseId}/reset-progress`, { studentId }),
   createModule: (courseId: string, data: any) => api.post(`/admin/learning/courses/${courseId}/modules`, data),
   updateModule: (moduleId: string, data: any) => api.patch(`/admin/learning/modules/${moduleId}`, data),
   deleteModule: (moduleId: string) => api.delete(`/admin/learning/modules/${moduleId}`),

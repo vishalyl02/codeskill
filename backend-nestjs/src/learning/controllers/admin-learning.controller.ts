@@ -123,6 +123,15 @@ export class AdminLearningController {
     return this.adminService.deleteCourse(id);
   }
 
+  @Post('courses/:id/reset-progress')
+  @ApiOperation({ summary: 'Reset all student progress on a course' })
+  async resetCourseProgress(
+    @Param('id') courseId: string,
+    @Body('studentId') studentId?: string,
+  ) {
+    return this.adminService.resetCourseProgress(courseId, studentId);
+  }
+
   @Post('courses/:id/modules')
   @ApiOperation({ summary: 'Add module to course' })
   async createModule(

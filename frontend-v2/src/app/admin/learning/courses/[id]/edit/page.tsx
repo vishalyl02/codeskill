@@ -29,6 +29,7 @@ import {
   Library,
   Check,
   X,
+  RotateCcw,
 } from "lucide-react";
 import { adminLearningAPI } from "@/config/api";
 import { Spinner } from "@/components/ui/spinner";
@@ -427,6 +428,10 @@ export default function CourseCurriculumEditorPage({
     testExpected?: string;
     exerciseHint?: string;
   } | null>(null);
+
+  // Course Reset Progress modal & loading state
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   const loadSampleQuestion = (type: string) => {
     if (type === "quiz") {
@@ -921,6 +926,20 @@ export default function CourseCurriculumEditorPage({
     }
   };
 
+  const handleResetCourseProgress = async () => {
+    try {
+      setIsResetting(true);
+      const res = await adminLearningAPI.resetCourseProgress(id);
+      showNotification("success", res.data?.message || "All student progress for this course has been reset");
+      setShowResetModal(false);
+      await loadCourse();
+    } catch (err: any) {
+      showNotification("error", err?.response?.data?.message || "Failed to reset course progress");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
@@ -983,6 +1002,18 @@ export default function CourseCurriculumEditorPage({
                 {statusMsg.text}
               </span>
             )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowResetModal(true)}
+              disabled={saving || isResetting}
+              className="border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 text-xs gap-1.5 h-9 font-semibold"
+              title="Reset all student progress and completions for this course"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Progress</span>
+            </Button>
 
             <Button
               variant="outline"
@@ -1083,6 +1114,28 @@ export default function CourseCurriculumEditorPage({
               >
                 <Save className="w-3.5 h-3.5 mr-1.5" />
                 <span>Save Metadata</span>
+              </Button>
+            </div>
+
+            {/* Course Reset & Testing Operations */}
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs space-y-2.5">
+              <div className="flex items-center gap-2 font-bold text-amber-600 dark:text-amber-400">
+                <RotateCcw className="w-4 h-4" />
+                <span>Course Reset & Testing</span>
+              </div>
+              <p className="text-muted-foreground leading-relaxed text-[11px]">
+                Reset completion progress, study hours, and question attempts for all students on this course so you can test the curriculum from scratch.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowResetModal(true)}
+                disabled={isResetting || saving}
+                className="w-full border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 text-xs font-semibold gap-1.5 h-8.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset All Student Progress</span>
               </Button>
             </div>
           </div>
@@ -2380,6 +2433,62 @@ export default function CourseCurriculumEditorPage({
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Course Progress Confirmation Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <RotateCcw className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-foreground">Reset All Course Progress?</h3>
+                <p className="text-xs text-muted-foreground truncate max-w-[280px]">Course: {course.title}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              This action will reset the completion status, study time, and exercise attempts for <strong>all students</strong> enrolled in this course. It allows you or students to test and retake the curriculum completely from scratch.
+            </p>
+
+            <div className="bg-muted/50 rounded-xl p-3 text-[11px] text-muted-foreground border border-border">
+              ⚠️ Note: This will not delete any course modules, questions, or curriculum contents. Only student progress records will be cleared.
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowResetModal(false)}
+                disabled={isResetting}
+                className="text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleResetCourseProgress}
+                disabled={isResetting}
+                className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5"
+              >
+                {isResetting ? (
+                  <>
+                    <Spinner className="w-3.5 h-3.5 animate-spin" />
+                    <span>Resetting Progress...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Confirm & Reset Progress</span>
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       )}

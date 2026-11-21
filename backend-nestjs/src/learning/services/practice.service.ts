@@ -154,6 +154,12 @@ export class PracticeService implements OnModuleInit {
           country VARCHAR(50) DEFAULT 'USA',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        ALTER TABLE codeskill_learning_sandbox.customers ADD COLUMN IF NOT EXISTS id integer;
+        UPDATE codeskill_learning_sandbox.customers SET id = customer_id WHERE id IS NULL AND customer_id IS NOT NULL;
+        ALTER TABLE codeskill_learning_sandbox.customers ADD COLUMN IF NOT EXISTS name varchar(255);
+        UPDATE codeskill_learning_sandbox.customers SET name = customer_name WHERE name IS NULL AND customer_name IS NOT NULL;
+        ALTER TABLE codeskill_learning_sandbox.customers ADD COLUMN IF NOT EXISTS email varchar(255);
+        UPDATE codeskill_learning_sandbox.customers SET email = lower(regexp_replace(COALESCE(name, customer_name, 'user'), '[^a-zA-Z0-9]', '.', 'g')) || '@example.com' WHERE email IS NULL;
       `);
       await qr.query(`
         CREATE TABLE IF NOT EXISTS codeskill_learning_sandbox.orders (
@@ -163,6 +169,12 @@ export class PracticeService implements OnModuleInit {
           amount NUMERIC(10, 2) NOT NULL,
           status VARCHAR(20) DEFAULT 'completed'
         );
+        ALTER TABLE codeskill_learning_sandbox.orders ADD COLUMN IF NOT EXISTS id integer;
+        UPDATE codeskill_learning_sandbox.orders SET id = order_id WHERE id IS NULL AND order_id IS NOT NULL;
+        ALTER TABLE codeskill_learning_sandbox.orders ADD COLUMN IF NOT EXISTS amount numeric(10, 2);
+        UPDATE codeskill_learning_sandbox.orders SET amount = total_amount WHERE amount IS NULL AND total_amount IS NOT NULL;
+        ALTER TABLE codeskill_learning_sandbox.orders ADD COLUMN IF NOT EXISTS status varchar(50) DEFAULT 'completed';
+        UPDATE codeskill_learning_sandbox.orders SET status = 'completed' WHERE status IS NULL;
       `);
       await qr.query(`
         CREATE TABLE IF NOT EXISTS codeskill_learning_sandbox.students (
@@ -176,11 +188,14 @@ export class PracticeService implements OnModuleInit {
       await qr.query(`
         CREATE TABLE IF NOT EXISTS codeskill_learning_sandbox.products (
           id SERIAL PRIMARY KEY,
+          name VARCHAR(100),
           title VARCHAR(100) NOT NULL,
           category VARCHAR(50) NOT NULL,
           price NUMERIC(10, 2) NOT NULL,
           stock INT DEFAULT 0
         );
+        ALTER TABLE codeskill_learning_sandbox.products ADD COLUMN IF NOT EXISTS name VARCHAR(100);
+        UPDATE codeskill_learning_sandbox.products SET name = title WHERE name IS NULL;
       `);
 
       const countRes = await qr.query(
@@ -210,12 +225,12 @@ export class PracticeService implements OnModuleInit {
             ('Sneha Reddy', 'Computer Science', 3.75, 2024),
             ('Vikram Singh', 'Electrical Engineering', 3.20, 2022);
 
-          INSERT INTO codeskill_learning_sandbox.products (title, category, price, stock) VALUES
-            ('Mechanical Keyboard', 'Electronics', 99.99, 45),
-            ('Wireless Mouse', 'Electronics', 49.99, 120),
-            ('27-inch 4K Monitor', 'Electronics', 349.99, 25),
-            ('Ergonomic Chair', 'Furniture', 219.00, 15),
-            ('Desk Mat', 'Accessories', 19.99, 200);
+          INSERT INTO codeskill_learning_sandbox.products (name, title, category, price, stock) VALUES
+            ('Mechanical Keyboard', 'Mechanical Keyboard', 'Electronics', 99.99, 45),
+            ('Wireless Mouse', 'Wireless Mouse', 'Electronics', 49.99, 120),
+            ('27-inch 4K Monitor', '27-inch 4K Monitor', 'Electronics', 349.99, 25),
+            ('Ergonomic Chair', 'Ergonomic Chair', 'Furniture', 219.00, 15),
+            ('Desk Mat', 'Desk Mat', 'Accessories', 19.99, 200);
         `);
       }
     } finally {
