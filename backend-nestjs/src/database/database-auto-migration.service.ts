@@ -122,11 +122,13 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
         applyLearningModuleMigration(queryRunner),
       );
 
-      // 13. Auxiliary columns for curriculum progress timing
+      // 13. Auxiliary columns for curriculum progress timing & module requirements
       await this.executeStep('learning-progress-timing-columns', async () => {
         await queryRunner.query(`
           ALTER TABLE "course_modules" ADD COLUMN IF NOT EXISTS "requiredTimeMinutes" integer NOT NULL DEFAULT 2;
           ALTER TABLE "course_modules" ADD COLUMN IF NOT EXISTS "requiredTimeSeconds" integer NOT NULL DEFAULT 30;
+          ALTER TABLE "course_modules" ADD COLUMN IF NOT EXISTS "isMandatory" boolean NOT NULL DEFAULT true;
+          ALTER TABLE "lessons" ADD COLUMN IF NOT EXISTS "isMandatory" boolean NOT NULL DEFAULT true;
           ALTER TABLE "lesson_progress" ADD COLUMN IF NOT EXISTS "timeSpentSeconds" integer NOT NULL DEFAULT 0;
         `);
       });

@@ -775,17 +775,23 @@ export default function CourseWorkspacePage({
   const loadCourse = async () => {
     try {
       setLoading(true);
-      const pathRes = await learningAPI.getPathBySlug(pathSlug);
-      const pathData = pathRes.data?.data || pathRes.data;
+      const pathRes = await learningAPI.getPathBySlug(pathSlug).catch(() => null);
+      const pathData = (pathRes?.data as any)?.data || pathRes?.data;
       setPathTitle(pathData?.title || "Learning Path");
 
       const foundCourse = (pathData?.courses || []).find(
-        (c: any) => c.slug === courseSlug,
+        (c: any) => c.slug === courseSlug || c.id === courseSlug,
       );
-      if (!foundCourse) return;
 
-      const courseRes = await learningAPI.getCourse(foundCourse.id);
-      const courseData = courseRes.data?.data || courseRes.data;
+      const courseIdToFetch = foundCourse?.id || courseSlug;
+      const courseRes = await learningAPI.getCourse(courseIdToFetch).catch(() => null);
+      const courseData = (courseRes?.data as any)?.data || courseRes?.data;
+
+      if (!courseData) {
+        setCourse(null);
+        return;
+      }
+
       setCourse(courseData);
 
       const firstLesson = courseData?.modules?.[0]?.lessons?.[0];

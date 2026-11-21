@@ -76,6 +76,7 @@ export async function applyLearningModuleMigration(
     CREATE INDEX IF NOT EXISTS "IDX_course_modules_courseId" ON "course_modules" ("courseId");
     ALTER TABLE "course_modules" ADD COLUMN IF NOT EXISTS "requiredTimeMinutes" integer NOT NULL DEFAULT 2;
     ALTER TABLE "course_modules" ADD COLUMN IF NOT EXISTS "requiredTimeSeconds" integer NOT NULL DEFAULT 120;
+    ALTER TABLE "course_modules" ADD COLUMN IF NOT EXISTS "isMandatory" boolean NOT NULL DEFAULT true;
   `);
 
   // 5. lessons
@@ -94,6 +95,7 @@ export async function applyLearningModuleMigration(
       "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS "IDX_lessons_moduleId" ON "lessons" ("moduleId");
+    ALTER TABLE "lessons" ADD COLUMN IF NOT EXISTS "isMandatory" boolean NOT NULL DEFAULT true;
   `);
 
   // 6. course_exercises
