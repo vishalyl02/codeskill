@@ -295,7 +295,7 @@ export function ChandigarhUniversityCertificate({
           {/* MAIN DIPLOMA BODY: Centered Academic Typography */}
           <div className="text-center my-auto py-1 sm:py-2 space-y-1.5 sm:space-y-2">
             {/* Header: CERTIFICATE OF COMPLETION */}
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-serif font-black tracking-[0.14em] sm:tracking-[0.18em] text-[#0f172a] uppercase">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-serif font-black tracking-[0.14em] sm:tracking-[0.18em] text-[#1a2d57] uppercase">
               {certTitle}
             </h1>
 
@@ -306,10 +306,10 @@ export function ChandigarhUniversityCertificate({
 
             {/* Recipient Name with Solid Underline */}
             <div className="pt-2 sm:pt-3 pb-1">
-              <h2 className="text-2xl sm:text-3xl md:text-4.5xl font-serif font-black tracking-wider text-[#0f172a] uppercase">
+              <h2 className="text-2xl sm:text-3xl md:text-4.5xl font-serif font-black tracking-wider text-[#1a2d57] uppercase">
                 {data.recipientName || "Mustakim Shaikh"}
               </h2>
-              <div className="w-64 sm:w-80 md:w-96 h-[1.5px] bg-[#0f172a] mx-auto mt-2" />
+              <div className="w-64 sm:w-80 md:w-96 h-[1.5px] bg-[#1a2d57] mx-auto mt-2" />
             </div>
 
             {/* Citation Statement */}
@@ -318,7 +318,7 @@ export function ChandigarhUniversityCertificate({
                 {citation}
               </p>
               {data.learningPath && (
-                <div className="font-bold text-[#0f172a] text-xs sm:text-sm md:text-base font-serif">
+                <div className="font-bold text-[#1a2d57] text-xs sm:text-sm md:text-base font-serif">
                   {data.learningPath}
                 </div>
               )}
@@ -352,8 +352,8 @@ export function ChandigarhUniversityCertificate({
                     )}
                   </div>
                   {/* Signature Line */}
-                  <div className="border-t border-slate-900 pt-1">
-                    <div className="text-[11px] sm:text-xs md:text-sm font-serif font-bold text-slate-900 leading-tight">
+                  <div className="border-t border-[#1a2d57]/60 pt-1">
+                    <div className="text-[11px] sm:text-xs md:text-sm font-serif font-bold text-[#1a2d57] leading-tight">
                       {sigLeft.name}
                     </div>
                     <div className="text-[8.5px] sm:text-[9.5px] font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5">
@@ -394,8 +394,8 @@ export function ChandigarhUniversityCertificate({
                     )}
                   </div>
                   {/* Signature Line */}
-                  <div className="border-t border-slate-900 pt-1">
-                    <div className="text-[11px] sm:text-xs md:text-sm font-serif font-bold text-slate-900 leading-tight">
+                  <div className="border-t border-[#1a2d57]/60 pt-1">
+                    <div className="text-[11px] sm:text-xs md:text-sm font-serif font-bold text-[#1a2d57] leading-tight">
                       {sigRight.name}
                     </div>
                     <div className="text-[8.5px] sm:text-[9.5px] font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5">
