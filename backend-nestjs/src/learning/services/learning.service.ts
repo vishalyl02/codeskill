@@ -162,12 +162,29 @@ export class LearningService {
           let isCourseCompleted = false;
 
           if (studentId && c) {
+            // Count total and completed lessons dynamically for maximum accuracy
+            const courseLessons: string[] = [];
+            (c.modules || []).forEach((m) => {
+              (m.lessons || []).forEach((l) => courseLessons.push(l.id));
+            });
+
+            if (courseLessons.length > 0) {
+              const completedLessonsCount = await this.lessonProgressRepo
+                .createQueryBuilder('lp')
+                .where('lp.studentId = :studentId', { studentId })
+                .andWhere('lp.lessonId IN (:...courseLessons)', { courseLessons })
+                .andWhere('lp.status = :status', { status: 'completed' })
+                .getCount();
+
+              courseProgressPercent = Math.round((completedLessonsCount / courseLessons.length) * 100);
+            }
+
             const cp = await this.courseProgressRepo.findOne({
               where: { studentId, courseId: c.id },
             });
             if (cp) {
-              courseProgressPercent = cp.percentage;
-              isCourseCompleted = cp.status === 'completed';
+              courseProgressPercent = Math.max(courseProgressPercent, cp.percentage || 0);
+              isCourseCompleted = cp.status === 'completed' || courseProgressPercent === 100;
             }
           }
 
@@ -206,6 +223,17 @@ export class LearningService {
         }),
     );
 
+    const totalCoursesCount = sortedCourses.length;
+    const completedCoursesCount = sortedCourses.filter((c) => c.isCompleted).length;
+    const avgProgress =
+      totalCoursesCount > 0
+        ? Math.round(
+            sortedCourses.reduce((sum, c) => sum + (c.progressPercent || 0), 0) /
+              totalCoursesCount,
+          )
+        : 0;
+    const effectivePercentage = Math.max(pathProgress?.percentage || 0, avgProgress);
+
     return {
       id: path.id,
       title: path.title,
@@ -217,13 +245,15 @@ export class LearningService {
       version: path.version,
       completionCriteria: path.completionCriteria,
       isEnrolled,
-      progress: pathProgress
+      progress: isEnrolled || pathProgress
         ? {
-            percentage: pathProgress.percentage,
-            completedCourses: pathProgress.completedCoursesCount,
-            totalCourses: pathProgress.totalCoursesCount,
-            status: pathProgress.status,
-            isCertified: pathProgress.isCertified,
+            percentage: effectivePercentage,
+            completedCourses: completedCoursesCount,
+            totalCourses: totalCoursesCount,
+            status:
+              pathProgress?.status ||
+              (effectivePercentage === 100 ? 'completed' : 'in_progress'),
+            isCertified: pathProgress?.isCertified || false,
           }
         : null,
       courses: sortedCourses,
