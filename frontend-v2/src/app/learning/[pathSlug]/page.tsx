@@ -464,12 +464,12 @@ export default function LearningPathDetailPage({
                             key={mod.id}
                             className="bg-muted/30 border border-border rounded-xl p-5"
                           >
-                            <div className="flex items-center justify-between text-sm sm:text-base font-bold text-foreground mb-3">
+                            <div className="flex items-center justify-between text-xs sm:text-sm font-semibold text-foreground mb-2.5">
                               <span className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full bg-primary" />
+                                <span className="w-2 h-2 rounded-full bg-primary" />
                                 <span>{mod.title}</span>
                               </span>
-                              <span className="text-xs sm:text-sm text-muted-foreground font-medium">
+                              <span className="text-[11px] sm:text-xs text-muted-foreground font-medium">
                                 {mod.lessons.length} lessons
                               </span>
                             </div>

@@ -38,110 +38,31 @@ interface ChandigarhUniversityCertificateProps {
   className?: string;
 }
 
-/**
- * Authentic Golden Rosette Medallion with Dual Ribbon Tails
- * Matching the Chandigarh University certificate standard.
- */
-function GoldenRosette({ className = "w-16 h-20 sm:w-20 sm:h-24" }: { className?: string }) {
-  const petals = Array.from({ length: 24 }).map((_, i) => {
-    const angle = (i * 360) / 24;
-    return (
-      <polygon
-        key={i}
-        points="50,14 47,20 53,20"
-        fill="#f59e0b"
-        transform={`rotate(${angle} 50 50)`}
-      />
-    );
-  });
-
-  return (
-    <svg
-      viewBox="0 0 100 130"
-      className={className}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <defs>
-        <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#fef08a" />
-          <stop offset="25%" stopColor="#fbbf24" />
-          <stop offset="70%" stopColor="#d97706" />
-          <stop offset="100%" stopColor="#b45309" />
-        </linearGradient>
-        <linearGradient id="goldCenter" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#ffffff" />
-          <stop offset="45%" stopColor="#fef3c7" />
-          <stop offset="100%" stopColor="#fde047" />
-        </linearGradient>
-        <filter id="rosetteShadow" x="-10%" y="-10%" width="120%" height="130%">
-          <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#78350f" floodOpacity="0.25" />
-        </filter>
-      </defs>
-
-      <g filter="url(#rosetteShadow)">
-        {/* Left Ribbon Tail */}
-        <polygon
-          points="44,58 35,118 47,105 53,116 53,58"
-          fill="url(#goldGrad)"
-          stroke="#b45309"
-          strokeWidth="0.8"
-        />
-        {/* Right Ribbon Tail */}
-        <polygon
-          points="55,58 55,116 61,105 73,118 64,58"
-          fill="url(#goldGrad)"
-          stroke="#b45309"
-          strokeWidth="0.8"
-        />
-
-        {/* Pleated Rosette Scallop Outer Ring */}
-        <circle cx="50" cy="50" r="36" fill="#d97706" stroke="#b45309" strokeWidth="1" />
-        {/* 24 Scalloped / Pleated Petals */}
-        {petals}
-        {/* Middle Gold Rosette Ring */}
-        <circle cx="50" cy="50" r="33" fill="url(#goldGrad)" />
-        <circle
-          cx="50"
-          cy="50"
-          r="30"
-          fill="none"
-          stroke="#b45309"
-          strokeWidth="1.2"
-          strokeDasharray="2,2"
-        />
-        {/* Inner Rosette Center */}
-        <circle cx="50" cy="50" r="26" fill="url(#goldCenter)" stroke="#d97706" strokeWidth="1.5" />
-        <circle cx="50" cy="50" r="22" fill="none" stroke="#f59e0b" strokeWidth="1" />
-
-        {/* Inner Medal Star Emblem */}
-        <polygon
-          points="50,38 53,46 61,46 55,51 57,59 50,54 43,59 45,51 39,46 47,46"
-          fill="#d97706"
-        />
-      </g>
-    </svg>
-  );
-}
-
 export function ChandigarhUniversityCertificate({
   data,
   className = "",
 }: ChandigarhUniversityCertificateProps) {
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
 
-  // Clean production verification URL — strictly avoiding localhost or port numbers
-  const officialDomain = "https://codeskill.chandigarhuniversity.ac.in";
-  const rawUrl = data.verificationUrl || `${officialDomain}/verify/${data.credentialId}`;
-  const verificationUrl = rawUrl.replace(/https?:\/\/localhost(:\d+)?/gi, officialDomain);
+  // Clean production verification URL strictly synchronized with active site origin
+  const [verificationUrl, setVerificationUrl] = useState<string>(() => {
+    return data.verificationUrl || `https://codeskill.chandigarhuniversity.ac.in/verify/${data.credentialId}`;
+  });
 
   useEffect(() => {
-    if (data.credentialId) {
+    if (typeof window !== "undefined") {
+      const origin = window.location.origin;
+      setVerificationUrl(`${origin}/verify/${data.credentialId}`);
+    }
+  }, [data.credentialId]);
+
+  useEffect(() => {
+    if (data.credentialId && verificationUrl) {
       QRCode.toDataURL(verificationUrl, {
-        width: 140,
+        width: 180,
         margin: 1,
         color: {
-          dark: "#0f172a",
+          dark: "#141519",
           light: "#ffffff",
         },
       })
@@ -153,19 +74,19 @@ export function ChandigarhUniversityCertificate({
   }, [data.credentialId, verificationUrl]);
 
   // University signatories as specified by leadership
-  // Left: Ishdeep Singla, Head - Technical Training (CSE) with authentic blue handwritten signature
+  // Left: Dr. Ishdeep Singla, Assistant Director – Skill Development with authentic blue handwritten signature
   const sigLeft = {
-    name: data.signatoryLeft?.name || "Ishdeep Singla",
-    title: data.signatoryLeft?.title || "Head - Technical Training (CSE)",
-    subtext: data.signatoryLeft?.subtext || "E16430 · ad.skill@cumail.in",
+    name: data.signatoryLeft?.name || "Dr. Ishdeep Singla",
+    title: data.signatoryLeft?.title || "Assistant Director – Skill Development",
+    subtext: data.signatoryLeft?.subtext || "Chandigarh University",
     signatureUrl: data.signatoryLeft?.signatureSvg || "/signatures/singla-signature.png",
   };
 
-  // Right: Prof. (Dr.) Satbir Singh Sehgal, Pro-Vice Chancellor & Registrar
+  // Right: Prof. (Dr.) Satbir Singh Sehgal, Vice Chancellor only
   const sigRight = {
     name: data.signatoryRight?.name || "Prof. (Dr.) Satbir Singh Sehgal",
-    title: data.signatoryRight?.title || "Pro-Vice Chancellor & Registrar",
-    subtext: data.signatoryRight?.subtext || "E18146 · vc@cumail.in",
+    title: data.signatoryRight?.title || "Vice Chancellor",
+    subtext: data.signatoryRight?.subtext || "Chandigarh University",
     signatureUrl: data.signatoryRight?.signatureSvg || "/signatures/sehgal-signature.png",
   };
 
@@ -190,7 +111,7 @@ export function ChandigarhUniversityCertificate({
           body {
             margin: 0 !important;
             padding: 0 !important;
-            background: #ffffff !important;
+            background: #faf6ea !important;
             width: 297mm !important;
             height: 210mm !important;
             max-width: 297mm !important;
@@ -225,7 +146,7 @@ export function ChandigarhUniversityCertificate({
             page-break-after: avoid !important;
             page-break-before: avoid !important;
             page-break-inside: avoid !important;
-            background: #ffffff !important;
+            background: #faf6ea !important;
           }
         }
       `}</style>
@@ -233,127 +154,163 @@ export function ChandigarhUniversityCertificate({
       {/* Main Certificate Canvas: Standard A4 Landscape Proportions (297mm x 210mm) */}
       <div
         id="printable-university-certificate"
-        className={`print-certificate-container relative w-full max-w-[940px] mx-auto aspect-[1.414/1] bg-white text-slate-900 shadow-2xl overflow-hidden select-none font-serif flex flex-col justify-between ${className}`}
+        className={`print-certificate-container relative w-full max-w-[960px] mx-auto aspect-[1.414/1] bg-[#faf6ea] text-[#292929] border border-[#e7dcce] shadow-2xl overflow-hidden select-none font-serif flex flex-col justify-between ${className}`}
         style={{
           boxShadow:
-            "0 20px 40px -15px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05)",
+            "0 20px 40px -15px rgba(97, 30, 48, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)",
         }}
       >
-        {/* Dynamic Corner Geometric Angular Ribbons (Black & Crimson Red) */}
+        {/* Dynamic Corner Geometric Angular Ribbons + Guaranteed Full SVG Canvas Background Fill */}
         <svg
           viewBox="0 0 1000 707"
           preserveAspectRatio="none"
           className="absolute inset-0 w-full h-full pointer-events-none z-0"
         >
-          {/* Top-Right Black Corner Wedge */}
-          <polygon points="790,0 1000,0 1000,210" fill="#0d0d0f" />
-          {/* Top-Right Crimson Red Slash */}
-          <polygon points="700,0 790,0 1000,285 1000,210" fill="#d91b24" />
+          {/* Base SVG fill ensures ivory background prints even if 'Background graphics' is disabled */}
+          <rect width="1000" height="707" fill="#faf6ea" />
 
-          {/* Bottom-Left Black Corner Wedge */}
-          <polygon points="0,497 0,707 210,707" fill="#0d0d0f" />
-          {/* Bottom-Left Crimson Red Slash */}
-          <polygon points="0,422 0,497 210,707 300,707" fill="#d91b24" />
+          {/* Top-Right Deep Wine/Maroon Corner Wedge */}
+          <polygon points="840,0 1000,0 1000,160" fill="#611e30" />
+          {/* Top-Right Warm Gold/Bronze Slash */}
+          <polygon points="770,0 840,0 1000,230 1000,160" fill="#b88256" />
+
+          {/* Bottom-Left Deep Wine/Maroon Corner Wedge */}
+          <polygon points="0,547 0,707 160,707" fill="#611e30" />
+          {/* Bottom-Left Warm Gold/Bronze Slash */}
+          <polygon points="0,477 0,547 160,707 230,707" fill="#b88256" />
         </svg>
 
-        {/* Certificate Content Wrapper */}
-        <div className="relative z-10 w-full h-full px-8 sm:px-14 md:px-18 py-6 sm:py-8 md:py-10 flex flex-col justify-between">
-          {/* TOP ROW: University Brand Logos */}
+        {/* Certificate Content Wrapper: Calibrated padding to prevent any clipping on screen & print */}
+        <div className="relative z-10 w-full h-full px-6 sm:px-10 md:px-14 print:px-16 py-3.5 sm:py-5 md:py-6 print:py-8 flex flex-col justify-between">
+
+          {/* TOP ROW: Official University Logo (Left) & Application Brand Lockup (Right) */}
           <div className="flex items-start justify-between w-full">
-            {/* Top-Left: Chandigarh University Official Brand Logo */}
+
+            {/* Top-Left: Chandigarh University Official Brand Logo (Fully transparent background, blends flawlessly) */}
             <div className="flex items-center">
               <img
-                src="/cu-logo-tight.png"
+                src="/cu-logo-transparent.png"
                 alt="Chandigarh University"
-                className="h-10 sm:h-12 md:h-14 w-auto object-contain block"
+                className="h-9 sm:h-11 md:h-13 print:h-15 w-auto object-contain block"
               />
             </div>
 
-            {/* Top-Right: Department & Platform Brand Lockup */}
-            <div className="text-right flex flex-col items-end pr-8 sm:pr-14">
-              <div className="flex flex-col items-center">
-                <span className="text-[7px] sm:text-[8px] font-sans font-bold tracking-[0.2em] text-slate-600 uppercase">
-                  DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
+            {/* Top-Right: Application Logo, Name & Skill Development */}
+            <div className="flex items-center gap-2 sm:gap-2.5 pr-10 sm:pr-14 md:pr-18 print:pr-20">
+              {/* Application Logo Icon */}
+              <div className="relative w-7 h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 print:w-11 print:h-11 rounded-lg overflow-hidden bg-slate-950 border border-black/10 shadow-xs flex items-center justify-center p-1 sm:p-1.5 shrink-0">
+                <svg viewBox="0 0 160 160" className="w-full h-full" fill="none">
+                  <polygon
+                    points="80,10 145,45 145,115 80,150 15,115 15,45"
+                    fill="#0F172A"
+                    stroke="#FFFFFF"
+                    strokeWidth="8"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M60 62 L40 80 L60 98"
+                    stroke="#FFFFFF"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M85 55 L75 105"
+                    stroke="#FFFFFF"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M100 62 L120 80 L100 98"
+                    stroke="#38BDF8"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+
+              {/* Application Name & Subtitle */}
+              <div className="flex flex-col text-left">
+                <span className="font-sans font-extrabold text-sm sm:text-base md:text-lg print:text-xl tracking-tight text-[#1a2d57] leading-tight">
+                  CodeSkill
                 </span>
-                <span className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-[#b91c1c] font-sans uppercase leading-none drop-shadow-xs my-0.5">
-                  CODESKILL
-                </span>
-                <span className="text-[6.5px] sm:text-[7.5px] font-sans font-bold tracking-widest text-slate-800 uppercase">
-                  APEX INSTITUTE OF TECHNOLOGY · CU
+                <span className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-sans font-bold tracking-wider text-[#292929] uppercase leading-none mt-0.5">
+                  Skill Development
                 </span>
               </div>
             </div>
           </div>
 
-          {/* MAIN DIPLOMA BODY: Centered Academic Typography */}
-          <div className="text-center my-auto py-1 sm:py-2 space-y-1.5 sm:space-y-2">
+          {/* MAIN DIPLOMA BODY: Flawless Typography, Single-Line Recipient Name, Balanced Vertical Hierarchy */}
+          <div className="text-center my-auto py-1 sm:py-2 print:py-3 space-y-1 sm:space-y-1.5 md:space-y-2 print:space-y-2.5">
             {/* Header: CERTIFICATE OF COMPLETION */}
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-serif font-black tracking-[0.14em] sm:tracking-[0.18em] text-slate-900 uppercase">
+            <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-[34px] print:text-[42px] font-serif font-black tracking-[0.16em] sm:tracking-[0.2em] print:tracking-[0.22em] text-[#1a2d57] uppercase leading-tight">
               {certTitle}
             </h1>
 
             {/* Subtitle */}
-            <p className="text-xs sm:text-sm md:text-base font-serif text-slate-700 tracking-wide">
+            <p className="text-[11px] sm:text-xs md:text-sm print:text-base font-serif text-slate-700 tracking-wide italic">
               {certSubtitle}
             </p>
 
-            {/* Recipient Name with Solid Underline */}
-            <div className="pt-2 sm:pt-3 pb-1">
-              <h2 className="text-2xl sm:text-3xl md:text-4.5xl font-serif font-black tracking-wider text-slate-900 uppercase">
+            {/* Recipient Name: Guaranteed Single-Line with Scaled Proportions & Solid Underline */}
+            <div className="pt-1 sm:pt-1.5 md:pt-2 print:pt-2.5 pb-0.5 max-w-full overflow-hidden">
+              <h2 className="text-xl sm:text-2.5xl md:text-3.5xl lg:text-4xl print:text-[46px] font-serif font-black tracking-wide text-[#1a2d57] uppercase leading-none whitespace-nowrap truncate px-2">
                 {data.recipientName || "Mustakim Shaikh"}
               </h2>
-              <div className="w-64 sm:w-80 md:w-96 h-[1.5px] bg-slate-900 mx-auto mt-2" />
+              <div className="w-48 sm:w-64 md:w-80 print:w-[480px] h-[1.5px] sm:h-[2px] bg-[#1a2d57] mx-auto mt-1.5 sm:mt-2 print:mt-2.5" />
             </div>
 
             {/* Citation Statement */}
-            <div className="max-w-xl mx-auto pt-1 sm:pt-2 space-y-1">
-              <p className="text-[11px] sm:text-xs md:text-[13px] text-slate-700 font-serif leading-relaxed px-4">
+            <div className="max-w-xl md:max-w-2xl mx-auto pt-0.5 sm:pt-1 space-y-0.5 sm:space-y-1">
+              <p className="text-[9.5px] sm:text-[11px] md:text-xs print:text-[14px] text-slate-700 font-serif leading-relaxed px-4">
                 {citation}
               </p>
               {data.learningPath && (
-                <div className="font-bold text-slate-900 text-xs sm:text-sm md:text-base font-serif">
+                <div className="font-bold text-[#1a2d57] text-xs sm:text-sm md:text-base print:text-[19px] font-serif my-0.5 sm:my-1 print:my-1.5">
                   {data.learningPath}
                 </div>
               )}
-              <p className="text-[10px] sm:text-[11.5px] text-slate-600 font-serif">
+              <p className="text-[8.5px] sm:text-[9.5px] md:text-[11px] print:text-[12px] text-slate-600 font-serif">
                 at Chandigarh University, contributing with dedication, technical rigor, and excellence.
               </p>
             </div>
           </div>
 
-          {/* BOTTOM SIGNATORIES & GOLDEN ROSETTE MEDALLION */}
-          <div className="w-full pt-2">
+          {/* BOTTOM SECTION: SIGNATORIES & CENTER-BOTTOM QR CODE (Zero clipping, full clearance) */}
+          <div className="w-full pt-1 sm:pt-1.5 print:pt-2">
             <div className="grid grid-cols-3 items-end">
-              {/* Left Column: Head - Technical Training (CSE) with Blue Handwritten Signature */}
+              {/* Left Column: Head / Assistant Director with Signature */}
               <div className="flex flex-col items-center text-center">
-                <div className="w-36 sm:w-48 md:w-56">
+                <div className="w-32 sm:w-40 md:w-48 print:w-56">
                   {/* Handwritten Blue Signature */}
-                  <div className="h-10 sm:h-12 md:h-14 flex items-end justify-center mb-0.5">
+                  <div className="h-8 sm:h-10 md:h-12 print:h-16 flex items-end justify-center mb-0.5">
                     {sigLeft.signatureUrl ? (
                       <img
                         src={sigLeft.signatureUrl}
                         alt="Signature Ishdeep Singla"
-                        className="h-10 sm:h-12 md:h-14 w-auto max-w-[140px] sm:max-w-[180px] object-contain block drop-shadow-2xs"
+                        className="max-h-8 sm:max-h-10 md:max-h-12 print:max-h-16 w-auto max-w-[110px] sm:max-w-[140px] print:max-w-[170px] object-contain block drop-shadow-2xs"
                       />
                     ) : (
                       <svg
                         viewBox="0 0 160 30"
-                        className="w-24 sm:w-28 h-6 text-blue-700 fill-none stroke-current stroke-[2]"
+                        className="w-20 sm:w-24 h-5 text-blue-700 fill-none stroke-current stroke-[2]"
                       >
                         <path d="M10 24 Q 28 6, 45 22 T 85 16 T 115 12 T 145 22 M 30 14 L 70 12" />
                       </svg>
                     )}
                   </div>
                   {/* Signature Line */}
-                  <div className="border-t border-slate-900 pt-1">
-                    <div className="text-[11px] sm:text-xs md:text-sm font-serif font-bold text-slate-900 leading-tight">
+                  <div className="border-t sm:border-t-2 border-[#1a2d57]/70 pt-1 print:pt-1.5">
+                    <div className="text-[10.5px] sm:text-xs md:text-sm print:text-base font-serif font-bold text-[#1a2d57] leading-tight">
                       {sigLeft.name}
                     </div>
-                    <div className="text-[8.5px] sm:text-[9.5px] font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5">
+                    <div className="text-[7.5px] sm:text-[8.5px] md:text-[9.5px] print:text-xs font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5 leading-tight">
                       {sigLeft.title}
                     </div>
                     {sigLeft.subtext && (
-                      <div className="text-[7.5px] sm:text-[8px] font-mono text-slate-600 mt-0.5">
+                      <div className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-sans font-bold tracking-wide text-slate-700 mt-0.5 leading-tight">
                         {sigLeft.subtext}
                       </div>
                     )}
@@ -361,41 +318,52 @@ export function ChandigarhUniversityCertificate({
                 </div>
               </div>
 
-              {/* Center Column: Golden Ribbon Rosette Medallion */}
-              <div className="flex flex-col items-center justify-center text-center -mb-2">
-                <GoldenRosette className="w-16 h-20 sm:w-20 sm:h-24 md:w-22 md:h-26" />
+              {/* Center Column: Scannable Credential QR Code in Center Bottom */}
+              <div className="flex flex-col items-center justify-center text-center -mb-0.5">
+                {qrCodeUrl && (
+                  <div className="flex flex-col items-center">
+                    <img
+                      src={qrCodeUrl}
+                      alt="Verify Credential QR"
+                      className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 print:w-20 print:h-20 border border-slate-300 rounded-lg bg-white p-1 shadow-2xs"
+                    />
+                    <span className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[9.5px] font-mono text-slate-600 tracking-wider mt-0.5 uppercase font-semibold">
+                      Scan to Verify
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Right Column: Vice-Chancellor with Sehgal Sir's Executive Signature */}
+              {/* Right Column: Vice Chancellor with Executive Signature */}
               <div className="flex flex-col items-center text-center">
-                <div className="w-36 sm:w-48 md:w-56">
+                <div className="w-32 sm:w-40 md:w-48 print:w-56">
                   {/* Handwritten Executive Signature */}
-                  <div className="h-10 sm:h-12 md:h-14 flex items-end justify-center mb-0.5">
+                  <div className="h-8 sm:h-10 md:h-12 print:h-16 flex items-end justify-center mb-0.5">
                     {sigRight.signatureUrl ? (
                       <img
                         src={sigRight.signatureUrl}
                         alt="Signature Prof. (Dr.) Satbir Singh Sehgal"
-                        className="h-10 sm:h-12 md:h-14 w-auto max-w-[140px] sm:max-w-[180px] object-contain block drop-shadow-2xs"
+                        className="max-h-8 sm:max-h-10 md:max-h-12 print:max-h-16 w-auto max-w-[110px] sm:max-w-[140px] print:max-w-[170px] object-contain block drop-shadow-2xs"
                       />
                     ) : (
                       <svg
                         viewBox="0 0 160 30"
-                        className="w-24 sm:w-28 h-6 text-slate-900 fill-none stroke-current stroke-[2]"
+                        className="w-20 sm:w-24 h-5 text-slate-900 fill-none stroke-current stroke-[2]"
                       >
                         <path d="M12 22 Q 38 7, 60 20 T 100 14 T 132 22 M 45 15 Q 75 6, 105 18" />
                       </svg>
                     )}
                   </div>
                   {/* Signature Line */}
-                  <div className="border-t border-slate-900 pt-1">
-                    <div className="text-[11px] sm:text-xs md:text-sm font-serif font-bold text-slate-900 leading-tight">
+                  <div className="border-t sm:border-t-2 border-[#1a2d57]/70 pt-1 print:pt-1.5">
+                    <div className="text-[10.5px] sm:text-xs md:text-sm print:text-base font-serif font-bold text-[#1a2d57] leading-tight">
                       {sigRight.name}
                     </div>
-                    <div className="text-[8.5px] sm:text-[9.5px] font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5">
+                    <div className="text-[7.5px] sm:text-[8.5px] md:text-[9.5px] print:text-xs font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5 leading-tight">
                       {sigRight.title}
                     </div>
                     {sigRight.subtext && (
-                      <div className="text-[7.5px] sm:text-[8px] font-mono text-slate-600 mt-0.5">
+                      <div className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-sans font-bold tracking-wide text-slate-700 mt-0.5 leading-tight">
                         {sigRight.subtext}
                       </div>
                     )}
@@ -404,27 +372,12 @@ export function ChandigarhUniversityCertificate({
               </div>
             </div>
 
-            {/* Discrete Digital Ledger & Verification Strip */}
-            <div className="mt-3 pt-1 border-t border-slate-200 flex items-center justify-between text-[7px] sm:text-[8px] font-mono text-slate-500">
-              <div className="flex items-center gap-1.5">
-                {qrCodeUrl && (
-                  <img
-                    src={qrCodeUrl}
-                    alt="Verify QR"
-                    className="w-5 h-5 border border-slate-300 rounded p-0.5 bg-white"
-                  />
-                )}
-                <span>
-                  CREDENTIAL ID:{" "}
-                  <strong className="text-slate-700">{data.credentialId}</strong>
-                </span>
-              </div>
-              <div>
-                <span>AUTHENTICITY REGISTRY: </span>
-                <span className="text-slate-700 font-semibold">
-                  https://codeskill.chandigarhuniversity.ac.in
-                </span>
-              </div>
+            {/* Credential ID Verification Footer Strip (Continuous divider removed for clean presentation) */}
+            <div className="mt-1.5 sm:mt-2 print:mt-2.5 pt-0.5 sm:pt-1 flex items-center justify-center text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-mono text-slate-500">
+              <span>
+                CREDENTIAL ID:{" "}
+                <strong className="text-slate-800 font-bold tracking-wider">{data.credentialId}</strong>
+              </span>
             </div>
           </div>
         </div>

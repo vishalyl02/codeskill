@@ -153,10 +153,21 @@ export const ModuleCompletionModal: React.FC<ModuleCompletionModalProps> = ({
                   <FileQuestion className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-semibold text-foreground">
-                    Module Concept Quiz
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-foreground">
+                      Module Concept Quiz
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${
+                        criteria.quizMet
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                          : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                      }`}
+                    >
+                      {criteria.quizMet ? "Quiz: Completed" : "Quiz: Not attempted"}
+                    </span>
                   </div>
-                  <div className="text-[11px] text-muted-foreground">
+                  <div className="text-[11px] text-muted-foreground mt-0.5">
                     {criteria.quizMet
                       ? "Passed quiz with required score"
                       : "Quiz questions not yet completed or score below threshold"}
@@ -197,10 +208,21 @@ export const ModuleCompletionModal: React.FC<ModuleCompletionModalProps> = ({
                   <Code2 className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-semibold text-foreground">
-                    Interactive Coding Exercise
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-foreground">
+                      Interactive Coding Exercise
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${
+                        criteria.codingMet
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                          : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                      }`}
+                    >
+                      {criteria.codingMet ? "Exercise: Completed" : "Exercise: Not attempted"}
+                    </span>
                   </div>
-                  <div className="text-[11px] text-muted-foreground">
+                  <div className="text-[11px] text-muted-foreground mt-0.5">
                     {criteria.codingMet
                       ? "All coding test cases executed and passed"
                       : "Exercise test cases pending verification"}

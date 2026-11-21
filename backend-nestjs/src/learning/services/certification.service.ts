@@ -145,14 +145,6 @@ export class CertificationService {
               );
               continue;
             }
-
-            // Verify study time requirement if configured on module
-            const requiredSeconds = mod.requiredTimeSeconds || 0;
-            if (requiredSeconds > 0 && (lp.timeSpentSeconds || 0) < requiredSeconds) {
-              unfulfilledReasons.push(
-                `Required study time for lesson "${les.title}" not satisfied (${lp.timeSpentSeconds || 0}s of ${requiredSeconds}s)`,
-              );
-            }
           }
         }
       }
@@ -257,7 +249,7 @@ export class CertificationService {
         status: 'valid',
         issuer: 'Chandigarh University · CodeSkill',
         institution: 'Chandigarh University',
-        department: 'Department of Computer Science & Engineering · Apex Institute of Technology',
+        department: 'Department of Skill Development',
         accreditation: 'NAAC A+ Accredited University · Punjab, India',
         grade: 'Distinction (Grade A+)',
         skills: ['Data Structures', 'Algorithm Design', 'Dynamic Programming', 'Graph Theory', 'System Optimization'],
@@ -265,14 +257,14 @@ export class CertificationService {
         signatories: [
           {
             name: 'Prof. (Dr.) Satbir Singh Sehgal',
-            role: 'Pro-Vice Chancellor & Registrar',
+            role: 'Vice Chancellor',
             organization: 'Chandigarh University',
             employeeId: 'E18146',
             email: 'vc@cumail.in',
           },
           {
-            name: 'Ishdeep Singla',
-            role: 'Head - Technical Training (CSE)',
+            name: 'Dr. Ishdeep Singla',
+            role: 'Assistant Director – Skill Development',
             organization: 'Chandigarh University',
             employeeId: 'E16430',
             email: 'ad.skill@cumail.in',
@@ -312,7 +304,7 @@ export class CertificationService {
       status: cert.status,
       issuer: 'CodeSkill · Chandigarh University',
       institution: 'Chandigarh University',
-      department: 'Department of Computer Science & Engineering · Centre for Professional & Skill Development',
+      department: 'Department of Skill Development',
       accreditation: 'NAAC A+ Accredited University · Punjab, India',
       grade: 'Distinction (Score: 100%)',
       skills: cert.metadata?.skills || [],
@@ -320,14 +312,14 @@ export class CertificationService {
       signatories: [
         {
           name: 'Prof. (Dr.) Satbir Singh Sehgal',
-          role: 'Pro-Vice Chancellor & Registrar',
+          role: 'Vice Chancellor',
           organization: 'Chandigarh University',
           employeeId: 'E18146',
           email: 'vc@cumail.in',
         },
         {
-          name: 'Ishdeep Singla',
-          role: 'Head - Technical Training (CSE)',
+          name: 'Dr. Ishdeep Singla',
+          role: 'Assistant Director – Skill Development',
           organization: 'Chandigarh University',
           employeeId: 'E16430',
           email: 'ad.skill@cumail.in',
