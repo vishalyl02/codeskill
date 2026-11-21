@@ -141,8 +141,8 @@ export function ChandigarhUniversityCertificate({
         width: 140,
         margin: 1,
         color: {
-          dark: "#0f172a",
-          light: "#ffffff",
+          dark: "#141519",
+          light: "#faf6ea",
         },
       })
         .then(setQrCodeUrl)
@@ -190,7 +190,7 @@ export function ChandigarhUniversityCertificate({
           body {
             margin: 0 !important;
             padding: 0 !important;
-            background: #ffffff !important;
+            background: #faf6ea !important;
             width: 297mm !important;
             height: 210mm !important;
             max-width: 297mm !important;
@@ -225,7 +225,7 @@ export function ChandigarhUniversityCertificate({
             page-break-after: avoid !important;
             page-break-before: avoid !important;
             page-break-inside: avoid !important;
-            background: #ffffff !important;
+            background: #faf6ea !important;
           }
         }
       `}</style>
@@ -233,27 +233,27 @@ export function ChandigarhUniversityCertificate({
       {/* Main Certificate Canvas: Standard A4 Landscape Proportions (297mm x 210mm) */}
       <div
         id="printable-university-certificate"
-        className={`print-certificate-container relative w-full max-w-[940px] mx-auto aspect-[1.414/1] bg-white text-slate-900 shadow-2xl overflow-hidden select-none font-serif flex flex-col justify-between ${className}`}
+        className={`print-certificate-container relative w-full max-w-[940px] mx-auto aspect-[1.414/1] bg-[#faf6ea] text-slate-900 border border-[#e7dcce] shadow-2xl overflow-hidden select-none font-serif flex flex-col justify-between ${className}`}
         style={{
           boxShadow:
-            "0 20px 40px -15px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05)",
+            "0 20px 40px -15px rgba(97, 30, 48, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)",
         }}
       >
-        {/* Dynamic Corner Geometric Angular Ribbons (Royal Blue & Crimson Red) */}
+        {/* Dynamic Corner Geometric Angular Ribbons (Deep Wine / Maroon & Warm Gold / Bronze) */}
         <svg
           viewBox="0 0 1000 707"
           preserveAspectRatio="none"
           className="absolute inset-0 w-full h-full pointer-events-none z-0"
         >
-          {/* Top-Right Royal Blue Corner Wedge */}
-          <polygon points="790,0 1000,0 1000,210" fill="#1e40af" />
-          {/* Top-Right Crimson Red Slash */}
-          <polygon points="700,0 790,0 1000,285 1000,210" fill="#d91b24" />
+          {/* Top-Right Deep Wine/Maroon Corner Wedge */}
+          <polygon points="790,0 1000,0 1000,210" fill="#611e30" />
+          {/* Top-Right Warm Gold/Bronze Slash */}
+          <polygon points="700,0 790,0 1000,285 1000,210" fill="#b88256" />
 
-          {/* Bottom-Left Royal Blue Corner Wedge */}
-          <polygon points="0,497 0,707 210,707" fill="#1e40af" />
-          {/* Bottom-Left Crimson Red Slash */}
-          <polygon points="0,422 0,497 210,707 300,707" fill="#d91b24" />
+          {/* Bottom-Left Deep Wine/Maroon Corner Wedge */}
+          <polygon points="0,497 0,707 210,707" fill="#611e30" />
+          {/* Bottom-Left Warm Gold/Bronze Slash */}
+          <polygon points="0,422 0,497 210,707 300,707" fill="#b88256" />
         </svg>
 
         {/* Certificate Content Wrapper */}
@@ -397,7 +397,7 @@ export function ChandigarhUniversityCertificate({
                     <img
                       src={qrCodeUrl}
                       alt="Verify Credential QR"
-                      className="w-12 h-12 sm:w-14 sm:h-14 border border-slate-300 rounded bg-white p-0.5 shadow-2xs"
+                      className="w-12 h-12 sm:w-14 sm:h-14 border border-[#d6c7b2] rounded bg-[#faf6ea] p-0.5 shadow-2xs"
                     />
                     <span className="text-[6.5px] sm:text-[7.5px] font-mono text-slate-500 tracking-wider mt-0.5 uppercase">
                       Scan to Verify
@@ -445,7 +445,7 @@ export function ChandigarhUniversityCertificate({
             </div>
 
             {/* Credential ID Verification Footer */}
-            <div className="mt-2 pt-1 border-t border-slate-200/80 flex items-center justify-center text-[7.5px] sm:text-[8.5px] font-mono text-slate-500">
+            <div className="mt-2 pt-1 border-t border-[#dcd0bf] flex items-center justify-center text-[7.5px] sm:text-[8.5px] font-mono text-slate-500">
               <span>
                 CREDENTIAL ID:{" "}
                 <strong className="text-slate-800 font-bold">{data.credentialId}</strong>
