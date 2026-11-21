@@ -59,7 +59,7 @@ export function ChandigarhUniversityCertificate({
   useEffect(() => {
     if (data.credentialId && verificationUrl) {
       QRCode.toDataURL(verificationUrl, {
-        width: 200,
+        width: 180,
         margin: 1,
         color: {
           dark: "#141519",
@@ -180,8 +180,8 @@ export function ChandigarhUniversityCertificate({
           <polygon points="0,477 0,547 160,707 230,707" fill="#b88256" />
         </svg>
 
-        {/* Certificate Content Wrapper with calibrated padding for print and screen */}
-        <div className="relative z-10 w-full h-full px-8 sm:px-12 md:px-16 print:px-16 py-6 sm:py-8 md:py-9 print:py-9 flex flex-col justify-between">
+        {/* Certificate Content Wrapper: Calibrated padding to prevent any clipping on screen & print */}
+        <div className="relative z-10 w-full h-full px-6 sm:px-10 md:px-14 print:px-16 py-3.5 sm:py-5 md:py-6 print:py-8 flex flex-col justify-between">
 
           {/* TOP ROW: Official University Logo (Left) & Application Brand Lockup (Right) */}
           <div className="flex items-start justify-between w-full">
@@ -191,14 +191,14 @@ export function ChandigarhUniversityCertificate({
               <img
                 src="/cu-logo-tight.png"
                 alt="Chandigarh University"
-                className="h-11 sm:h-14 md:h-16 print:h-16 w-auto object-contain block"
+                className="h-9 sm:h-11 md:h-13 print:h-15 w-auto object-contain block"
               />
             </div>
 
-            {/* Top-Right: Application Logo, Name & Skill Development with comfortable ribbon clearance */}
-            <div className="flex items-center gap-2.5 sm:gap-3 pr-12 sm:pr-16 md:pr-20 print:pr-20">
+            {/* Top-Right: Application Logo, Name & Skill Development */}
+            <div className="flex items-center gap-2 sm:gap-2.5 pr-10 sm:pr-14 md:pr-18 print:pr-20">
               {/* Application Logo Icon */}
-              <div className="relative w-8 h-8 sm:w-10 sm:h-10 md:w-11 md:h-11 print:w-11 print:h-11 rounded-lg overflow-hidden bg-slate-950 border border-black/10 shadow-xs flex items-center justify-center p-1.5 shrink-0">
+              <div className="relative w-7 h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 print:w-11 print:h-11 rounded-lg overflow-hidden bg-slate-950 border border-black/10 shadow-xs flex items-center justify-center p-1 sm:p-1.5 shrink-0">
                 <svg viewBox="0 0 160 160" className="w-full h-full" fill="none">
                   <polygon
                     points="80,10 145,45 145,115 80,150 15,115 15,45"
@@ -232,85 +232,85 @@ export function ChandigarhUniversityCertificate({
 
               {/* Application Name & Subtitle */}
               <div className="flex flex-col text-left">
-                <span className="font-sans font-extrabold text-base sm:text-lg md:text-xl print:text-xl tracking-tight text-[#1a2d57] leading-tight">
+                <span className="font-sans font-extrabold text-sm sm:text-base md:text-lg print:text-xl tracking-tight text-[#1a2d57] leading-tight">
                   CodeSkill
                 </span>
-                <span className="text-[8px] sm:text-[9.5px] print:text-[9.5px] font-sans font-bold tracking-wider text-slate-500 uppercase leading-none mt-0.5">
+                <span className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-sans font-bold tracking-wider text-slate-500 uppercase leading-none mt-0.5">
                   Skill Development
                 </span>
               </div>
             </div>
           </div>
 
-          {/* MAIN DIPLOMA BODY: Commanding, Prominent Typography */}
-          <div className="text-center my-auto py-2 sm:py-3 print:py-3 space-y-2.5 sm:space-y-3 print:space-y-3">
+          {/* MAIN DIPLOMA BODY: Flawless Typography, Single-Line Recipient Name, Balanced Vertical Hierarchy */}
+          <div className="text-center my-auto py-1 sm:py-2 print:py-3 space-y-1 sm:space-y-1.5 md:space-y-2 print:space-y-2.5">
             {/* Header: CERTIFICATE OF COMPLETION */}
-            <h1 className="text-3xl sm:text-4xl md:text-[44px] print:text-[44px] font-serif font-black tracking-[0.18em] sm:tracking-[0.22em] print:tracking-[0.22em] text-[#1a2d57] uppercase leading-tight">
+            <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-[34px] print:text-[42px] font-serif font-black tracking-[0.16em] sm:tracking-[0.2em] print:tracking-[0.22em] text-[#1a2d57] uppercase leading-tight">
               {certTitle}
             </h1>
 
             {/* Subtitle */}
-            <p className="text-sm sm:text-base md:text-lg print:text-lg font-serif text-slate-700 tracking-wide italic">
+            <p className="text-[11px] sm:text-xs md:text-sm print:text-base font-serif text-slate-700 tracking-wide italic">
               {certSubtitle}
             </p>
 
-            {/* Recipient Name with Solid Deep Navy Underline */}
-            <div className="pt-2 sm:pt-3 print:pt-3 pb-1">
-              <h2 className="text-3.5xl sm:text-5xl md:text-[54px] print:text-[54px] font-serif font-black tracking-wider text-[#1a2d57] uppercase leading-none">
+            {/* Recipient Name: Guaranteed Single-Line with Scaled Proportions & Solid Underline */}
+            <div className="pt-1 sm:pt-1.5 md:pt-2 print:pt-2.5 pb-0.5 max-w-full overflow-hidden">
+              <h2 className="text-xl sm:text-2.5xl md:text-3.5xl lg:text-4xl print:text-[46px] font-serif font-black tracking-wide text-[#1a2d57] uppercase leading-none whitespace-nowrap truncate px-2">
                 {data.recipientName || "Mustakim Shaikh"}
               </h2>
-              <div className="w-72 sm:w-96 md:w-[500px] print:w-[520px] h-[2.5px] bg-[#1a2d57] mx-auto mt-3" />
+              <div className="w-48 sm:w-64 md:w-80 print:w-[480px] h-[1.5px] sm:h-[2px] bg-[#1a2d57] mx-auto mt-1.5 sm:mt-2 print:mt-2.5" />
             </div>
 
             {/* Citation Statement */}
-            <div className="max-w-2xl mx-auto pt-1 sm:pt-2 space-y-1.5">
-              <p className="text-xs sm:text-sm md:text-[15px] print:text-[15px] text-slate-700 font-serif leading-relaxed px-4">
+            <div className="max-w-xl md:max-w-2xl mx-auto pt-0.5 sm:pt-1 space-y-0.5 sm:space-y-1">
+              <p className="text-[9.5px] sm:text-[11px] md:text-xs print:text-[14px] text-slate-700 font-serif leading-relaxed px-4">
                 {citation}
               </p>
               {data.learningPath && (
-                <div className="font-bold text-[#1a2d57] text-base sm:text-lg md:text-[21px] print:text-[21px] font-serif my-1.5">
+                <div className="font-bold text-[#1a2d57] text-xs sm:text-sm md:text-base print:text-[19px] font-serif my-0.5 sm:my-1 print:my-1.5">
                   {data.learningPath}
                 </div>
               )}
-              <p className="text-[11px] sm:text-xs md:text-[13px] print:text-[13px] text-slate-600 font-serif">
+              <p className="text-[8.5px] sm:text-[9.5px] md:text-[11px] print:text-[12px] text-slate-600 font-serif">
                 at Chandigarh University, contributing with dedication, technical rigor, and excellence.
               </p>
             </div>
           </div>
 
-          {/* BOTTOM SECTION: SIGNATORIES & CENTER-BOTTOM QR CODE */}
-          <div className="w-full pt-2">
+          {/* BOTTOM SECTION: SIGNATORIES & CENTER-BOTTOM QR CODE (Zero clipping, full clearance) */}
+          <div className="w-full pt-1 sm:pt-1.5 print:pt-2">
             <div className="grid grid-cols-3 items-end">
               {/* Left Column: Head / Assistant Director with Signature */}
               <div className="flex flex-col items-center text-center">
-                <div className="w-36 sm:w-48 md:w-56 print:w-56">
+                <div className="w-32 sm:w-40 md:w-48 print:w-56">
                   {/* Handwritten Blue Signature */}
-                  <div className="h-12 sm:h-14 md:h-16 print:h-16 flex items-end justify-center mb-0.5">
+                  <div className="h-8 sm:h-10 md:h-12 print:h-16 flex items-end justify-center mb-0.5">
                     {sigLeft.signatureUrl ? (
                       <img
                         src={sigLeft.signatureUrl}
                         alt="Signature Ishdeep Singla"
-                        className="h-12 sm:h-14 md:h-16 print:h-16 w-auto max-w-[140px] sm:max-w-[180px] print:max-w-[180px] object-contain block drop-shadow-2xs"
+                        className="max-h-8 sm:max-h-10 md:max-h-12 print:max-h-16 w-auto max-w-[110px] sm:max-w-[140px] print:max-w-[170px] object-contain block drop-shadow-2xs"
                       />
                     ) : (
                       <svg
                         viewBox="0 0 160 30"
-                        className="w-24 sm:w-28 h-6 text-blue-700 fill-none stroke-current stroke-[2]"
+                        className="w-20 sm:w-24 h-5 text-blue-700 fill-none stroke-current stroke-[2]"
                       >
                         <path d="M10 24 Q 28 6, 45 22 T 85 16 T 115 12 T 145 22 M 30 14 L 70 12" />
                       </svg>
                     )}
                   </div>
                   {/* Signature Line */}
-                  <div className="border-t-2 border-[#1a2d57]/70 pt-1.5">
-                    <div className="text-xs sm:text-sm md:text-base print:text-base font-serif font-bold text-[#1a2d57] leading-tight">
+                  <div className="border-t sm:border-t-2 border-[#1a2d57]/70 pt-1 print:pt-1.5">
+                    <div className="text-[10.5px] sm:text-xs md:text-sm print:text-base font-serif font-bold text-[#1a2d57] leading-tight">
                       {sigLeft.name}
                     </div>
-                    <div className="text-[9px] sm:text-[10px] md:text-xs print:text-xs font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5">
+                    <div className="text-[7.5px] sm:text-[8.5px] md:text-[9.5px] print:text-xs font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5 leading-tight">
                       {sigLeft.title}
                     </div>
                     {sigLeft.subtext && (
-                      <div className="text-[8px] sm:text-[8.5px] md:text-[9.5px] print:text-[9.5px] font-mono text-slate-600 mt-0.5">
+                      <div className="text-[6.5px] sm:text-[7.5px] md:text-[8.5px] print:text-[9.5px] font-mono text-slate-600 mt-0.5 leading-none">
                         {sigLeft.subtext}
                       </div>
                     )}
@@ -318,16 +318,16 @@ export function ChandigarhUniversityCertificate({
                 </div>
               </div>
 
-              {/* Center Column: Scannable Credential QR Code in Center Bottom (Prominent & Clear) */}
+              {/* Center Column: Scannable Credential QR Code in Center Bottom */}
               <div className="flex flex-col items-center justify-center text-center -mb-0.5">
                 {qrCodeUrl && (
                   <div className="flex flex-col items-center">
                     <img
                       src={qrCodeUrl}
                       alt="Verify Credential QR"
-                      className="w-16 h-16 sm:w-20 sm:h-20 md:w-22 md:h-22 print:w-22 print:h-22 border border-slate-300 rounded-lg bg-white p-1 shadow-2xs"
+                      className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 print:w-20 print:h-20 border border-slate-300 rounded-lg bg-white p-1 shadow-2xs"
                     />
-                    <span className="text-[8px] sm:text-[9px] md:text-[10px] print:text-[10px] font-mono text-slate-600 tracking-wider mt-1 uppercase font-semibold">
+                    <span className="text-[7px] sm:text-[8px] md:text-[9px] print:text-[9.5px] font-mono text-slate-600 tracking-wider mt-0.5 uppercase font-semibold">
                       Scan to Verify
                     </span>
                   </div>
@@ -336,34 +336,34 @@ export function ChandigarhUniversityCertificate({
 
               {/* Right Column: Vice Chancellor with Executive Signature */}
               <div className="flex flex-col items-center text-center">
-                <div className="w-36 sm:w-48 md:w-56 print:w-56">
+                <div className="w-32 sm:w-40 md:w-48 print:w-56">
                   {/* Handwritten Executive Signature */}
-                  <div className="h-12 sm:h-14 md:h-16 print:h-16 flex items-end justify-center mb-0.5">
+                  <div className="h-8 sm:h-10 md:h-12 print:h-16 flex items-end justify-center mb-0.5">
                     {sigRight.signatureUrl ? (
                       <img
                         src={sigRight.signatureUrl}
                         alt="Signature Prof. (Dr.) Satbir Singh Sehgal"
-                        className="h-12 sm:h-14 md:h-16 print:h-16 w-auto max-w-[140px] sm:max-w-[180px] print:max-w-[180px] object-contain block drop-shadow-2xs"
+                        className="max-h-8 sm:max-h-10 md:max-h-12 print:max-h-16 w-auto max-w-[110px] sm:max-w-[140px] print:max-w-[170px] object-contain block drop-shadow-2xs"
                       />
                     ) : (
                       <svg
                         viewBox="0 0 160 30"
-                        className="w-24 sm:w-28 h-6 text-slate-900 fill-none stroke-current stroke-[2]"
+                        className="w-20 sm:w-24 h-5 text-slate-900 fill-none stroke-current stroke-[2]"
                       >
                         <path d="M12 22 Q 38 7, 60 20 T 100 14 T 132 22 M 45 15 Q 75 6, 105 18" />
                       </svg>
                     )}
                   </div>
                   {/* Signature Line */}
-                  <div className="border-t-2 border-[#1a2d57]/70 pt-1.5">
-                    <div className="text-xs sm:text-sm md:text-base print:text-base font-serif font-bold text-[#1a2d57] leading-tight">
+                  <div className="border-t sm:border-t-2 border-[#1a2d57]/70 pt-1 print:pt-1.5">
+                    <div className="text-[10.5px] sm:text-xs md:text-sm print:text-base font-serif font-bold text-[#1a2d57] leading-tight">
                       {sigRight.name}
                     </div>
-                    <div className="text-[9px] sm:text-[10px] md:text-xs print:text-xs font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5">
+                    <div className="text-[7.5px] sm:text-[8.5px] md:text-[9.5px] print:text-xs font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5 leading-tight">
                       {sigRight.title}
                     </div>
                     {sigRight.subtext && (
-                      <div className="text-[8px] sm:text-[8.5px] md:text-[9.5px] print:text-[9.5px] font-mono text-slate-600 mt-0.5">
+                      <div className="text-[6.5px] sm:text-[7.5px] md:text-[8.5px] print:text-[9.5px] font-mono text-slate-600 mt-0.5 leading-none">
                         {sigRight.subtext}
                       </div>
                     )}
@@ -372,8 +372,8 @@ export function ChandigarhUniversityCertificate({
               </div>
             </div>
 
-            {/* Credential ID Verification Footer Strip (Authenticity URL completely removed) */}
-            <div className="mt-2.5 pt-1 border-t border-slate-300/70 flex items-center justify-center text-[8.5px] sm:text-[9.5px] md:text-[10.5px] print:text-[10.5px] font-mono text-slate-500">
+            {/* Credential ID Verification Footer Strip */}
+            <div className="mt-1.5 sm:mt-2 print:mt-2.5 pt-0.5 sm:pt-1 border-t border-slate-300/70 flex items-center justify-center text-[7px] sm:text-[8px] md:text-[9px] print:text-[10px] font-mono text-slate-500">
               <span>
                 CREDENTIAL ID:{" "}
                 <strong className="text-slate-800 font-bold tracking-wider">{data.credentialId}</strong>
