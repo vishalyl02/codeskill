@@ -145,14 +145,6 @@ export class CertificationService {
               );
               continue;
             }
-
-            // Verify study time requirement if configured on module
-            const requiredSeconds = mod.requiredTimeSeconds || 0;
-            if (requiredSeconds > 0 && (lp.timeSpentSeconds || 0) < requiredSeconds) {
-              unfulfilledReasons.push(
-                `Required study time for lesson "${les.title}" not satisfied (${lp.timeSpentSeconds || 0}s of ${requiredSeconds}s)`,
-              );
-            }
           }
         }
       }

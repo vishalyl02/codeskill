@@ -130,13 +130,20 @@ export function ChandigarhUniversityCertificate({
 }: ChandigarhUniversityCertificateProps) {
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
 
-  // Clean production verification URL — strictly avoiding localhost or port numbers
-  const officialDomain = "https://codeskill.chandigarhuniversity.ac.in";
-  const rawUrl = data.verificationUrl || `${officialDomain}/verify/${data.credentialId}`;
-  const verificationUrl = rawUrl.replace(/https?:\/\/localhost(:\d+)?/gi, officialDomain);
+  const [verificationUrl, setVerificationUrl] = useState<string>(() => {
+    return data.verificationUrl || `/verify/${data.credentialId}`;
+  });
+
+  // Keep QR code URL and website verification URL strictly synchronized
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const origin = window.location.origin;
+      setVerificationUrl(`${origin}/verify/${data.credentialId}`);
+    }
+  }, [data.credentialId]);
 
   useEffect(() => {
-    if (data.credentialId) {
+    if (data.credentialId && verificationUrl) {
       QRCode.toDataURL(verificationUrl, {
         width: 140,
         margin: 1,
@@ -306,8 +313,8 @@ export function ChandigarhUniversityCertificate({
                 <span className="font-sans font-extrabold text-base sm:text-lg md:text-xl tracking-tight text-slate-900 leading-tight">
                   CodeSkill
                 </span>
-                <span className="text-[7.5px] sm:text-[8.5px] font-sans font-semibold tracking-wider text-slate-500 uppercase leading-none">
-                  Department of Skill Development
+                <span className="text-[7.5px] sm:text-[8.5px] font-sans font-semibold tracking-wider text-black uppercase leading-none">
+                  Skill Development
                 </span>
               </div>
             </div>
@@ -349,12 +356,14 @@ export function ChandigarhUniversityCertificate({
             </div>
           </div>
 
-          {/* BOTTOM SIGNATORIES & GOLDEN ROSETTE MEDALLION */}
+
           <div className="w-full pt-2">
             <div className="grid grid-cols-3 items-end">
-              {/* Left Column: Head - Technical Training (CSE) with Blue Handwritten Signature */}
+
+              {/* Left Column: Head - Technical Training (CSE) */}
               <div className="flex flex-col items-center text-center">
                 <div className="w-36 sm:w-48 md:w-56">
+
                   {/* Handwritten Blue Signature */}
                   <div className="h-10 sm:h-12 md:h-14 flex items-end justify-center mb-0.5">
                     {sigLeft.signatureUrl ? (
@@ -372,14 +381,17 @@ export function ChandigarhUniversityCertificate({
                       </svg>
                     )}
                   </div>
+
                   {/* Signature Line */}
                   <div className="border-t border-slate-900 pt-1">
                     <div className="text-[11px] sm:text-xs md:text-sm font-serif font-bold text-slate-900 leading-tight">
                       {sigLeft.name}
                     </div>
+
                     <div className="text-[8.5px] sm:text-[9.5px] font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5">
                       {sigLeft.title}
                     </div>
+
                     {sigLeft.subtext && (
                       <div className="text-[7.5px] sm:text-[8px] font-mono text-slate-600 mt-0.5">
                         {sigLeft.subtext}
@@ -389,26 +401,27 @@ export function ChandigarhUniversityCertificate({
                 </div>
               </div>
 
-              {/* Center Column: Golden Ribbon Rosette Medallion (Star Emblem) & Credential QR Code Below */}
+              {/* Center Column: QR Code Only (Golden Medal Removed) */}
               <div className="flex flex-col items-center justify-center text-center -mb-1">
-                <GoldenRosette className="w-16 h-20 sm:w-18 sm:h-22" />
                 {qrCodeUrl && (
-                  <div className="mt-1 flex flex-col items-center">
+                  <div className="flex flex-col items-center">
                     <img
                       src={qrCodeUrl}
                       alt="Verify Credential QR"
                       className="w-12 h-12 sm:w-14 sm:h-14 border border-[#d6c7b2] rounded bg-[#faf6ea] p-0.5 shadow-2xs"
                     />
-                    <span className="text-[6.5px] sm:text-[7.5px] font-mono text-slate-500 tracking-wider mt-0.5 uppercase">
+
+                    <span className="text-[6.5px] sm:text-[7.5px] font-mono text-black tracking-wider mt-0.5 uppercase">
                       Scan to Verify
                     </span>
                   </div>
                 )}
               </div>
 
-              {/* Right Column: Vice-Chancellor with Sehgal Sir's Executive Signature */}
+              {/* Right Column: Vice-Chancellor */}
               <div className="flex flex-col items-center text-center">
                 <div className="w-36 sm:w-48 md:w-56">
+
                   {/* Handwritten Executive Signature */}
                   <div className="h-10 sm:h-12 md:h-14 flex items-end justify-center mb-0.5">
                     {sigRight.signatureUrl ? (
@@ -426,14 +439,17 @@ export function ChandigarhUniversityCertificate({
                       </svg>
                     )}
                   </div>
+
                   {/* Signature Line */}
                   <div className="border-t border-slate-900 pt-1">
                     <div className="text-[11px] sm:text-xs md:text-sm font-serif font-bold text-slate-900 leading-tight">
                       {sigRight.name}
                     </div>
+
                     <div className="text-[8.5px] sm:text-[9.5px] font-sans font-bold tracking-wider text-slate-800 uppercase mt-0.5">
                       {sigRight.title}
                     </div>
+
                     {sigRight.subtext && (
                       <div className="text-[7.5px] sm:text-[8px] font-mono text-slate-600 mt-0.5">
                         {sigRight.subtext}
@@ -442,18 +458,29 @@ export function ChandigarhUniversityCertificate({
                   </div>
                 </div>
               </div>
+
             </div>
 
             {/* Credential ID Verification Footer */}
             <div className="mt-2 pt-1 border-t border-[#dcd0bf] flex items-center justify-center text-[7.5px] sm:text-[8.5px] font-mono text-slate-500">
               <span>
                 CREDENTIAL ID:{" "}
-                <strong className="text-slate-800 font-bold">{data.credentialId}</strong>
+                <strong className="text-slate-800 font-bold">
+                  {data.credentialId}
+                </strong>
               </span>
             </div>
           </div>
+
+          <div className="mt-2 pt-1 border-t border-[#dcd0bf] flex items-center justify-center text-[7.5px] sm:text-[8.5px] font-mono text-slate-500">
+            <span>
+              CREDENTIAL ID:{" "}
+              <strong className="text-slate-800 font-bold">{data.credentialId}</strong>
+            </span>
+          </div>
         </div>
       </div>
+    </div >
     </>
   );
 }

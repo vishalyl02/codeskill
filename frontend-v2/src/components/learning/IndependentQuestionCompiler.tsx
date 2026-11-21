@@ -128,6 +128,7 @@ interface IndependentQuestionCompilerProps {
   onPassed?: (exerciseId: string, result: any) => void;
   defaultOpen?: boolean;
   userId?: string;
+  defaultLanguage?: string;
 }
 
 export function IndependentQuestionCompiler({
@@ -135,11 +136,12 @@ export function IndependentQuestionCompiler({
   onPassed,
   defaultOpen = true,
   userId,
+  defaultLanguage,
 }: IndependentQuestionCompilerProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  // Determine initial language
+  // Determine initial language with priority to defaultLanguage (e.g. python in python courses)
   const availableLangs = useMemo(() => {
     if (exercise.starterCode && Object.keys(exercise.starterCode).length > 0) {
       return Object.keys(exercise.starterCode);
@@ -148,13 +150,22 @@ export function IndependentQuestionCompiler({
   }, [exercise.starterCode]);
 
   const initialLang = useMemo(() => {
+    if (defaultLanguage && (exercise.starterCode?.[defaultLanguage] || availableLangs.includes(defaultLanguage))) {
+      return defaultLanguage;
+    }
+    // If only one language key is explicitly provided in starterCode
+    const explicitKeys = exercise.starterCode ? Object.keys(exercise.starterCode) : [];
+    if (explicitKeys.length === 1) {
+      return explicitKeys[0];
+    }
+    if (defaultLanguage) return defaultLanguage;
+    if (exercise.starterCode?.python) return "python";
     if (exercise.starterCode?.c) return "c";
     if (exercise.starterCode?.sql) return "sql";
-    if (exercise.starterCode?.python) return "python";
     if (exercise.starterCode?.java) return "java";
     if (exercise.starterCode?.javascript) return "javascript";
-    return availableLangs[0] || "c";
-  }, [exercise.starterCode, availableLangs]);
+    return availableLangs[0] || "python";
+  }, [defaultLanguage, exercise.starterCode, availableLangs]);
 
   const [language, setLanguage] = useState<string>(initialLang);
 

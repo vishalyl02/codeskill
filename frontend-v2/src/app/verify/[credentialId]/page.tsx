@@ -275,32 +275,21 @@ export default function PublicCertificateVerificationPage({
         {result?.valid && (
           <div className="print-hidden flex flex-wrap items-center justify-center gap-2 sm:gap-2.5 py-1">
             <Button
-              onClick={handlePrint}
+              onClick={handleDownloadImage}
+              disabled={downloading}
               variant="default"
               size="sm"
               className="gap-1.5 bg-primary text-primary-foreground font-semibold shadow-sm text-xs h-8 cursor-pointer"
-              title="Print certificate or save as PDF via your browser's print dialog"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print / Save as PDF</span>
-            </Button>
-
-            <Button
-              onClick={handleDownloadImage}
-              disabled={downloading}
-              variant="secondary"
-              size="sm"
-              className="gap-1.5 border border-border bg-card text-foreground hover:bg-muted font-semibold shadow-sm text-xs h-8 cursor-pointer"
               title="Download high-resolution 300 DPI certificate image directly"
             >
               {downloading ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>Generating Certificate...</span>
                 </>
               ) : (
                 <>
-                  <Download className="w-3.5 h-3.5 text-primary" />
+                  <Download className="w-3.5 h-3.5" />
                   <span>Download Certificate</span>
                 </>
               )}

@@ -579,13 +579,47 @@ export default function CourseWorkspacePage({
   const [celebrationGlow, setCelebrationGlow] = useState<boolean>(false);
   const activeExecutionIdRef = useRef<string | null>(null);
 
-  // High-precision, drift-free timer
+  // Derive primary language for current course curriculum
+  const isPythonCourse =
+    courseSlug.toLowerCase().includes("python") ||
+    pathSlug.toLowerCase().includes("python") ||
+    course?.title?.toLowerCase().includes("python");
+  const isSqlCourse =
+    courseSlug.toLowerCase().includes("dbms") ||
+    courseSlug.toLowerCase().includes("sql") ||
+    pathSlug.toLowerCase().includes("sql");
+  const isCCourse =
+    courseSlug.toLowerCase().includes("c-programming") ||
+    courseSlug.toLowerCase().includes("c-lang") ||
+    pathSlug.toLowerCase().includes("c-programming");
+  const isJavaCourse =
+    courseSlug.toLowerCase().includes("java") ||
+    pathSlug.toLowerCase().includes("java");
+
+  const activeCourseLanguage = isPythonCourse
+    ? "python"
+    : isSqlCourse
+      ? "sql"
+      : isCCourse
+        ? "c"
+        : isJavaCourse
+          ? "java"
+          : "python";
+
+  // High-precision, drift-free timer with continuous local persistence
   const activityTimer = useActivityTimer({
     id: activeLessonId || undefined,
     durationSeconds: requiredTime,
     initialTimeSpent: initialSpent,
     mode: "stopwatch",
-    checkpointIntervalSeconds: 15,
+    checkpointIntervalSeconds: 10,
+    onTick: (_rem, spent) => {
+      if (activeLessonId && typeof window !== "undefined" && spent > 0) {
+        try {
+          localStorage.setItem(`codeskill_time_${user?.id || "guest"}_${activeLessonId}`, String(spent));
+        } catch (e) {}
+      }
+    },
     onCheckpoint: async (spent) => {
       if (activeLessonId) {
         await learningAPI.trackTimeSpent(activeLessonId, spent).catch(() => { });
@@ -701,8 +735,19 @@ export default function CourseWorkspacePage({
       const lessonData = res.data?.data || res.data;
       setLesson(lessonData);
 
-      // Initialize live stopwatch tracking
-      const initialTime = lessonData?.timeSpentSeconds || 0;
+      // Initialize live stopwatch tracking with refresh persistence
+      let initialTime = lessonData?.timeSpentSeconds || 0;
+      if (typeof window !== "undefined") {
+        try {
+          const cachedTime = localStorage.getItem(`codeskill_time_${user?.id || "guest"}_${id}`);
+          if (cachedTime) {
+            const parsed = parseInt(cachedTime, 10);
+            if (!isNaN(parsed) && parsed > initialTime) {
+              initialTime = parsed;
+            }
+          }
+        } catch (e) {}
+      }
       const targetTime =
         lessonData?.module?.requiredTimeSeconds ||
         lessonData?.requiredTimeSeconds ||
@@ -714,44 +759,33 @@ export default function CourseWorkspacePage({
       const codingEx = lessonData?.exercises?.find(
         (e: any) => e.type === "coding" || e.type === "debugging",
       );
-      if (codingEx?.starterCode?.c) {
-        setLanguage("c");
-        setCode(codingEx.starterCode.c);
-      } else if (codingEx?.starterCode?.sql) {
-        setLanguage("sql");
-        setCode(codingEx.starterCode.sql);
+
+      // Prioritize active course language so Python course gets Python questions
+      const targetLang = isPythonCourse
+        ? "python"
+        : isSqlCourse
+          ? "sql"
+          : isCCourse
+            ? "c"
+            : isJavaCourse
+              ? "java"
+              : codingEx?.starterCode?.python
+                ? "python"
+                : codingEx?.starterCode?.sql
+                  ? "sql"
+                  : codingEx?.starterCode?.c
+                    ? "c"
+                    : "python";
+
+      setLanguage(targetLang);
+      if (codingEx?.starterCode?.[targetLang]) {
+        setCode(codingEx.starterCode[targetLang]);
+      } else if (codingEx?.starterCode?.python && isPythonCourse) {
+        setCode(codingEx.starterCode.python);
       } else if (codingEx?.starterCode?.[language]) {
         setCode(codingEx.starterCode[language]);
-      } else if (codingEx?.starterCode?.java && !codingEx?.starterCode?.[language]) {
-        setLanguage("java");
-        setCode(codingEx.starterCode.java);
-      } else if (codingEx?.starterCode?.python && !codingEx?.starterCode?.[language]) {
-        setLanguage("python");
-        setCode(codingEx.starterCode.python);
-      } else if (codingEx?.starterCode?.javascript) {
-        setLanguage("javascript");
-        setCode(codingEx.starterCode.javascript);
-      } else if (codingEx?.starterCode) {
-        const availableLang = Object.keys(codingEx.starterCode)[0];
-        if (availableLang) {
-          setLanguage(availableLang);
-          setCode(codingEx.starterCode[availableLang]);
-        } else {
-          setCode(DEFAULT_STARTER_CODES[language] || "// Write your solution below\n");
-        }
-      } else if (
-        courseSlug.includes("c-programming") ||
-        courseSlug.includes("c-lang") ||
-        courseSlug.includes("interactive-practice") ||
-        courseSlug.includes("cu-practice")
-      ) {
-        setLanguage("c");
-        setCode(
-          `#include <stdio.h>\n\n// TODO: Implement your logic for: ${lessonData?.title || "Exercise"}\nint main() {\n    return 0;\n}\n`,
-        );
-      } else if (courseSlug.includes("dbms") || courseSlug.includes("sql")) {
-        setLanguage("sql");
-        setCode(DEFAULT_STARTER_CODES.sql);
+      } else if (DEFAULT_STARTER_CODES[targetLang]) {
+        setCode(DEFAULT_STARTER_CODES[targetLang]);
       } else {
         setCode(DEFAULT_STARTER_CODES[language] || "// Write your solution below\n");
       }
@@ -1852,10 +1886,7 @@ export default function CourseWorkspacePage({
               {hasMetTimeRequirement ? (
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 animate-in fade-in zoom-in duration-300" />
               ) : (
-                <Timer
-                  className={`w-3.5 h-3.5 text-amber-500 ${activityTimer.isRunning ? "animate-pulse" : ""
-                    }`}
-                />
+                <Timer className="w-3.5 h-3.5 text-amber-500" />
               )}
               <span>{formatTime(timeSpent)}</span>
               <span className="text-muted-foreground font-normal text-[10px]">
@@ -1973,8 +2004,8 @@ export default function CourseWorkspacePage({
                             className={`w-full text-left pl-7 pr-3 py-2 rounded-lg text-xs font-medium flex items-center justify-between transition-all duration-200 cursor-pointer ${isActive
                               ? "bg-primary/10 text-primary font-bold shadow-xs translate-x-1"
                               : l.isCompleted
-                                ? "text-foreground hover:bg-muted/60"
-                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                ? "text-foreground bg-emerald-500/5 border border-emerald-500/30 hover:bg-emerald-500/10 shadow-2xs"
+                                : "text-muted-foreground border border-transparent hover:bg-muted hover:text-foreground"
                               }`}
                           >
                             {/* Step Indicator Node */}
@@ -2009,94 +2040,13 @@ export default function CourseWorkspacePage({
           </aside>
 
           {/* Right Main Lesson Canvas */}
-          <main className="md:col-span-8 lg:col-span-9 bg-card border border-border rounded-xl p-6 sm:p-10 shadow-xs space-y-8">
+          <main className="md:col-span-8 lg:col-span-9 bg-card border border-border rounded-xl p-5 sm:p-7 shadow-xs space-y-6">
             {lessonLoading || !lesson ? (
               <div className="py-24 flex items-center justify-center">
                 <Spinner className="w-8 h-8 text-primary animate-spin" />
               </div>
             ) : (
-              <div className="space-y-8">
-                {/* Interactive Module Stopwatch & Requirement Bar */}
-                <div
-                  className={`relative overflow-hidden rounded-xl border p-4 sm:p-5 transition-all duration-700 ease-out shadow-xs ${hasMetTimeRequirement
-                    ? "bg-card border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-emerald-500/5 shadow-md"
-                    : "bg-card border-border hover:border-border/80"
-                    }`}
-                >
-                  {/* Smooth Ambient Celebration Glow */}
-                  <div
-                    className={`absolute -inset-1 bg-gradient-to-r from-emerald-500/10 via-emerald-500/20 to-teal-500/10 rounded-xl blur-lg transition-opacity duration-1000 pointer-events-none ${celebrationGlow ? "opacity-100" : "opacity-0"
-                      }`}
-                  />
-
-                  <div className="relative z-10 flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-500 ease-out ${hasMetTimeRequirement
-                          ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30 scale-100"
-                          : "bg-primary/10 text-primary border border-primary/20"
-                          }`}
-                      >
-                        {hasMetTimeRequirement ? (
-                          <CheckCircle2 className="w-5 h-5 text-white animate-in zoom-in-75 duration-300" />
-                        ) : (
-                          <Timer
-                            className={`w-5 h-5 ${activityTimer.isRunning ? "animate-pulse" : ""
-                              }`}
-                          />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                            Module Study Stopwatch
-                          </h4>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all duration-500 ${hasMetTimeRequirement
-                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-xs"
-                              : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 animate-pulse"
-                              }`}
-                          >
-                            {hasMetTimeRequirement
-                              ? "✓ Required Time Completed"
-                              : `⏱️ ${remainingSeconds}s Remaining`}
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5 transition-colors duration-500">
-                          {hasMetTimeRequirement
-                            ? "Engagement criteria satisfied! You can now complete this step and continue."
-                            : `Admin requires minimum ${Math.ceil(
-                              requiredTime / 60
-                            )} min of active reading & practice.`}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <div className="text-lg font-mono font-black text-foreground">
-                          {formatTime(timeSpent)}
-                        </div>
-                        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
-                          Time Spent
-                        </span>
-                      </div>
-
-                      <div className="w-28 sm:w-36 flex flex-col gap-1">
-                        <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden border border-border">
-                          <div
-                            className={`h-full transition-all duration-700 ease-out rounded-full ${hasMetTimeRequirement ? "bg-emerald-500 shadow-xs shadow-emerald-500/50" : "bg-primary"
-                              }`}
-                            style={{ width: `${progressPercent}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-muted-foreground text-right font-medium">
-                          {progressPercent}% Met
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              <div className="space-y-6">
 
                 {/* XP Celebration Banner */}
                 {xpCelebration && (
@@ -2213,6 +2163,7 @@ export default function CourseWorkspacePage({
                             key={ex.id}
                             exercise={ex}
                             userId={user?.id}
+                            defaultLanguage={activeCourseLanguage}
                             onPassed={(exerciseId, result) => {
                               if (result?.xpAwarded > 0) {
                                 setXpCelebration(result.xpAwarded);
@@ -2262,6 +2213,7 @@ export default function CourseWorkspacePage({
                         ],
                         marks: 25,
                       }}
+                      defaultLanguage={activeCourseLanguage}
                       onPassed={() => { }}
                     />
                   </div>
@@ -2398,10 +2350,10 @@ export default function CourseWorkspacePage({
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>100% Curriculum Completed</span>
               </div>
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
+              <h2 className="text-lg sm:text-xl font-bold text-foreground tracking-tight">
                 Congratulations! Course Completed!
               </h2>
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 You have successfully completed all modules, lessons, and hands-on practice challenges for this course.
               </p>
             </div>
