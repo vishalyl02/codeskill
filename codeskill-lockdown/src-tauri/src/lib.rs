@@ -89,12 +89,16 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
 
         let mut exam_id = None;
         let mut token = None;
+        let mut use_camera = true;  // safe default: assume camera needed
+        let mut use_mic = false;    // safe default: microphone off unless explicit
 
         for (k, v) in parsed.query_pairs() {
-            if k == "examId" || k == "assessmentId" {
-                exam_id = Some(v.to_string());
-            } else if k == "token" || k == "lockdownToken" {
-                token = Some(v.to_string());
+            match k.as_ref() {
+                "examId" | "assessmentId" => exam_id = Some(v.to_string()),
+                "token" | "lockdownToken" => token = Some(v.to_string()),
+                "useCamera" => use_camera = v != "0",
+                "useMic" => use_mic = v == "1",
+                _ => {}
             }
         }
 
@@ -120,6 +124,21 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
                     }
                     None => base_url,
                 };
+
+                // Store camera/mic requirements in shared state so the permissions
+                // checklist only asks for what this assessment actually needs.
+                {
+                    let startup_state = app.state::<StartupPermissionsState>();
+                    startup_state.set_media_requirements(use_camera, use_mic);
+                    security::log_diagnostic_entry(
+                        "INFO",
+                        "DEEP_LINK",
+                        &format!(
+                            "Media requirements from deep link: useCamera={}, useMic={}",
+                            use_camera, use_mic
+                        ),
+                    );
+                }
 
                 // Check if one-time permissions onboarding is needed
                 if permissions_onboarding::is_onboarding_needed(app) {

@@ -8,12 +8,18 @@ import { isLockdownClient } from "@/lib/lockdown-bridge";
 interface LockdownLaunchGateProps {
   examId: string;
   examTitle?: string;
+  /** Whether the assessment requires camera access for proctoring. Defaults to true (safe). */
+  requireCamera?: boolean;
+  /** Whether the assessment requires microphone access for proctoring. Defaults to false. */
+  requireMicrophone?: boolean;
   onClientDetected?: () => void;
 }
 
 export default function LockdownLaunchGate({
   examId,
   examTitle,
+  requireCamera = true,
+  requireMicrophone = false,
   onClientDetected,
 }: LockdownLaunchGateProps) {
   const [token, setToken] = useState<string>("");
@@ -40,9 +46,13 @@ export default function LockdownLaunchGate({
   const portalOrigin = getPortalOrigin();
   const originParam = portalOrigin ? `&origin=${encodeURIComponent(portalOrigin)}` : "";
 
+  // Pass proctoring media requirements so the LockDown app only requests the
+  // permissions that this specific assessment actually needs.
+  const mediaParams = `&useCamera=${requireCamera ? '1' : '0'}&useMic=${requireMicrophone ? '1' : '0'}`;
+
   const deepLinkUrl = `codeskill-exam://start?examId=${encodeURIComponent(
     examId
-  )}&token=${encodeURIComponent(token)}${originParam}`;
+  )}&token=${encodeURIComponent(token)}${originParam}${mediaParams}`;
 
   const diagnosticsDeepLink = `codeskill-lockdown://system-check${
     portalOrigin ? `?origin=${encodeURIComponent(portalOrigin)}` : ""
@@ -140,7 +150,7 @@ export default function LockdownLaunchGate({
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <a
-              href={`${cdnBase}/codeskill-lockdown-setup.msi`}
+              href={`${cdnBase}/codeskill-lockdown-setup.exe`}
               download
               className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/50 transition-all text-center group"
             >
@@ -263,7 +273,7 @@ export default function LockdownLaunchGate({
                       <li>
                         Or open PowerShell in your Downloads folder and run:
                         <div className="mt-1 p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] text-sky-400 select-all">
-                          Unblock-File -Path .\codeskill-lockdown-setup.msi
+                          Unblock-File -Path .\codeskill-lockdown-setup.exe
                         </div>
                       </li>
                     </ol>

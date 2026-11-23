@@ -364,6 +364,8 @@ export default function AssessmentBriefingPage({
       <LockdownLaunchGate
         examId={id}
         examTitle={assessment.title}
+        requireCamera={mediaRequirements.requireCamera}
+        requireMicrophone={mediaRequirements.requireMicrophone}
         onClientDetected={() => router.refresh()}
       />
     );
