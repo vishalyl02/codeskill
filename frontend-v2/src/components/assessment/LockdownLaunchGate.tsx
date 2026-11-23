@@ -26,6 +26,11 @@ export default function LockdownLaunchGate({
   const [isClient, setIsClient] = useState<boolean>(false);
   const [showInstructions, setShowInstructions] = useState<boolean>(false);
   const [osTab, setOsTab] = useState<"macos" | "windows" | "linux">("macos");
+  const [lockdownVersion, setLockdownVersion] = useState<string>("1.0.0");
+  const [downloadingPlatform, setDownloadingPlatform] = useState<string | null>(null);
+  const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [linuxFormat, setLinuxFormat] = useState<"deb" | "appimage">("deb");
 
   useEffect(() => {
     setToken(authStorage.getAccessToken() || "");
@@ -34,6 +39,18 @@ export default function LockdownLaunchGate({
     if (client && onClientDetected) {
       onClientDetected();
     }
+
+    // Fetch manifest or download metadata to get the latest published version
+    fetch("/api/lockdown/download?format=json")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.version) {
+          setLockdownVersion(data.version);
+        }
+      })
+      .catch(() => {
+        // Default to 1.0.0 if offline
+      });
   }, [onClientDetected]);
 
   const getPortalOrigin = () => {
@@ -58,8 +75,6 @@ export default function LockdownLaunchGate({
     portalOrigin ? `?origin=${encodeURIComponent(portalOrigin)}` : ""
   }`;
 
-  const cdnBase = (process.env.NEXT_PUBLIC_LOCKDOWN_CDN_URL || '/downloads').replace(/\/+$/, '');
-
   const handleLaunchClick = () => {
     if (typeof window !== "undefined") {
       window.location.assign(deepLinkUrl);
@@ -78,6 +93,40 @@ export default function LockdownLaunchGate({
     setIsClient(client);
     if (client && onClientDetected) {
       onClientDetected();
+    }
+  };
+
+  const handleDownload = (platform: "windows" | "macos" | "linux", format?: string) => {
+    setDownloadingPlatform(platform);
+    setDownloadStatus(`Initiating v${lockdownVersion} download for ${platform}...`);
+    setDownloadError(null);
+
+    try {
+      const activeFormat = format || (platform === "linux" ? linuxFormat : undefined);
+      const queryParams = new URLSearchParams({
+        platform,
+        version: lockdownVersion,
+        ...(activeFormat ? { format: activeFormat } : {}),
+      });
+
+      const downloadUrl = `/api/lockdown/download?${queryParams.toString()}`;
+
+      // Trigger background download via invisible iframe to prevent top-level navigation / external 404 pages
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = downloadUrl;
+      document.body.appendChild(iframe);
+
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+        setDownloadingPlatform(null);
+        setDownloadStatus(`Download started for ${platform.toUpperCase()}! Check your browser's downloads.`);
+      }, 2500);
+    } catch {
+      setDownloadingPlatform(null);
+      setDownloadError(`Unable to start download for ${platform}. Please check your connection and try again.`);
     }
   };
 
@@ -140,57 +189,112 @@ export default function LockdownLaunchGate({
 
         {/* Installer Download Options */}
         <div className="border-t border-slate-800 pt-6">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            Install CodeSkill LockDown
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <Download className="w-4 h-4 text-sky-400" />
+              Install CodeSkill LockDown
+            </h2>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              v{lockdownVersion} (Latest Release)
+            </span>
+          </div>
+
           <p className="text-xs text-slate-400 mb-4">
-            If you do not have LockDown installed on this machine, download the release for your operating system:
+            If you do not have LockDown installed on this machine, download the verified release for your operating system:
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <a
-              href="/api/lockdown/download?platform=windows"
-              download="CodeSkill-LockDown-Setup.exe"
-              className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/50 transition-all text-center group"
+            <button
+              type="button"
+              onClick={() => handleDownload("windows")}
+              disabled={downloadingPlatform === "windows"}
+              className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-sky-500/40 hover:bg-slate-800/50 transition-all text-center group cursor-pointer disabled:opacity-60"
             >
               <Monitor className="w-5 h-5 text-sky-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-medium text-slate-200">Windows</span>
+              <span className="text-xs font-medium text-slate-200">
+                {downloadingPlatform === "windows" ? "Starting..." : "Windows"}
+              </span>
               <span className="text-[10px] text-slate-400">.exe Installer (NSIS)</span>
-            </a>
+            </button>
 
-            <a
-              href="/api/lockdown/download?platform=macos"
-              download="codeskill-lockdown.dmg"
-              className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/50 transition-all text-center group"
+            <button
+              type="button"
+              onClick={() => handleDownload("macos")}
+              disabled={downloadingPlatform === "macos"}
+              className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-indigo-500/40 hover:bg-slate-800/50 transition-all text-center group cursor-pointer disabled:opacity-60"
             >
               <Monitor className="w-5 h-5 text-indigo-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-medium text-slate-200">macOS</span>
-              <span className="text-[10px] text-slate-400">.dmg Package</span>
-            </a>
+              <span className="text-xs font-medium text-slate-200">
+                {downloadingPlatform === "macos" ? "Starting..." : "macOS"}
+              </span>
+              <span className="text-[10px] text-slate-400">.dmg (Apple Silicon & Intel)</span>
+            </button>
 
-            <a
-              href="/api/lockdown/download?platform=linux"
-              download="codeskill-lockdown.deb"
-              className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/50 transition-all text-center group"
+            <button
+              type="button"
+              onClick={() => handleDownload("linux")}
+              disabled={downloadingPlatform === "linux"}
+              className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-emerald-500/40 hover:bg-slate-800/50 transition-all text-center group cursor-pointer disabled:opacity-60"
             >
               <Monitor className="w-5 h-5 text-emerald-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-medium text-slate-200">Linux</span>
-              <span className="text-[10px] text-slate-400">.deb / .AppImage</span>
-            </a>
+              <span className="text-xs font-medium text-slate-200">
+                {downloadingPlatform === "linux" ? "Starting..." : "Linux"}
+              </span>
+              <span className="text-[10px] text-slate-400">
+                .{linuxFormat} (Ubuntu / Fedora)
+              </span>
+            </button>
           </div>
 
-          <div className="mt-2.5 text-center">
-            <a
-              href="https://github.com/sazamansari/codeskill/releases/latest"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] text-slate-400 hover:text-sky-400 transition-colors inline-flex items-center gap-1"
+          {/* Linux package format toggle */}
+          <div className="mt-2 flex items-center justify-center gap-2 text-[11px] text-slate-400">
+            <span>Linux package:</span>
+            <button
+              type="button"
+              onClick={() => setLinuxFormat("deb")}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+                linuxFormat === "deb"
+                  ? "bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30"
+                  : "text-slate-500 hover:text-slate-300"
+              }`}
             >
-              <ExternalLink className="w-3 h-3" />
-              Direct GitHub Releases Fallback
-            </a>
+              .deb (Debian/Ubuntu)
+            </button>
+            <span className="text-slate-600">|</span>
+            <button
+              type="button"
+              onClick={() => setLinuxFormat("appimage")}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+                linuxFormat === "appimage"
+                  ? "bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30"
+                  : "text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              .AppImage (Portable)
+            </button>
           </div>
+
+          {/* In-app download feedback banner */}
+          {downloadStatus && (
+            <div className="mt-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-center gap-2 animate-fadeIn">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span className="flex-1">{downloadStatus}</span>
+            </div>
+          )}
+
+          {downloadError && (
+            <div className="mt-3 p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center justify-between gap-2 animate-fadeIn">
+              <span>{downloadError}</span>
+              <button
+                type="button"
+                onClick={() => setDownloadError(null)}
+                className="text-[10px] underline hover:text-rose-200 cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
 
           {/* First-Time Launch & Unverified Developer Instructions */}
           <div className="mt-4 pt-3 border-t border-slate-800/60">
