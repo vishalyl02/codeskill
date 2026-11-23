@@ -150,7 +150,7 @@ export default function LockdownLaunchGate({
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <a
-              href={`${cdnBase}/codeskill-lockdown-setup.msi`}
+              href={`${cdnBase}/codeskill-lockdown-setup.exe`}
               download
               className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/50 transition-all text-center group"
             >
@@ -273,7 +273,7 @@ export default function LockdownLaunchGate({
                       <li>
                         Or open PowerShell in your Downloads folder and run:
                         <div className="mt-1 p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] text-sky-400 select-all">
-                          Unblock-File -Path .\codeskill-lockdown-setup.msi
+                          Unblock-File -Path .\codeskill-lockdown-setup.exe
                         </div>
                       </li>
                     </ol>

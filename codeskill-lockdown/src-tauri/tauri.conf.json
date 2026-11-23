@@ -45,7 +45,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["dmg", "app", "nsis", "deb", "appimage"],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "displayLanguageSelector": false,
+        "shortcutName": "CodeSkill LockDown"
+      }
+    },
     "macOS": {
       "entitlements": "Entitlements.plist",
       "infoPlist": "Info.plist"
