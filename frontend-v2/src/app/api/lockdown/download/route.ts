@@ -121,11 +121,72 @@ export async function GET(req: NextRequest) {
         });
       }
     } catch {
-      // Fall through to canonical GitHub Releases redirect
+      // Fall through to GitHub Releases
     }
   }
 
-  // 3. Fallback to canonical GitHub Releases asset for this version tag
+  // 3. Authenticated GitHub Release Asset Proxy (for private repos)
+  // When LOCKDOWN_GITHUB_TOKEN or GITHUB_TOKEN is set, exchanges the asset for a signed AWS S3 download link
+  const githubToken = process.env.LOCKDOWN_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+  if (githubToken) {
+    try {
+      const releaseApiUrl = `https://api.github.com/repos/${CANONICAL_REPO}/releases/tags/${tagParam}`;
+      const releaseRes = await fetch(releaseApiUrl, {
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'CodeSkill-Installer-Downloader',
+        },
+      });
+
+      if (releaseRes.ok) {
+        const releaseData = await releaseRes.json();
+        const assets: Array<{ id: number; name: string }> = releaseData.assets || [];
+
+        let matchedAsset = null;
+        for (const candidate of candidates) {
+          const found = assets.find((a) => a.name === candidate);
+          if (found) {
+            matchedAsset = found;
+            break;
+          }
+        }
+
+        if (matchedAsset) {
+          const assetDownloadUrl = `https://api.github.com/repos/${CANONICAL_REPO}/releases/assets/${matchedAsset.id}`;
+          const assetRes = await fetch(assetDownloadUrl, {
+            headers: {
+              Authorization: `Bearer ${githubToken}`,
+              Accept: 'application/octet-stream',
+              'User-Agent': 'CodeSkill-Installer-Downloader',
+            },
+            redirect: 'manual',
+          });
+
+          // GitHub API responds with 302 pointing to pre-signed AWS S3 URL
+          const signedS3Url = assetRes.headers.get('location');
+          if (signedS3Url) {
+            return NextResponse.redirect(signedS3Url, {
+              status: 302,
+              headers: {
+                'Content-Type': assetConfig.contentType,
+                'Content-Disposition': `attachment; filename="${matchedAsset.name}"`,
+                'X-CodeSkill-Installer-Version': cleanVersion,
+                'X-CodeSkill-Installer-Tag': tagParam,
+                'X-CodeSkill-Installer-Format': assetConfig.format,
+                'X-CodeSkill-Installer-Type': assetConfig.installerType,
+                'X-CodeSkill-Asset-Source': 'github-signed-s3',
+              },
+            });
+          }
+        }
+      }
+    } catch (apiErr) {
+      console.warn('[LockDown Downloader] GitHub API token proxy notice:', apiErr);
+    }
+  }
+
+  // 4. Fallback to canonical GitHub Releases asset for this version tag
   const githubReleaseUrl = `https://github.com/${CANONICAL_REPO}/releases/download/${tagParam}/${preferredFilename}`;
   return NextResponse.redirect(githubReleaseUrl, {
     status: 302,
