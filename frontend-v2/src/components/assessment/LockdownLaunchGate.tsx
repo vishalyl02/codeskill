@@ -8,12 +8,18 @@ import { isLockdownClient } from "@/lib/lockdown-bridge";
 interface LockdownLaunchGateProps {
   examId: string;
   examTitle?: string;
+  /** Whether the assessment requires camera access for proctoring. Defaults to true (safe). */
+  requireCamera?: boolean;
+  /** Whether the assessment requires microphone access for proctoring. Defaults to false. */
+  requireMicrophone?: boolean;
   onClientDetected?: () => void;
 }
 
 export default function LockdownLaunchGate({
   examId,
   examTitle,
+  requireCamera = true,
+  requireMicrophone = false,
   onClientDetected,
 }: LockdownLaunchGateProps) {
   const [token, setToken] = useState<string>("");
@@ -40,9 +46,13 @@ export default function LockdownLaunchGate({
   const portalOrigin = getPortalOrigin();
   const originParam = portalOrigin ? `&origin=${encodeURIComponent(portalOrigin)}` : "";
 
+  // Pass proctoring media requirements so the LockDown app only requests the
+  // permissions that this specific assessment actually needs.
+  const mediaParams = `&useCamera=${requireCamera ? '1' : '0'}&useMic=${requireMicrophone ? '1' : '0'}`;
+
   const deepLinkUrl = `codeskill-exam://start?examId=${encodeURIComponent(
     examId
-  )}&token=${encodeURIComponent(token)}${originParam}`;
+  )}&token=${encodeURIComponent(token)}${originParam}${mediaParams}`;
 
   const diagnosticsDeepLink = `codeskill-lockdown://system-check${
     portalOrigin ? `?origin=${encodeURIComponent(portalOrigin)}` : ""

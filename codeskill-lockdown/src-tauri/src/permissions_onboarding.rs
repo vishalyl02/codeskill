@@ -2,21 +2,38 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 use crate::security::log_diagnostic_entry;
 
+/// Runtime state shared across the permissions-onboarding flow.
+/// `require_camera` and `require_microphone` are written by the deep-link
+/// handler (from URL query params) and read by `inspect_live_permissions` so
+/// that the checklist only shows permissions the assessment actually needs.
 #[derive(Default)]
 pub struct StartupPermissionsState {
     pub pending_launch_url: Mutex<Option<String>>,
+    /// Whether the current assessment requires camera access (default: true – safe).
+    pub require_camera: AtomicBool,
+    /// Whether the current assessment requires microphone access (default: false).
+    pub require_microphone: AtomicBool,
 }
 
 impl StartupPermissionsState {
     pub fn new() -> Self {
         Self {
             pending_launch_url: Mutex::new(None),
+            require_camera: AtomicBool::new(true),
+            require_microphone: AtomicBool::new(false),
         }
+    }
+
+    /// Called by the deep-link handler after parsing `useCamera` / `useMic` query params.
+    pub fn set_media_requirements(&self, camera: bool, mic: bool) {
+        self.require_camera.store(camera, Ordering::Relaxed);
+        self.require_microphone.store(mic, Ordering::Relaxed);
     }
 }
 
@@ -602,14 +619,45 @@ mod linux_impl {
 // Permission Inspection & Dispatch
 // ---------------------------------------------------------------------------
 
-pub fn inspect_live_permissions(_app: &AppHandle) -> Vec<PermissionChecklistItem> {
+/// Returns the live checklist of permissions required at startup.
+///
+/// Camera and Microphone items are **conditional**: they are included only when
+/// the assessment that triggered this launch actually needs them (signalled via
+/// the `useCamera` / `useMic` query params in the deep link).
+/// Accessibility (kiosk keyboard guard) and Screen Recording / WebView2 / XDG
+/// Portal items are **always** included — they protect exam integrity
+/// independently of whether a camera or microphone is present.
+pub fn inspect_live_permissions(app: &AppHandle) -> Vec<PermissionChecklistItem> {
+    // Read what this assessment needs from the shared state set by the deep-link handler.
+    let startup_state = app.try_state::<StartupPermissionsState>();
+    let require_camera = startup_state
+        .as_ref()
+        .map(|s| s.require_camera.load(Ordering::Relaxed))
+        .unwrap_or(true); // safe default: assume camera needed if state not set
+    let require_microphone = startup_state
+        .as_ref()
+        .map(|s| s.require_microphone.load(Ordering::Relaxed))
+        .unwrap_or(false); // safe default: microphone off unless explicitly required
+
+    log_diagnostic_entry(
+        "INFO",
+        "PERMISSIONS_ONBOARDING",
+        &format!(
+            "inspect_live_permissions: require_camera={}, require_microphone={}",
+            require_camera, require_microphone
+        ),
+    );
+
     let platform = current_platform();
     match platform {
         "macos" => {
             #[cfg(target_os = "macos")]
             {
-                vec![
-                    PermissionChecklistItem {
+                let mut items: Vec<PermissionChecklistItem> = vec![];
+
+                // Camera — only if assessment needs it
+                if require_camera {
+                    items.push(PermissionChecklistItem {
                         id: "camera".to_string(),
                         name: "Camera Access".to_string(),
                         description: "Allows video proctoring and candidate identity verification during exams.".to_string(),
@@ -618,8 +666,12 @@ pub fn inspect_live_permissions(_app: &AppHandle) -> Vec<PermissionChecklistItem
                         action_type: "open_settings".to_string(),
                         action_payload: None,
                         settings_target: Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Camera".to_string()),
-                    },
-                    PermissionChecklistItem {
+                    });
+                }
+
+                // Microphone — only if assessment needs it
+                if require_microphone {
+                    items.push(PermissionChecklistItem {
                         id: "microphone".to_string(),
                         name: "Microphone Access".to_string(),
                         description: "Allows audio environment proctoring and ambient noise monitoring.".to_string(),
@@ -628,28 +680,34 @@ pub fn inspect_live_permissions(_app: &AppHandle) -> Vec<PermissionChecklistItem
                         action_type: "open_settings".to_string(),
                         action_payload: None,
                         settings_target: Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone".to_string()),
-                    },
-                    PermissionChecklistItem {
-                        id: "accessibility".to_string(),
-                        name: "Accessibility & Kiosk Guard".to_string(),
-                        description: "Enables hardware-level keyboard protection to block OS switcher escapes (Cmd+Tab, Spotlight, Mission Control).".to_string(),
-                        status: macos_impl::check_accessibility_status(),
-                        required: true,
-                        action_type: "open_settings".to_string(),
-                        action_payload: None,
-                        settings_target: Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility".to_string()),
-                    },
-                    PermissionChecklistItem {
-                        id: "screen_capture".to_string(),
-                        name: "Screen Recording & Display Integrity".to_string(),
-                        description: "Permits LockDown to inspect screen capture state and block unauthorized mirroring, broadcast, or stealth overlays.".to_string(),
-                        status: macos_impl::check_screen_capture_status(),
-                        required: true,
-                        action_type: "open_settings".to_string(),
-                        action_payload: None,
-                        settings_target: Some("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture".to_string()),
-                    },
-                ]
+                    });
+                }
+
+                // Accessibility — always required (kiosk keyboard guard)
+                items.push(PermissionChecklistItem {
+                    id: "accessibility".to_string(),
+                    name: "Accessibility & Kiosk Guard".to_string(),
+                    description: "Enables hardware-level keyboard protection to block OS switcher escapes (Cmd+Tab, Spotlight, Mission Control).".to_string(),
+                    status: macos_impl::check_accessibility_status(),
+                    required: true,
+                    action_type: "open_settings".to_string(),
+                    action_payload: None,
+                    settings_target: Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility".to_string()),
+                });
+
+                // Screen capture — always required (anti-cheat overlay detection)
+                items.push(PermissionChecklistItem {
+                    id: "screen_capture".to_string(),
+                    name: "Screen Recording & Display Integrity".to_string(),
+                    description: "Permits LockDown to inspect screen capture state and block unauthorized mirroring, broadcast, or stealth overlays.".to_string(),
+                    status: macos_impl::check_screen_capture_status(),
+                    required: true,
+                    action_type: "open_settings".to_string(),
+                    action_payload: None,
+                    settings_target: Some("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture".to_string()),
+                });
+
+                items
             }
             #[cfg(not(target_os = "macos"))]
             {
@@ -659,8 +717,11 @@ pub fn inspect_live_permissions(_app: &AppHandle) -> Vec<PermissionChecklistItem
         "windows" => {
             #[cfg(target_os = "windows")]
             {
-                vec![
-                    PermissionChecklistItem {
+                let mut items: Vec<PermissionChecklistItem> = vec![];
+
+                // Camera — only if assessment needs it
+                if require_camera {
+                    items.push(PermissionChecklistItem {
                         id: "camera".to_string(),
                         name: "Webcam Access".to_string(),
                         description: "Allows video monitoring and identity verification during exams.".to_string(),
@@ -669,8 +730,12 @@ pub fn inspect_live_permissions(_app: &AppHandle) -> Vec<PermissionChecklistItem
                         action_type: "open_settings".to_string(),
                         action_payload: None,
                         settings_target: Some("ms-settings:privacy-webcam".to_string()),
-                    },
-                    PermissionChecklistItem {
+                    });
+                }
+
+                // Microphone — only if assessment needs it
+                if require_microphone {
+                    items.push(PermissionChecklistItem {
                         id: "microphone".to_string(),
                         name: "Microphone Access".to_string(),
                         description: "Allows audio environment monitoring during exams.".to_string(),
@@ -679,28 +744,34 @@ pub fn inspect_live_permissions(_app: &AppHandle) -> Vec<PermissionChecklistItem
                         action_type: "open_settings".to_string(),
                         action_payload: None,
                         settings_target: Some("ms-settings:privacy-microphone".to_string()),
-                    },
-                    PermissionChecklistItem {
-                        id: "kiosk_desktop".to_string(),
-                        name: "WebView2 Runtime & Kiosk Desktop".to_string(),
-                        description: "Verifies Microsoft Edge WebView2 and secure desktop switching readiness without remote session conflicts.".to_string(),
-                        status: windows_impl::check_kiosk_desktop_status(),
-                        required: true,
-                        action_type: "open_settings".to_string(),
-                        action_payload: None,
-                        settings_target: Some("ms-settings:appsfeatures".to_string()),
-                    },
-                    PermissionChecklistItem {
-                        id: "display_integrity".to_string(),
-                        name: "Single Display & Capture Integrity".to_string(),
-                        description: "Verifies single-monitor configuration and window capture protection.".to_string(),
-                        status: windows_impl::check_display_integrity_status(_app),
-                        required: true,
-                        action_type: "open_settings".to_string(),
-                        action_payload: None,
-                        settings_target: Some("ms-settings:display".to_string()),
-                    },
-                ]
+                    });
+                }
+
+                // WebView2 + Kiosk Desktop — always required
+                items.push(PermissionChecklistItem {
+                    id: "kiosk_desktop".to_string(),
+                    name: "WebView2 Runtime & Kiosk Desktop".to_string(),
+                    description: "Verifies Microsoft Edge WebView2 and secure desktop switching readiness without remote session conflicts.".to_string(),
+                    status: windows_impl::check_kiosk_desktop_status(),
+                    required: true,
+                    action_type: "open_settings".to_string(),
+                    action_payload: None,
+                    settings_target: Some("ms-settings:appsfeatures".to_string()),
+                });
+
+                // Display integrity — always required (anti-cheat)
+                items.push(PermissionChecklistItem {
+                    id: "display_integrity".to_string(),
+                    name: "Single Display & Capture Integrity".to_string(),
+                    description: "Verifies single-monitor configuration and window capture protection.".to_string(),
+                    status: windows_impl::check_display_integrity_status(app),
+                    required: true,
+                    action_type: "open_settings".to_string(),
+                    action_payload: None,
+                    settings_target: Some("ms-settings:display".to_string()),
+                });
+
+                items
             }
             #[cfg(not(target_os = "windows"))]
             {
@@ -731,8 +802,11 @@ pub fn inspect_live_permissions(_app: &AppHandle) -> Vec<PermissionChecklistItem
                     None
                 };
 
-                vec![
-                    PermissionChecklistItem {
+                let mut items: Vec<PermissionChecklistItem> = vec![];
+
+                // Camera — only if assessment needs it
+                if require_camera {
+                    items.push(PermissionChecklistItem {
                         id: "camera".to_string(),
                         name: "Camera & V4L2 Device Access".to_string(),
                         description: "Grants video capture device permissions for exam proctoring.".to_string(),
@@ -741,8 +815,12 @@ pub fn inspect_live_permissions(_app: &AppHandle) -> Vec<PermissionChecklistItem
                         action_type: "open_settings".to_string(),
                         action_payload: Some("sudo usermod -aG video $USER".to_string()),
                         settings_target: Some("gnome-control-center privacy".to_string()),
-                    },
-                    PermissionChecklistItem {
+                    });
+                }
+
+                // Microphone — only if assessment needs it
+                if require_microphone {
+                    items.push(PermissionChecklistItem {
                         id: "microphone".to_string(),
                         name: "Microphone & Sound Server Access".to_string(),
                         description: "Grants PipeWire/PulseAudio capture access for exam proctoring.".to_string(),
@@ -751,28 +829,34 @@ pub fn inspect_live_permissions(_app: &AppHandle) -> Vec<PermissionChecklistItem
                         action_type: "open_settings".to_string(),
                         action_payload: Some("sudo usermod -aG audio $USER".to_string()),
                         settings_target: Some("gnome-control-center sound".to_string()),
-                    },
-                    PermissionChecklistItem {
-                        id: "kiosk_compositor".to_string(),
-                        name: "Display Server & Kiosk Compositor".to_string(),
-                        description: compositor_desc,
-                        status: linux_impl::check_kiosk_compositor_status(),
-                        required: true,
-                        action_type: "info".to_string(),
-                        action_payload: compositor_payload,
-                        settings_target: None,
-                    },
-                    PermissionChecklistItem {
-                        id: "portal_session".to_string(),
-                        name: "XDG Desktop Portal Persistence".to_string(),
-                        description: "Ensures persistent desktop portal session so permissions survive across app restarts.".to_string(),
-                        status: portal_status,
-                        required: true,
-                        action_type: "info".to_string(),
-                        action_payload: portal_payload,
-                        settings_target: None,
-                    },
-                ]
+                    });
+                }
+
+                // Kiosk compositor — always required
+                items.push(PermissionChecklistItem {
+                    id: "kiosk_compositor".to_string(),
+                    name: "Display Server & Kiosk Compositor".to_string(),
+                    description: compositor_desc,
+                    status: linux_impl::check_kiosk_compositor_status(),
+                    required: true,
+                    action_type: "info".to_string(),
+                    action_payload: compositor_payload,
+                    settings_target: None,
+                });
+
+                // XDG portal — always required (permission persistence)
+                items.push(PermissionChecklistItem {
+                    id: "portal_session".to_string(),
+                    name: "XDG Desktop Portal Persistence".to_string(),
+                    description: "Ensures persistent desktop portal session so permissions survive across app restarts.".to_string(),
+                    status: portal_status,
+                    required: true,
+                    action_type: "info".to_string(),
+                    action_payload: portal_payload,
+                    settings_target: None,
+                });
+
+                items
             }
             #[cfg(not(target_os = "linux"))]
             {
@@ -1049,13 +1133,53 @@ pub fn is_onboarding_needed(app: &AppHandle) -> bool {
     let persisted = load_persisted_permissions_state(app);
     match persisted {
         Some(state) if state.onboarding_completed => {
-            // Live permission verification in < 50ms
             let items = inspect_live_permissions(app);
-            let all_granted = items
+            let failing: Vec<_> = items
                 .iter()
-                .filter(|i| i.required)
-                .all(|i| i.status == "granted");
-            !all_granted
+                .filter(|i| i.required && i.status != "granted")
+                .collect();
+
+            if failing.is_empty() {
+                return false; // All good — skip the permissions screen ✅
+            }
+
+            // Grace mode (macOS only): `CGPreflightScreenCaptureAccess` can return
+            // false for ~100ms after app launch even when the user has already granted
+            // the permission. If the ONLY failing item is `screen_capture` with status
+            // `needs_action` (not denied), wait 200 ms and re-check once before
+            // deciding to show the full permissions screen.
+            #[cfg(target_os = "macos")]
+            {
+                let only_screen_capture_flicker = failing.len() == 1
+                    && failing[0].id == "screen_capture"
+                    && failing[0].status == "needs_action";
+
+                if only_screen_capture_flicker {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    let retry_status = macos_impl::check_screen_capture_status();
+                    if retry_status == "granted" {
+                        log_diagnostic_entry(
+                            "INFO",
+                            "PERMISSIONS_ONBOARDING",
+                            "screen_capture recovered after 200 ms startup delay — skipping permissions screen",
+                        );
+                        return false; // Transient startup flicker resolved ✅
+                    }
+                }
+            }
+
+            // Real failure: log which permission(s) are missing then show screen
+            for item in &failing {
+                log_diagnostic_entry(
+                    "WARN",
+                    "PERMISSIONS_ONBOARDING",
+                    &format!(
+                        "Permission not granted at startup: id={}, status={}",
+                        item.id, item.status
+                    ),
+                );
+            }
+            true
         }
         _ => true,
     }
