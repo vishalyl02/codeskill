@@ -10,6 +10,17 @@ import {
   MediaPermissionStatus,
   isLockdownClient,
 } from "@/lib/lockdown-bridge";
+import {
+  requestAssessmentMedia,
+  verifyAssessmentMediaStream,
+  type AssessmentCameraSelectionPolicy,
+} from "@/lib/assessment-media-policy";
+import {
+  getPreferredAssessmentCamera,
+  handoffAssessmentStream,
+  setPreferredAssessmentCamera,
+  takeAssessmentStream,
+} from "@/lib/assessment-media-session";
 
 const VIRTUAL_DEVICE_KEYWORDS = [
   'obs',
@@ -68,6 +79,7 @@ interface LockdownMediaPermissionGateProps {
   assessmentId: string;
   requireCamera?: boolean;
   requireMic?: boolean;
+  cameraSelectionPolicy?: AssessmentCameraSelectionPolicy;
   onReady: () => void;
 }
 
@@ -75,6 +87,7 @@ export default function LockdownMediaPermissionGate({
   assessmentId,
   requireCamera = true,
   requireMic = true,
+  cameraSelectionPolicy = "student_select",
   onReady,
 }: LockdownMediaPermissionGateProps) {
   // If neither camera nor microphone is required by this assessment, bypass immediately!
@@ -89,6 +102,8 @@ export default function LockdownMediaPermissionGate({
   const [streamError, setStreamError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState<boolean>(true);
   const [cameraVerified, setCameraVerified] = useState<boolean>(!requireCamera);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCamera, setSelectedCamera] = useState("");
   const [micVerified, setMicVerified] = useState<boolean>(!requireMic);
   const [audioLevel, setAudioLevel] = useState<number>(0);
   const [isOpeningSettings, setIsOpeningSettings] = useState<boolean>(false);
@@ -104,6 +119,7 @@ export default function LockdownMediaPermissionGate({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
+  const mediaRequestId = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
@@ -112,6 +128,7 @@ export default function LockdownMediaPermissionGate({
       activeStreamRef.current.getTracks().forEach((track) => track.stop());
       activeStreamRef.current = null;
     }
+    if (videoRef.current) videoRef.current.srcObject = null;
     if (audioContextRef.current) {
       try {
         void audioContextRef.current.close();
@@ -124,9 +141,12 @@ export default function LockdownMediaPermissionGate({
     }
   }, []);
 
-  const verifyMediaStreams = useCallback(async () => {
+  const verifyMediaStreams = useCallback(async (deviceId?: string, useHandoff = false) => {
+    const request = ++mediaRequestId.current;
     setIsVerifying(true);
     setStreamError(null);
+    setCameraVerified(!requireCamera);
+    setMicVerified(!requireMic);
     stopActiveStream();
 
     try {
@@ -134,6 +154,7 @@ export default function LockdownMediaPermissionGate({
       if (isLockdownClient()) {
         try {
           const audit = await inspectMediaHardware();
+          if (request !== mediaRequestId.current) return;
           if (!audit.passed && audit.virtualDevicesDetected.length > 0) {
             setStreamError(
               `Virtual camera or audio driver detected (${audit.virtualDevicesDetected.join(', ')}). Virtual devices are strictly prohibited during the exam. Please disconnect virtual drivers and use a physical camera/mic.`,
@@ -147,7 +168,9 @@ export default function LockdownMediaPermissionGate({
       }
 
       // 1. Check OS-level permissions via Rust bridge
+      if (request !== mediaRequestId.current) return;
       const status = await checkAndRequestMediaPermissions(requireCamera, requireMic);
+      if (request !== mediaRequestId.current) return;
       setOsStatus(status);
 
       if (requireCamera && status.camera === "denied") {
@@ -163,13 +186,19 @@ export default function LockdownMediaPermissionGate({
       }
 
       // 2. Request browser media stream
-      const constraints: MediaStreamConstraints = {
-        video: requireCamera ? { width: { ideal: 640, max: 1280 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } } : false,
-        audio: requireMic,
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const capture = { requireCamera, requireMicrophone: requireMic, cameraSelectionPolicy };
+      const handoff = useHandoff ? takeAssessmentStream(assessmentId, deviceId, cameraSelectionPolicy) : null;
+      const stream = handoff ?? await requestAssessmentMedia({
+        ...capture,
+        deviceId,
+        videoConstraints: { width: { ideal: 640, max: 1280 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 15 } },
+      });
+      if (request !== mediaRequestId.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       activeStreamRef.current = stream;
+      if (handoff) verifyAssessmentMediaStream(handoff, capture);
 
       // 3. Verify video track
       if (requireCamera) {
@@ -180,11 +209,19 @@ export default function LockdownMediaPermissionGate({
         if (isVirtualDeviceLabel(videoTrack.label || '')) {
           throw new Error(`Virtual camera detected: "${videoTrack.label}". Virtual cameras and pre-recorded loops are strictly prohibited. Please switch to a physical hardware webcam.`);
         }
+        if (cameraSelectionPolicy === "student_select" && navigator.mediaDevices.enumerateDevices) {
+          const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+          if (request !== mediaRequestId.current) return;
+          setCameras(devices.filter((device) => device.kind === "videoinput"));
+          setSelectedCamera(videoTrack.getSettings().deviceId ?? deviceId ?? "");
+        }
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play().catch(() => {});
+          if (request !== mediaRequestId.current) return;
           // Active liveness verification (5 frames sampled over 1.2s)
           const isLive = await verifyCameraLiveness(videoRef.current);
+          if (request !== mediaRequestId.current) return;
           if (!isLive) {
             throw new Error("Camera feed is static or frozen. A live physical camera feed with active frame variance is required.");
           }
@@ -238,26 +275,32 @@ export default function LockdownMediaPermissionGate({
           mediaPermissionsVerified: true,
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (request !== mediaRequestId.current) return;
+      stopActiveStream();
       console.error("[LockdownMediaPermissionGate] Hardware verification failed:", err);
-      const msg = err?.message || "Failed to access camera or microphone hardware.";
+      const msg = err instanceof Error ? err.message : "Failed to access camera or microphone hardware.";
       setStreamError(msg);
       setCameraVerified(false);
       setMicVerified(false);
     } finally {
-      setIsVerifying(false);
+      if (request === mediaRequestId.current) setIsVerifying(false);
     }
-  }, [requireCamera, requireMic, assessmentId, stopActiveStream]);
+  }, [requireCamera, requireMic, assessmentId, cameraSelectionPolicy, stopActiveStream]);
 
   useEffect(() => {
     if (!requireCamera && !requireMic) {
       return;
     }
-    void verifyMediaStreams();
+    const preferredCamera = cameraSelectionPolicy === "student_select"
+      ? getPreferredAssessmentCamera(assessmentId)
+      : undefined;
+    void verifyMediaStreams(preferredCamera, true);
     return () => {
+      mediaRequestId.current += 1;
       stopActiveStream();
     };
-  }, [requireCamera, requireMic, verifyMediaStreams, stopActiveStream]);
+  }, [assessmentId, cameraSelectionPolicy, requireCamera, requireMic, verifyMediaStreams, stopActiveStream]);
 
   if (!requireCamera && !requireMic) {
     return null;
@@ -425,6 +468,26 @@ export default function LockdownMediaPermissionGate({
                   </div>
                 )}
               </div>
+              {cameraSelectionPolicy === "student_select" && cameras.length > 0 && (
+                <label className="block space-y-1 text-xs text-slate-200">
+                  Choose camera
+                  <select
+                    value={selectedCamera}
+                    disabled={isVerifying}
+                    onChange={(event) => {
+                      setSelectedCamera(event.target.value);
+                      void verifyMediaStreams(event.target.value);
+                    }}
+                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5"
+                  >
+                    {cameras.map((camera, index) => (
+                      <option key={camera.deviceId} value={camera.deviceId}>
+                        {camera.label || `Camera ${index + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           )}
 
@@ -470,7 +533,7 @@ export default function LockdownMediaPermissionGate({
         <div className="flex items-center justify-between pt-2">
           <button
             type="button"
-            onClick={() => void verifyMediaStreams()}
+            onClick={() => void verifyMediaStreams(selectedCamera || undefined)}
             disabled={isVerifying}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-sm font-semibold text-slate-200 hover:bg-slate-700 transition-all cursor-pointer disabled:opacity-50"
           >
@@ -481,10 +544,16 @@ export default function LockdownMediaPermissionGate({
           <button
             type="button"
             onClick={() => {
-              if (allVerified) {
-                stopActiveStream();
-                onReady();
+              const stream = activeStreamRef.current;
+              if (!allVerified || !stream) return;
+              const deviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
+              if (cameraSelectionPolicy === "student_select" && deviceId) {
+                setPreferredAssessmentCamera(assessmentId, deviceId);
               }
+              handoffAssessmentStream(assessmentId, stream, cameraSelectionPolicy);
+              activeStreamRef.current = null;
+              stopActiveStream();
+              onReady();
             }}
             disabled={!allVerified || isVerifying}
             className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"

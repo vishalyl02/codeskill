@@ -1,15 +1,22 @@
 import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useAssessmentMedia } from "@/hooks/useAssessmentMedia";
+import { handoffAssessmentStream, setPreferredAssessmentCamera } from "@/lib/assessment-media-session";
 
-function stream() {
-  const video = { stop: jest.fn() };
-  const audio = { stop: jest.fn() };
-  return { value: { getTracks: () => [video, audio] } as unknown as MediaStream, video, audio };
+function stream(deviceId = "webcam", label = "Built-in Webcam") {
+  const video = { stop: jest.fn(), readyState: "live", label, getSettings: () => ({ deviceId }) };
+  const audio = { stop: jest.fn(), readyState: "live" };
+  const value = {
+    getTracks: () => [video, audio],
+    getVideoTracks: () => [video],
+    getAudioTracks: () => [audio],
+  } as unknown as MediaStream;
+  return { value, video, audio };
 }
 const getUserMedia = jest.fn();
 beforeEach(() => {
   jest.clearAllMocks();
+  sessionStorage.clear();
   Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
   jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
@@ -103,4 +110,82 @@ it("closes audio analysis and cancels animation on test completion", async () =>
     expect(frame).toHaveBeenCalled(); expect(cancel).toHaveBeenCalledWith(42);
     expect(disconnect).toHaveBeenCalledTimes(1); expect(close).toHaveBeenCalledTimes(1);
   } finally { window.AudioContext = oldAudio; }
+});
+
+
+it("uses the default webcam instead of a previously selected phone stream", async () => {
+  const phone = stream("phone", "Student's iPhone Camera");
+  const webcam = stream();
+  setPreferredAssessmentCamera("exam", "phone");
+  handoffAssessmentStream("exam", phone.value, "student_select");
+  getUserMedia.mockResolvedValue(webcam.value);
+
+  const { result } = renderHook(() => useAssessmentMedia("exam", true, jest.fn(), {
+    cameraSelectionPolicy: "system_default",
+    requireMicrophone: false,
+  }));
+  await waitFor(() => expect(result.current.mediaStream).toBe(webcam.value));
+  expect(getUserMedia).toHaveBeenCalledWith({ video: true, audio: false });
+  expect(phone.video.stop).toHaveBeenCalledTimes(1);
+  expect(result.current.micActive).toBe(false);
+});
+
+it("stops a phone webcam returned by the browser in default camera mode", async () => {
+  const phone = stream("phone", "Student's iPhone Camera");
+  getUserMedia.mockResolvedValue(phone.value);
+
+  const { result } = renderHook(() => useAssessmentMedia("exam", true, jest.fn(), {
+    cameraSelectionPolicy: "system_default",
+  }));
+  await waitFor(() => expect(result.current.cameraError).toContain("Disconnect the phone camera"));
+  expect(result.current.mediaStream).toBeNull();
+  expect(result.current.cameraActive).toBe(false);
+  expect(phone.video.stop).toHaveBeenCalledTimes(1);
+  expect(phone.audio.stop).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the selected phone feed visible after reconnecting", async () => {
+  const phone = stream("phone", "Student's iPhone Camera");
+  const replacement = stream("phone", "Student's iPhone Camera");
+  setPreferredAssessmentCamera("exam", "phone");
+  handoffAssessmentStream("exam", phone.value, "student_select");
+  getUserMedia.mockResolvedValue(replacement.value);
+
+  const { result, unmount } = renderHook(() => useAssessmentMedia("exam", true, jest.fn()));
+  const preview = document.createElement("video");
+  act(() => result.current.attachVideo(preview));
+  await waitFor(() => expect(preview.srcObject).toBe(phone.value));
+  expect(getUserMedia).not.toHaveBeenCalled();
+
+  await act(async () => result.current.reconnectMedia());
+  expect(getUserMedia).toHaveBeenCalledWith(expect.objectContaining({
+    video: expect.objectContaining({ deviceId: { exact: "phone" } }),
+  }));
+  expect(result.current.mediaStream).toBe(replacement.value);
+  expect(preview.srcObject).toBe(replacement.value);
+  expect(phone.video.stop).toHaveBeenCalledTimes(1);
+  expect(replacement.video.stop).not.toHaveBeenCalled();
+  unmount();
+  expect(replacement.video.stop).toHaveBeenCalledTimes(1);
+});
+
+it("disposes a replacement stream if the assessment ends during reconnect", async () => {
+  const initial = stream();
+  const replacement = stream();
+  let resolve!: (value: MediaStream) => void;
+  getUserMedia.mockResolvedValueOnce(initial.value)
+    .mockImplementationOnce(() => new Promise<MediaStream>(done => { resolve = done; }));
+
+  const { result } = renderHook(() => useAssessmentMedia("exam", true, jest.fn()));
+  await waitFor(() => expect(result.current.mediaStream).toBe(initial.value));
+  const reconnect = result.current.reconnectMedia();
+  const rejected = expect(reconnect).rejects.toThrow("no longer active");
+  act(() => result.current.stopCamera());
+  await act(async () => {
+    resolve(replacement.value);
+    await rejected;
+  });
+  expect(result.current.mediaStream).toBeNull();
+  expect(initial.video.stop).toHaveBeenCalledTimes(1);
+  expect(replacement.video.stop).toHaveBeenCalledTimes(1);
 });

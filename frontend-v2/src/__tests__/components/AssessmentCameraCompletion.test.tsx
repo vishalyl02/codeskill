@@ -9,7 +9,7 @@ const replace = jest.fn();
 const mockRouter = { replace };
 jest.mock("react", () => ({ ...jest.requireActual("react"), use: () => ({ id: "exam" }) }));
 jest.mock("next/navigation", () => ({ useRouter: () => mockRouter }));
-jest.mock("@/config/api", () => ({ studentAssessmentsAPI: { getOverview: jest.fn().mockResolvedValue({ data: { assessment: { proctoring: {} } } }), startAttempt: jest.fn(), submitAttempt: jest.fn(), saveProgress: jest.fn().mockResolvedValue({}) } }));
+jest.mock("@/config/api", () => ({ studentAssessmentsAPI: { getOverview: jest.fn().mockResolvedValue({ data: { assessment: { proctoring: { useCamera: true, useMicrophone: true } } } }), startAttempt: jest.fn(), submitAttempt: jest.fn(), saveProgress: jest.fn().mockResolvedValue({}) } }));
 jest.mock("@/components/assessment/DSAAssessmentEditor", () => () => null);
 jest.mock("@/components/assessment/SafeExamBrowser", () => ({ children, onTerminate, onFullscreenEntered }: { children: React.ReactNode; onTerminate: () => void; onFullscreenEntered: () => void }) => <div><button onClick={onFullscreenEntered}>Enter Fullscreen</button>{children}<button onClick={onTerminate}>Force termination</button></div>);
 const getUserMedia = jest.fn();
@@ -18,7 +18,13 @@ beforeEach(() => {
   jest.clearAllMocks(); videoStop = jest.fn(); audioStop = jest.fn();
   setAssessmentFaceReference("exam", { embedding: [0.1, 0.2], capturedAt: Date.now() });
   Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
-  getUserMedia.mockResolvedValue({ getTracks: () => [{ stop: videoStop }, { stop: audioStop }] });
+  const video = { stop: videoStop, readyState: "live", label: "Built-in Webcam" };
+  const audio = { stop: audioStop, readyState: "live" };
+  getUserMedia.mockResolvedValue({
+    getTracks: () => [video, audio],
+    getVideoTracks: () => [video],
+    getAudioTracks: () => [audio],
+  });
   jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   jest.spyOn(HTMLMediaElement.prototype, "play").mockReturnValue(undefined as unknown as Promise<void>);
   jest.mocked(studentAssessmentsAPI.startAttempt).mockResolvedValue({ data: { durationMinutes: 1, startedAt: new Date().toISOString(), questions: [{ _id: "q1", question: "Question", questionType: "MCQ", options: ["A", "B"], marks: 1, difficulty: "easy" }] } });

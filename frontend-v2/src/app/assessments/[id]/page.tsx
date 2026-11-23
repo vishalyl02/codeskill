@@ -65,7 +65,7 @@ import { formatAssessmentDateTime, getAssessmentScheduleState } from "@/lib/asse
 import LockdownLaunchGate from "@/components/assessment/LockdownLaunchGate";
 import LockdownAppBlockerGate from "@/components/assessment/LockdownAppBlockerGate";
 import { isLockdownClient, initializeLockdownAttestation, openSystemPrivacySettings } from "@/lib/lockdown-bridge";
-import { resolveAssessmentMediaRequirements } from "@/lib/assessment-media-policy";
+import { requestAssessmentMedia, resolveAssessmentMediaRequirements, type AssessmentCameraSelectionPolicy } from "@/lib/assessment-media-policy";
 
 export default function AssessmentBriefingPage({
   params,
@@ -105,6 +105,9 @@ export default function AssessmentBriefingPage({
 
   const assessment = data?.assessment;
   const mediaRequirements = resolveAssessmentMediaRequirements(assessment);
+  const cameraSelectionPolicy: AssessmentCameraSelectionPolicy =
+    assessment?.proctoring?.cameraSelectionPolicy ?? "student_select";
+  const systemDefaultCamera = cameraSelectionPolicy === "system_default";
 
   useEffect(() => {
     clearAssessmentFaceReference(id);
@@ -138,20 +141,15 @@ export default function AssessmentBriefingPage({
     setIsCheckingMedia(true);
     setMediaError(null);
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Camera and microphone access is not supported in this browser.");
-      }
-      const systemDefaultCamera = assessment?.proctoring?.cameraSelectionPolicy === 'system_default';
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: mediaRequirements.requireCamera
-          ? (systemDefaultCamera
-              ? true
-              : deviceId
-                ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
-                : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } })
-          : false,
-        audio: mediaRequirements.requireMicrophone,
+      const stream = await requestAssessmentMedia({
+        ...mediaRequirements,
+        cameraSelectionPolicy,
+        deviceId,
+        videoConstraints: { width: { ideal: 640 }, height: { ideal: 480 } },
       });
+      const devices = !systemDefaultCamera && mediaRequirements.requireCamera && navigator.mediaDevices.enumerateDevices
+        ? await navigator.mediaDevices.enumerateDevices().catch(() => [])
+        : [];
       if (requestId !== cameraRequestIdRef.current) {
         stream.getTracks().forEach((track) => track.stop());
         return;
@@ -159,10 +157,7 @@ export default function AssessmentBriefingPage({
       cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
       cameraStreamRef.current = stream;
       setCameraStream(stream);
-      const [devices, settings] = await Promise.all([
-        systemDefaultCamera || !mediaRequirements.requireCamera ? Promise.resolve([] as MediaDeviceInfo[]) : navigator.mediaDevices.enumerateDevices(),
-        Promise.resolve(stream.getVideoTracks()[0]?.getSettings()),
-      ]);
+      const settings = stream.getVideoTracks()[0]?.getSettings();
       const cameras = devices.filter((device) => device.kind === "videoinput");
       setCameraDevices(cameras);
       setSelectedCamera(settings?.deviceId || deviceId || cameras[0]?.deviceId || "");
@@ -282,7 +277,7 @@ export default function AssessmentBriefingPage({
 
     if (cameraStreamRef.current) {
       streamHandedOffRef.current = true;
-      handoffAssessmentStream(id, cameraStreamRef.current);
+      handoffAssessmentStream(id, cameraStreamRef.current, cameraSelectionPolicy);
     }
 
     const attemptToken = Date.now();
@@ -587,8 +582,8 @@ export default function AssessmentBriefingPage({
                       : "Microphone check"}
                   </h3>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {assessment.proctoring?.cameraSelectionPolicy === 'system_default'
-                      ? "Your browser's default camera and microphone will be used for the secure assessment."
+                    {mediaRequirements.requireCamera && systemDefaultCamera
+                      ? "This assessment uses your default webcam. Use a built-in or USB webcam."
                       : mediaRequirements.requireCamera
                       ? "Choose your camera and confirm your devices before entering the secure assessment."
                       : "Confirm your microphone before entering the secure assessment."}
@@ -618,7 +613,7 @@ export default function AssessmentBriefingPage({
                   </div>
                 )}
                 <div className="space-y-3">
-                  {mediaRequirements.requireCamera && assessment.proctoring?.cameraSelectionPolicy !== 'system_default' && cameraDevices.length > 0 && (
+                  {mediaRequirements.requireCamera && !systemDefaultCamera && cameraDevices.length > 0 && (
                     <label className="block space-y-1.5 text-xs font-medium text-foreground">
                       Choose camera
                       <select
