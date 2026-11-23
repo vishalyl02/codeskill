@@ -7,6 +7,10 @@ on:
       - '.github/workflows/lockdown-release.yml'
     tags:
       - 'lockdown-v*'
+  pull_request:
+    paths:
+      - 'codeskill-lockdown/**'
+      - '.github/workflows/lockdown-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -61,7 +65,7 @@ jobs:
           tagName: lockdown-v__VERSION__
           releaseName: 'CodeSkill LockDown v__VERSION__'
           releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
 
       - name: Standardize and Upload Windows NSIS Installer Asset
@@ -82,7 +86,8 @@ jobs:
           if [ -n "$NSIS_FILE" ] && [ -f "$NSIS_FILE" ]; then
             echo "Found NSIS installer: $NSIS_FILE"
             VERSION=$(node -p "require('./codeskill-lockdown/src-tauri/tauri.conf.json').version")
-            TAG_NAME="lockdown-v${VERSION}"
+            REF_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
+            TAG_NAME="${REF_NAME}"
             cp "$NSIS_FILE" dist-nsis/CodeSkill-LockDown-Setup.exe
             cp "$NSIS_FILE" dist-nsis/codeskill-lockdown-setup.exe
             cp "$NSIS_FILE" "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe"

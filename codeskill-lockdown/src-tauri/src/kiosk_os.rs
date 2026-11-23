@@ -19,10 +19,12 @@ static INHIBIT_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 #[cfg(target_os = "windows")]
 use std::sync::Mutex;
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{HHOOK, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::HHOOK;
 
 #[cfg(target_os = "windows")]
-static KEYBOARD_HOOK: Mutex<Option<HHOOK>> = Mutex::new(None);
+static KEYBOARD_HOOK: Mutex<Option<isize>> = Mutex::new(None);
 
 // ---------------------------------------------------------------------------
 // Windows Kiosk: Low-Level Keyboard Hook, Desktop Isolation, Shell Lock & Clipboard
@@ -37,6 +39,7 @@ mod windows_impl {
     use windows::Win32::Foundation::{HINSTANCE, HWND};
     use windows::Win32::System::StationsAndDesktops::{
         CreateDesktopW, SwitchDesktop, CloseDesktop, HDESK, OpenInputDesktop,
+        DESKTOP_CONTROL_FLAGS, DESKTOP_ACCESS_FLAGS,
         DESKTOP_CREATEWINDOW, DESKTOP_SWITCHDESKTOP, DESKTOP_WRITEOBJECTS,
     };
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -49,8 +52,8 @@ mod windows_impl {
     const VK_F4: u32 = 0x73;
     const LLKHF_ALTDOWN: u32 = 0x20;
 
-    static ISOLATED_DESKTOP: Mutex<Option<HDESK>> = Mutex::new(None);
-    static PREV_DESKTOP: Mutex<Option<HDESK>> = Mutex::new(None);
+    static ISOLATED_DESKTOP: Mutex<Option<isize>> = Mutex::new(None);
+    static PREV_DESKTOP: Mutex<Option<isize>> = Mutex::new(None);
     static EXPLORER_WATCHER_STOP: AtomicBool = AtomicBool::new(false);
     static CLIPBOARD_GUARD_STOP: AtomicBool = AtomicBool::new(false);
 
@@ -119,7 +122,7 @@ mod windows_impl {
             ).map_err(|e| format!("Failed to set WH_KEYBOARD_LL hook: {}", e))?;
 
             let mut lock = KEYBOARD_HOOK.lock().map_err(|_| "Failed to lock KEYBOARD_HOOK")?;
-            *lock = Some(hook);
+            *lock = Some(hook.0 as isize);
             prevent_display_sleep();
             start_clipboard_guard();
             set_registry_policies(true);
@@ -132,16 +135,16 @@ mod windows_impl {
         stop_clipboard_guard();
         set_registry_policies(false);
         if let Ok(mut lock) = KEYBOARD_HOOK.lock() {
-            if let Some(hook) = lock.take() {
+            if let Some(h) = lock.take() {
                 unsafe {
-                    let _ = UnhookWindowsHookEx(hook);
+                    let _ = UnhookWindowsHookEx(HHOOK(h as *mut core::ffi::c_void));
                 }
             }
         }
     }
 
     pub fn prevent_display_sleep() {
-        use windows::Win32::System::Threading::{
+        use windows::Win32::System::Power::{
             SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
         };
         unsafe {
@@ -150,7 +153,7 @@ mod windows_impl {
     }
 
     pub fn allow_display_sleep() {
-        use windows::Win32::System::Threading::{SetThreadExecutionState, ES_CONTINUOUS};
+        use windows::Win32::System::Power::{SetThreadExecutionState, ES_CONTINUOUS};
         unsafe {
             let _ = SetThreadExecutionState(ES_CONTINUOUS);
         }
@@ -211,10 +214,10 @@ mod windows_impl {
 
     pub fn enable_isolated_desktop() -> Result<(), String> {
         unsafe {
-            let prev_desk = OpenInputDesktop(0, false, DESKTOP_SWITCHDESKTOP);
+            let prev_desk = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_SWITCHDESKTOP);
             if let Ok(d) = prev_desk {
                 if let Ok(mut lock) = PREV_DESKTOP.lock() {
-                    *lock = Some(d);
+                    *lock = Some(d.0 as isize);
                 }
             }
 
@@ -223,14 +226,14 @@ mod windows_impl {
                 desktop_name,
                 None,
                 None,
-                0,
-                DESKTOP_CREATEWINDOW | DESKTOP_SWITCHDESKTOP | DESKTOP_WRITEOBJECTS,
+                DESKTOP_CONTROL_FLAGS(0),
+                DESKTOP_CREATEWINDOW.0 | DESKTOP_SWITCHDESKTOP.0 | DESKTOP_WRITEOBJECTS.0,
                 None,
             ).map_err(|e| format!("CreateDesktopW failed: {}", e))?;
 
             let _ = SwitchDesktop(new_desk);
             if let Ok(mut lock) = ISOLATED_DESKTOP.lock() {
-                *lock = Some(new_desk);
+                *lock = Some(new_desk.0 as isize);
             }
             Ok(())
         }
@@ -239,13 +242,15 @@ mod windows_impl {
     pub fn disable_isolated_desktop() {
         unsafe {
             if let Ok(mut lock) = PREV_DESKTOP.lock() {
-                if let Some(prev) = lock.take() {
+                if let Some(prev_val) = lock.take() {
+                    let prev = HDESK(prev_val as *mut core::ffi::c_void);
                     let _ = SwitchDesktop(prev);
                     let _ = CloseDesktop(prev);
                 }
             }
             if let Ok(mut lock) = ISOLATED_DESKTOP.lock() {
-                if let Some(desk) = lock.take() {
+                if let Some(desk_val) = lock.take() {
+                    let desk = HDESK(desk_val as *mut core::ffi::c_void);
                     let _ = CloseDesktop(desk);
                 }
             }
@@ -1031,7 +1036,8 @@ pub fn close_secondary_monitor_shields(app: &tauri::AppHandle) {
 #[tauri::command]
 pub fn enable_kiosk_mode(
     window: tauri::WebviewWindow,
-    _proctoring_enabled: Option<bool>,
+    #[allow(unused_variables)]
+    proctoring_enabled: Option<bool>,
 ) -> Result<(), String> {
     clear_os_clipboard();
 

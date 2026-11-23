@@ -338,7 +338,8 @@ mod windows_impl {
         GetSystemMetrics, SM_CMONITORS, SM_REMOTESESSION,
     };
     use windows::Win32::System::StationsAndDesktops::{
-        OpenInputDesktop, DESKTOP_CREATEWINDOW, DESKTOP_SWITCHDESKTOP,
+        OpenInputDesktop, DESKTOP_CONTROL_FLAGS, DESKTOP_ACCESS_FLAGS,
+        DESKTOP_CREATEWINDOW, DESKTOP_SWITCHDESKTOP,
     };
 
     fn query_consent_store(device: &str) -> String {
@@ -458,7 +459,7 @@ mod windows_impl {
             if !check_webview2_installed() {
                 return "needs_action".to_string();
             }
-            if let Ok(hdesk) = OpenInputDesktop(0, false, DESKTOP_CREATEWINDOW | DESKTOP_SWITCHDESKTOP) {
+            if let Ok(hdesk) = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_ACCESS_FLAGS(DESKTOP_CREATEWINDOW.0 | DESKTOP_SWITCHDESKTOP.0)) {
                 let _ = windows::Win32::System::StationsAndDesktops::CloseDesktop(hdesk);
             } else {
                 return "needs_action".to_string();

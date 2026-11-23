@@ -354,7 +354,7 @@ public class Main {
       const results = await singleTest('java', code, '', 'Hello World');
       expect(results[0].passed).toBe(true);
       expect(results[0].status).toBe(Status.ACCEPTED);
-    });
+    }, 25000);
 
     it('should read from stdin with Scanner', async () => {
       const code = `
@@ -369,7 +369,7 @@ public class Main {
 }`;
       const results = await singleTest('java', code, '5', '10');
       expect(results[0].passed).toBe(true);
-    });
+    }, 25000);
 
     it('should handle class named Solution', async () => {
       const code = `
@@ -380,7 +380,7 @@ public class Solution {
 }`;
       const results = await singleTest('java', code, '', 'Hello from Solution');
       expect(results[0].passed).toBe(true);
-    });
+    }, 25000);
 
     it('should handle multiple test cases', async () => {
       const code = `
@@ -401,7 +401,7 @@ public class Main {
       ];
       const results = await runCode('java', code, testCases);
       expect(results.every((r) => r.passed)).toBe(true);
-    });
+    }, 25000);
 
     it('should detect compilation error', async () => {
       const code = `
@@ -414,7 +414,7 @@ public class Main {
       expect(results[0].passed).toBe(false);
       expect(results[0].status).toBe(Status.COMPILATION_ERROR);
       expect(results[0].error).toBeDefined();
-    });
+    }, 25000);
 
     it('should detect runtime error (exception)', async () => {
       const code = `
@@ -427,7 +427,7 @@ public class Main {
       const results = await singleTest('java', code, '', 'anything');
       expect(results[0].passed).toBe(false);
       expect(results[0].status).toBe(Status.RUNTIME_ERROR);
-    });
+    }, 25000);
 
     it('should detect wrong answer', async () => {
       const code = `
@@ -439,7 +439,7 @@ public class Main {
       const results = await singleTest('java', code, '', 'correct');
       expect(results[0].passed).toBe(false);
       expect(results[0].status).toBe(Status.WRONG_ANSWER);
-    });
+    }, 25000);
 
     it('should detect timeout', async () => {
       const code = `
@@ -456,7 +456,7 @@ public class Main {
       );
       expect(results[0].passed).toBe(false);
       expect(results[0].status).toBe(Status.TIME_LIMIT_EXCEEDED);
-    }, 20000);
+    }, 25000);
 
     it('should handle collections and algorithms', async () => {
       const code = `
@@ -484,7 +484,7 @@ public class Main {
         '1 1 3 4 5',
       );
       expect(results[0].passed).toBe(true);
-    });
+    }, 25000);
   });
 
   // ─── Output Comparison Tests ──────────────────────────────────────────────

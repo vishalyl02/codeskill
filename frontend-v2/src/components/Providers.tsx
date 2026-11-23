@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { Toaster } from "react-hot-toast";
 import { logger } from "@/lib/logger";
 import { MotionProvider } from "@/components/providers/MotionProvider";
+import GlobalLockdownDock from "@/components/assessment/GlobalLockdownDock";
 
 export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -74,6 +75,7 @@ export function Providers({ children }: { children: ReactNode }) {
     <AuthProvider>
       {children}
       <Toaster position="top-center" />
+      <GlobalLockdownDock />
     </AuthProvider>
   );
 

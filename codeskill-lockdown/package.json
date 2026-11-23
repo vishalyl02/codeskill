@@ -4,6 +4,7 @@
   "description": "CodeSkill LockDown secure desktop examination browser",
   "private": true,
   "scripts": {
+    "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "build": "tauri build",

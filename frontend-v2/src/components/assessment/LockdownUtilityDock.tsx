@@ -65,7 +65,7 @@ import { offlineAutosaveQueue, SyncStatus } from "@/lib/offline-autosave-queue";
 import { toast } from "react-hot-toast";
 
 interface LockdownUtilityDockProps {
-  assessmentId: string;
+  assessmentId?: string;
   sessionId?: string;
   allowCalculators?: boolean;
   allowScratchpad?: boolean;
@@ -495,7 +495,8 @@ export default function LockdownUtilityDock({
   useEffect(() => {
     try {
       if (typeof window !== "undefined") {
-        const stored = sessionStorage.getItem(`codeskill_scratchpad_${assessmentId}`);
+        const key = assessmentId ? `codeskill_scratchpad_${assessmentId}` : "codeskill_scratchpad_standalone";
+        const stored = sessionStorage.getItem(key);
         if (stored) setScratchpadText(stored);
       }
     } catch {
@@ -507,7 +508,8 @@ export default function LockdownUtilityDock({
     setScratchpadText(text);
     try {
       if (typeof window !== "undefined") {
-        sessionStorage.setItem(`codeskill_scratchpad_${assessmentId}`, text);
+        const key = assessmentId ? `codeskill_scratchpad_${assessmentId}` : "codeskill_scratchpad_standalone";
+        sessionStorage.setItem(key, text);
       }
     } catch {
       // ignore
@@ -599,20 +601,25 @@ export default function LockdownUtilityDock({
     }
   };
 
-  // Proctor Quit Verification
+  // Proctor / App Quit Verification
   const handleVerifyQuit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsVerifyingQuit(true);
     setQuitError(null);
     try {
-      const res = await verifyQuitPassword(api, assessmentId, quitPassword);
-      if (res.authorized) {
-        toast.success("Proctor authorization verified. Releasing LockDown kiosk...");
-        await releaseLockdownKiosk();
-        setActiveModal(null);
-        window.location.href = `/assessments/${assessmentId}/result`;
+      if (assessmentId) {
+        const res = await verifyQuitPassword(api, assessmentId, quitPassword);
+        if (res.authorized) {
+          toast.success("Proctor authorization verified. Releasing LockDown kiosk...");
+          await releaseLockdownKiosk();
+          setActiveModal(null);
+          window.location.href = `/assessments/${assessmentId}/result`;
+        } else {
+          setQuitError("Incorrect proctor quit password");
+        }
       } else {
-        setQuitError("Incorrect proctor quit password");
+        toast.success("Exiting CodeSkill LockDown...");
+        await logoutAndExitLockdown();
       }
     } catch (err: any) {
       setQuitError(err?.message || "Invalid proctor quit password");
@@ -724,42 +731,44 @@ export default function LockdownUtilityDock({
             <Wifi className="w-3.5 h-3.5 text-sky-400" />
           </button>
 
-          {/* Offline Autosave Live Indicator */}
-          <div
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px]"
-            title={
-              syncStatus === "synced"
-                ? "All answers securely synced to server"
-                : syncStatus === "syncing"
-                ? "Syncing answers to server..."
-                : `Offline: ${pendingSyncCount} answers buffered locally (Encrypted)`
-            }
-          >
-            {syncStatus === "synced" && (
-              <span className="flex items-center gap-1 text-emerald-400 font-medium">
-                <Check className="w-3 h-3 text-emerald-400" />
-                <span className="hidden md:inline">Saved</span>
-              </span>
-            )}
-            {syncStatus === "syncing" && (
-              <span className="flex items-center gap-1 text-sky-400 font-medium">
-                <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
-                <span className="hidden md:inline">Syncing</span>
-              </span>
-            )}
-            {syncStatus === "offline-buffered" && (
-              <span className="flex items-center gap-1 text-amber-400 font-medium animate-pulse">
-                <WifiOff className="w-3 h-3 text-amber-400" />
-                <span>Offline ({pendingSyncCount})</span>
-              </span>
-            )}
-            {syncStatus === "error" && (
-              <span className="flex items-center gap-1 text-rose-400 font-medium">
-                <AlertTriangle className="w-3 h-3 text-rose-400" />
-                <span>Error ({pendingSyncCount})</span>
-              </span>
-            )}
-          </div>
+          {/* Offline Autosave Live Indicator (Only shown during active assessment) */}
+          {Boolean(assessmentId) && (
+            <div
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px]"
+              title={
+                syncStatus === "synced"
+                  ? "All answers securely synced to server"
+                  : syncStatus === "syncing"
+                  ? "Syncing answers to server..."
+                  : `Offline: ${pendingSyncCount} answers buffered locally (Encrypted)`
+              }
+            >
+              {syncStatus === "synced" && (
+                <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                  <Check className="w-3 h-3 text-emerald-400" />
+                  <span className="hidden md:inline">Saved</span>
+                </span>
+              )}
+              {syncStatus === "syncing" && (
+                <span className="flex items-center gap-1 text-sky-400 font-medium">
+                  <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
+                  <span className="hidden md:inline">Syncing</span>
+                </span>
+              )}
+              {syncStatus === "offline-buffered" && (
+                <span className="flex items-center gap-1 text-amber-400 font-medium animate-pulse">
+                  <WifiOff className="w-3 h-3 text-amber-400" />
+                  <span>Offline ({pendingSyncCount})</span>
+                </span>
+              )}
+              {syncStatus === "error" && (
+                <span className="flex items-center gap-1 text-rose-400 font-medium">
+                  <AlertTriangle className="w-3 h-3 text-rose-400" />
+                  <span>Error ({pendingSyncCount})</span>
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Battery Status or AC Power */}
           {battery.has_battery ? (
@@ -988,8 +997,8 @@ export default function LockdownUtilityDock({
                   )}
                 </button>
 
-                {/* Re-verify OS Permissions (available when exam submitted / not locked) */}
-                {isSubmitted && (
+                {/* Re-verify OS Permissions (available when exam submitted / not in active locked exam) */}
+                {(isSubmitted || !assessmentId) && (
                   <a
                     href="/lockdown-startup-permissions"
                     className="p-1.5 rounded-lg hover:bg-slate-800 text-sky-400 hover:text-sky-300 transition-colors cursor-pointer"
@@ -1012,11 +1021,11 @@ export default function LockdownUtilityDock({
                   <Minimize2 className="w-3.5 h-3.5" />
                 </button>
 
-                {/* Proctor Quit Button */}
+                {/* Proctor / App Quit Button */}
                 <button
                   type="button"
                   onClick={() => {
-                    if (isSubmitted) {
+                    if (isSubmitted && assessmentId) {
                       void releaseLockdownKiosk();
                       window.location.href = `/assessments/${assessmentId}/result`;
                     } else {
@@ -1024,7 +1033,7 @@ export default function LockdownUtilityDock({
                     }
                   }}
                   className="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 hover:text-rose-300 border border-rose-500/30 transition-colors cursor-pointer ml-1"
-                  title="Proctor Quit: Exit LockDown Kiosk"
+                  title={assessmentId ? "Proctor Quit: Exit LockDown Kiosk" : "Exit CodeSkill LockDown"}
                 >
                   <Power className="w-3.5 h-3.5" />
                 </button>
@@ -1281,34 +1290,46 @@ export default function LockdownUtilityDock({
                   <Power className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-white">Proctor Quit Request</h3>
-                  <p className="text-xs text-slate-400">Early exit requires proctor authorization.</p>
+                  <h3 className="font-bold text-base text-white">
+                    {assessmentId ? "Proctor Quit Request" : "Exit CodeSkill LockDown"}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {assessmentId
+                      ? "Early exit requires proctor authorization."
+                      : "Close the secure examination browser."}
+                  </p>
                 </div>
               </div>
 
               <form onSubmit={handleVerifyQuit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Proctor Quit Password
-                  </label>
-                  <input
-                    type="password"
-                    value={quitPassword}
-                    onChange={(e) => {
-                      setQuitPassword(e.target.value);
-                      setQuitError(null);
-                    }}
-                    placeholder="Enter password to release kiosk..."
-                    autoFocus
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-rose-500"
-                  />
-                  {quitError && (
-                    <p className="mt-1.5 text-xs text-rose-400 flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                      <span>{quitError}</span>
-                    </p>
-                  )}
-                </div>
+                {assessmentId ? (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      Proctor Quit Password
+                    </label>
+                    <input
+                      type="password"
+                      value={quitPassword}
+                      onChange={(e) => {
+                        setQuitPassword(e.target.value);
+                        setQuitError(null);
+                      }}
+                      placeholder="Enter password to release kiosk..."
+                      autoFocus
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-rose-500"
+                    />
+                    {quitError && (
+                      <p className="mt-1.5 text-xs text-rose-400 flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{quitError}</span>
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Are you sure you want to exit CodeSkill LockDown? All system kiosk restrictions will be safely restored to normal.
+                  </p>
+                )}
 
                 <div className="flex items-center justify-end gap-2 pt-2">
                   <button
@@ -1328,7 +1349,7 @@ export default function LockdownUtilityDock({
                     className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
                   >
                     {isVerifyingQuit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                    <span>Authorize Quit</span>
+                    <span>{assessmentId ? "Authorize Quit" : "Exit LockDown"}</span>
                   </button>
                 </div>
 

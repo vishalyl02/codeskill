@@ -640,6 +640,7 @@ pub fn scan_wifi_networks() -> Result<Vec<WifiNetworkInfo>, String> {
 
 #[tauri::command]
 pub fn connect_wifi_network(ssid: String, password: Option<String>) -> Result<(), String> {
+    let _ = &password;
     if ssid.trim().is_empty() {
         return Err("SSID cannot be empty".to_string());
     }
