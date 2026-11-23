@@ -150,18 +150,18 @@ export default function LockdownLaunchGate({
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <a
-              href={`${cdnBase}/codeskill-lockdown-setup.exe`}
-              download
+              href="/api/lockdown/download?platform=windows"
+              download="CodeSkill-LockDown-Setup.exe"
               className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/50 transition-all text-center group"
             >
               <Monitor className="w-5 h-5 text-sky-400 mb-1 group-hover:scale-110 transition-transform" />
               <span className="text-xs font-medium text-slate-200">Windows</span>
-              <span className="text-[10px] text-slate-400">.msi Installer</span>
+              <span className="text-[10px] text-slate-400">.exe Installer (NSIS)</span>
             </a>
 
             <a
-              href={`${cdnBase}/codeskill-lockdown.dmg`}
-              download
+              href="/api/lockdown/download?platform=macos"
+              download="codeskill-lockdown.dmg"
               className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/50 transition-all text-center group"
             >
               <Monitor className="w-5 h-5 text-indigo-400 mb-1 group-hover:scale-110 transition-transform" />
@@ -170,13 +170,25 @@ export default function LockdownLaunchGate({
             </a>
 
             <a
-              href={`${cdnBase}/codeskill-lockdown.deb`}
-              download
+              href="/api/lockdown/download?platform=linux"
+              download="codeskill-lockdown.deb"
               className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/50 transition-all text-center group"
             >
               <Monitor className="w-5 h-5 text-emerald-400 mb-1 group-hover:scale-110 transition-transform" />
               <span className="text-xs font-medium text-slate-200">Linux</span>
               <span className="text-[10px] text-slate-400">.deb / .AppImage</span>
+            </a>
+          </div>
+
+          <div className="mt-2.5 text-center">
+            <a
+              href="https://github.com/sazamansari/codeskill/releases/latest"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-slate-400 hover:text-sky-400 transition-colors inline-flex items-center gap-1"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Direct GitHub Releases Fallback
             </a>
           </div>
 
@@ -273,7 +285,8 @@ export default function LockdownLaunchGate({
                       <li>
                         Or open PowerShell in your Downloads folder and run:
                         <div className="mt-1 p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] text-sky-400 select-all">
-                          Unblock-File -Path .\codeskill-lockdown-setup.exe
+                          Unblock-File -Path .\CodeSkill-LockDown-Setup.exe<br />
+                          .\CodeSkill-LockDown-Setup.exe
                         </div>
                       </li>
                     </ol>

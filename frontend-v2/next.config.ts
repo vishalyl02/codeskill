@@ -90,6 +90,31 @@ const nextConfig: NextConfig = {
         destination: "/teacher/dashboard",
         permanent: false,
       },
+      {
+        source: "/downloads/codeskill-lockdown-setup.msi",
+        destination: "/api/lockdown/download?platform=windows",
+        permanent: false,
+      },
+      {
+        source: "/downloads/codeskill-lockdown-setup.exe",
+        destination: "/api/lockdown/download?platform=windows",
+        permanent: false,
+      },
+      {
+        source: "/downloads/CodeSkill-LockDown-Setup.exe",
+        destination: "/api/lockdown/download?platform=windows",
+        permanent: false,
+      },
+      {
+        source: "/downloads/codeskill-lockdown.dmg",
+        destination: "/api/lockdown/download?platform=macos",
+        permanent: false,
+      },
+      {
+        source: "/downloads/codeskill-lockdown.deb",
+        destination: "/api/lockdown/download?platform=linux",
+        permanent: false,
+      },
     ];
   },
   async rewrites() {

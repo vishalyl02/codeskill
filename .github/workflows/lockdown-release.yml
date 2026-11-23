@@ -57,8 +57,39 @@ jobs:
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://codeskill.com' }}
         with:
           projectPath: codeskill-lockdown
+          args: ${{ matrix.platform == 'windows-latest' && '--bundles nsis' || '' }}
           tagName: lockdown-v__VERSION__
           releaseName: 'CodeSkill LockDown v__VERSION__'
           releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
           releaseDraft: true
           prerelease: false
+
+      - name: Standardize and Upload Windows NSIS Installer Asset
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-nsis
+          NSIS_FILE=""
+          for f in codeskill-lockdown/src-tauri/target/release/bundle/nsis/*.exe codeskill-lockdown/src-tauri/target/release/*.exe; do
+            if [ -f "$f" ] && [[ ! "$f" =~ uninst ]]; then
+              NSIS_FILE="$f"
+              break
+            fi
+          done
+
+          if [ -n "$NSIS_FILE" ] && [ -f "$NSIS_FILE" ]; then
+            echo "Found NSIS installer: $NSIS_FILE"
+            VERSION=$(node -p "require('./codeskill-lockdown/src-tauri/tauri.conf.json').version")
+            TAG_NAME="lockdown-v${VERSION}"
+            cp "$NSIS_FILE" dist-nsis/CodeSkill-LockDown-Setup.exe
+            cp "$NSIS_FILE" dist-nsis/codeskill-lockdown-setup.exe
+            cp "$NSIS_FILE" "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe"
+            echo "Publishing standardized assets to $TAG_NAME"
+            if command -v gh >/dev/null 2>&1; then
+              gh release upload "$TAG_NAME" dist-nsis/CodeSkill-LockDown-Setup.exe dist-nsis/codeskill-lockdown-setup.exe "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe" --clobber || echo "Notice: gh release upload skipped or release not created yet"
+            fi
+          else
+            echo "Notice: No NSIS installer binary found to standardize."
+          fi
