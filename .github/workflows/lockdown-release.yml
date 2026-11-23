@@ -2,9 +2,6 @@ name: CodeSkill LockDown Release
 
 on:
   push:
-    paths:
-      - 'codeskill-lockdown/**'
-      - '.github/workflows/lockdown-release.yml'
     tags:
       - 'lockdown-v*'
   workflow_dispatch:
@@ -61,7 +58,7 @@ jobs:
           tagName: lockdown-v__VERSION__
           releaseName: 'CodeSkill LockDown v__VERSION__'
           releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
 
       - name: Standardize and Upload Windows NSIS Installer Asset
