@@ -27,7 +27,7 @@ describe('LockdownDownloadController', () => {
   });
 
   describe('downloadLockdown', () => {
-    it('redirects with 302 to Windows NSIS executable and sets proper headers', async () => {
+    it('redirects with 302 to Windows NSIS executable and sets proper headers', () => {
       const setHeaders: Record<string, string> = {};
       let redirectedUrl = '';
       let redirectedStatus = 0;
@@ -48,7 +48,7 @@ describe('LockdownDownloadController', () => {
         json: jest.fn(),
       } as unknown as Response;
 
-      await controller.downloadLockdown('windows', undefined, mockReq, mockRes);
+      controller.downloadLockdown('windows', undefined, mockReq, mockRes);
 
       expect(redirectedStatus).toBe(302);
       expect(redirectedUrl).toContain('CodeSkill-LockDown-Setup.exe');
@@ -59,7 +59,7 @@ describe('LockdownDownloadController', () => {
       expect(setHeaders['X-CodeSkill-Installer-Type']).toBe('nsis');
     });
 
-    it('returns json response when redirect=false is passed', async () => {
+    it('returns json response when redirect=false is passed', () => {
       let jsonPayload: any = null;
       let responseStatus = 0;
 
@@ -77,7 +77,7 @@ describe('LockdownDownloadController', () => {
         }),
       } as unknown as Response;
 
-      await controller.downloadLockdown('windows', 'false', mockReq, mockRes);
+      controller.downloadLockdown('windows', 'false', mockReq, mockRes);
 
       expect(responseStatus).toBe(200);
       expect(jsonPayload).toBeDefined();
@@ -89,7 +89,7 @@ describe('LockdownDownloadController', () => {
       expect(jsonPayload.url).toContain('CodeSkill-LockDown-Setup.exe');
     });
 
-    it('redirects to CDN base when configured in environment', async () => {
+    it('redirects to CDN base when configured in environment', () => {
       process.env.LOCKDOWN_CDN_URL = 'https://cdn.example.com/assets';
       let redirectedUrl = '';
 
@@ -102,11 +102,11 @@ describe('LockdownDownloadController', () => {
         redirect: jest.fn((_status, url) => { redirectedUrl = url; }),
       } as unknown as Response;
 
-      await controller.downloadLockdown('windows', undefined, mockReq, mockRes);
+      controller.downloadLockdown('windows', undefined, mockReq, mockRes);
       expect(redirectedUrl).toBe('https://cdn.example.com/assets/CodeSkill-LockDown-Setup.exe');
     });
 
-    it('handles macos and linux platforms correctly', async () => {
+    it('handles macos and linux platforms correctly', () => {
       let macUrl = '';
       let linuxUrl = '';
 
@@ -120,10 +120,10 @@ describe('LockdownDownloadController', () => {
         redirect: jest.fn((_status, url) => { linuxUrl = url; }),
       } as unknown as Response;
 
-      await controller.downloadLockdown('macos', undefined, mockReq, mockResMac);
+      controller.downloadLockdown('macos', undefined, mockReq, mockResMac);
       expect(macUrl).toContain('codeskill-lockdown.dmg');
 
-      await controller.downloadLockdown('linux', undefined, mockReq, mockResLinux);
+      controller.downloadLockdown('linux', undefined, mockReq, mockResLinux);
       expect(linuxUrl).toContain('codeskill-lockdown.deb');
     });
   });
