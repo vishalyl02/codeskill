@@ -30,7 +30,7 @@ interface SafeExamBrowserProps {
   candidateIdentifier?: string;
   attestationSessionId?: string;
   enableForensicWatermark?: boolean;
-  onMediaReconnected?: (newStream: MediaStream) => void;
+  reconnectMedia?: () => Promise<void>;
 }
 
 export default function SafeExamBrowser({
@@ -54,7 +54,7 @@ export default function SafeExamBrowser({
   candidateIdentifier,
   attestationSessionId,
   enableForensicWatermark = false,
-  onMediaReconnected,
+  reconnectMedia,
 }: SafeExamBrowserProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [warnings, setWarnings] = useState(0);
@@ -66,7 +66,7 @@ export default function SafeExamBrowser({
     onFullscreenEntered,
     maxWarnings,
     autoSubmitOnViolation,
-    onMediaReconnected,
+    reconnectMedia,
   });
   callbacksRef.current = {
     onViolation,
@@ -74,7 +74,7 @@ export default function SafeExamBrowser({
     onFullscreenEntered,
     maxWarnings,
     autoSubmitOnViolation,
-    onMediaReconnected,
+    reconnectMedia,
   };
 
   // Media disconnect watchdog state
@@ -140,17 +140,9 @@ export default function SafeExamBrowser({
     setIsReconnectingMedia(true);
     setReconnectError(null);
     try {
-      const constraints: MediaStreamConstraints = {};
-      if (requireCamera) constraints.video = true;
-      if (requireMicrophone) constraints.audio = true;
-
-      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-      const hasLiveVideo = !requireCamera || newStream.getVideoTracks().some((t) => t.readyState === 'live');
-      const hasLiveAudio = !requireMicrophone || newStream.getAudioTracks().some((t) => t.readyState === 'live');
-
-      if (!hasLiveVideo || !hasLiveAudio) {
-        throw new Error('Acquired stream has missing or inactive tracks');
-      }
+      const reconnect = callbacksRef.current.reconnectMedia;
+      if (!reconnect) throw new Error('Media reconnection is unavailable for this assessment.');
+      await reconnect();
 
       const outageDurationMs = disconnectStartTimeRef.current
         ? Date.now() - disconnectStartTimeRef.current
@@ -171,7 +163,6 @@ export default function SafeExamBrowser({
         }).catch(() => {});
       }
 
-      callbacksRef.current.onMediaReconnected?.(newStream);
       setIsMediaDisconnected(false);
       setDisconnectedDeviceKind(null);
       setDisconnectReason(null);

@@ -5,6 +5,85 @@
  * based on the assessment's proctoring and security policy settings.
  */
 
+export type AssessmentCameraSelectionPolicy = "system_default" | "student_select";
+
+interface AssessmentMediaCapture {
+  requireCamera: boolean;
+  requireMicrophone: boolean;
+  cameraSelectionPolicy?: AssessmentCameraSelectionPolicy;
+}
+
+interface AssessmentMediaRequest extends AssessmentMediaCapture {
+  deviceId?: string;
+  videoConstraints?: MediaTrackConstraints;
+}
+
+// Browsers expose a label for video inputs but no standard phone/USB transport flag.
+const phoneCameraLabel = /\b(?:iphone|ipad|android|continuity camera|connected camera|phone link|link to windows|droidcam|iriun|epoccam)\b/i;
+const phoneCameraMessage =
+  "This assessment requires the default webcam. Disconnect the phone camera, select your built-in or USB webcam as the default, and try again.";
+
+export class AssessmentMediaError extends Error {}
+
+export function verifyAssessmentMediaStream(stream: MediaStream, {
+  requireCamera,
+  requireMicrophone,
+  cameraSelectionPolicy,
+}: AssessmentMediaCapture) {
+  if (requireCamera) {
+    const camera = stream.getVideoTracks().find((track) => track.readyState === "live");
+    if (!camera) throw new AssessmentMediaError("No live camera feed is available. Reconnect your camera and try again.");
+    if (cameraSelectionPolicy === "system_default" && phoneCameraLabel.test(camera.label)) {
+      throw new AssessmentMediaError(phoneCameraMessage);
+    }
+  }
+
+  if (requireMicrophone && !stream.getAudioTracks().some((track) => track.readyState === "live")) {
+    throw new AssessmentMediaError("No live microphone input is available. Reconnect your microphone and try again.");
+  }
+}
+
+export async function requestAssessmentMedia({
+  requireCamera,
+  requireMicrophone,
+  cameraSelectionPolicy = "student_select",
+  deviceId,
+  videoConstraints,
+}: AssessmentMediaRequest): Promise<MediaStream> {
+  const mediaDevices = navigator.mediaDevices;
+  if (!mediaDevices?.getUserMedia) {
+    throw new AssessmentMediaError("Camera and microphone access is unavailable in this browser.");
+  }
+
+  const useDefaultCamera = cameraSelectionPolicy === "system_default";
+  if (requireCamera && useDefaultCamera && mediaDevices.enumerateDevices) {
+    // If permission is already granted, stop before requesting a known phone
+    // camera. Check the acquired track too because labels may be hidden until then.
+    const devices = await mediaDevices.enumerateDevices().catch(() => []);
+    const defaultCamera = devices.find((device) => device.kind === "videoinput");
+    if (defaultCamera && phoneCameraLabel.test(defaultCamera.label)) {
+      throw new AssessmentMediaError(phoneCameraMessage);
+    }
+  }
+
+  let video: MediaStreamConstraints["video"] = requireCamera;
+  if (requireCamera && !useDefaultCamera) {
+    video = {
+      ...videoConstraints,
+      ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: "user" } }),
+    };
+  }
+
+  const stream = await mediaDevices.getUserMedia({ video, audio: requireMicrophone });
+  try {
+    verifyAssessmentMediaStream(stream, { requireCamera, requireMicrophone, cameraSelectionPolicy });
+    return stream;
+  } catch (error) {
+    stream.getTracks().forEach((track) => track.stop());
+    throw error;
+  }
+}
+
 export interface AssessmentMediaRequirements {
   requireCamera: boolean;
   requireMicrophone: boolean;

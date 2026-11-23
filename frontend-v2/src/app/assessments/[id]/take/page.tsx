@@ -779,6 +779,7 @@ export default function TakeAssessmentPage({
         }
       }
       const data = res.data?.data && res.data.data.questions ? res.data.data : res.data;
+      if (data?.proctoring) setProctoring(data.proctoring);
       const questionsList = data?.questions || res.data?.questions || [];
       setQuestions(questionsList);
       LockdownSessionStore.saveQuestionBundle(id, questionsList);
@@ -947,10 +948,13 @@ export default function TakeAssessmentPage({
     faceCount,
     faceDetectionStatus,
     stopCamera,
+    reconnectMedia,
     subscribeAudioLevel,
   } = useAssessmentMedia(
-    id, mediaRequirements.requireCamera && loadedAssessmentId === id && questions.length > 0 && !isLoading && timeLeftSeconds > 0, recordViolation,
-    proctoring?.cameraSelectionPolicy || 'student_select',
+    id,
+    mediaRequirements.needsMediaGate && loadedAssessmentId === id && questions.length > 0 && !isLoading && timeLeftSeconds > 0,
+    recordViolation,
+    { ...mediaRequirements, cameraSelectionPolicy: proctoring?.cameraSelectionPolicy },
   );
 
   // 3. Submit Attempt Handler
@@ -2005,12 +2009,13 @@ export default function TakeAssessmentPage({
   }
 
   // Pre-Exam Media & Hardware Permission Gate (only rendered if media is required by this assessment)
-  if (isLockdownClient() && mediaRequirements.needsMediaGate && !isMediaGatePassed) {
+  if (!isLoadingSettings && isLockdownClient() && mediaRequirements.needsMediaGate && !isMediaGatePassed) {
     return (
       <LockdownMediaPermissionGate
         assessmentId={id}
         requireCamera={mediaRequirements.requireCamera}
         requireMic={mediaRequirements.requireMicrophone}
+        cameraSelectionPolicy={proctoring?.cameraSelectionPolicy}
         onReady={() => {
           setIsMediaGatePassed(true);
           void LockdownSessionStore.saveState(id, { mediaPermissionsVerified: true });
@@ -2163,9 +2168,7 @@ export default function TakeAssessmentPage({
       candidateIdentifier={resolvedCandidateIdentifier}
       attestationSessionId={attestedSessionId}
       enableForensicWatermark={enableForensicWatermark}
-      onMediaReconnected={(_newStream) => {
-        attachVideo(videoRef.current);
-      }}
+      reconnectMedia={reconnectMedia}
     >
       <div ref={examPageRef} data-assessment-page-capture className={`h-dvh overflow-hidden bg-background text-foreground font-sans flex flex-col relative [touch-action:pan-x_pan-y_pinch-zoom] ${proctoring?.blockCopyPaste !== false ? "select-none" : ""}`}>
       {/* Top Test Header Bar */}

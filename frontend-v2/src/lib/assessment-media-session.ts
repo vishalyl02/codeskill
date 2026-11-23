@@ -1,5 +1,7 @@
+import type { AssessmentCameraSelectionPolicy } from "./assessment-media-policy";
+
 type AssessmentMediaRegistry = {
-  pending: { assessmentId: string; stream: MediaStream } | null;
+  pending: { assessmentId: string; stream: MediaStream; cameraSelectionPolicy: AssessmentCameraSelectionPolicy } | null;
   streams: Map<string, Set<MediaStream>>;
 };
 
@@ -24,23 +26,34 @@ export function trackAssessmentStream(assessmentId: string, stream: MediaStream)
   rememberAssessmentStream(assessmentId, stream);
 }
 
-export function handoffAssessmentStream(assessmentId: string, stream: MediaStream) {
+export function handoffAssessmentStream(
+  assessmentId: string,
+  stream: MediaStream,
+  cameraSelectionPolicy: AssessmentCameraSelectionPolicy = "student_select",
+) {
   const registry = getRegistry();
-  if (registry.pending?.stream !== stream) {
-    registry.pending?.stream.getTracks().forEach((track) => track.stop());
+  const pending = registry.pending;
+  if (pending && pending.stream !== stream) {
+    pending.stream.getTracks().forEach((track) => track.stop());
+    registry.streams.get(pending.assessmentId)?.delete(pending.stream);
   }
-  registry.pending = { assessmentId, stream };
+  registry.pending = { assessmentId, stream, cameraSelectionPolicy };
   rememberAssessmentStream(assessmentId, stream);
 }
 
-export function takeAssessmentStream(assessmentId: string, deviceId?: string) {
+export function takeAssessmentStream(
+  assessmentId: string,
+  deviceId?: string,
+  cameraSelectionPolicy: AssessmentCameraSelectionPolicy = "student_select",
+) {
   const registry = getRegistry();
   if (registry.pending?.assessmentId !== assessmentId) return null;
 
   const pending = registry.pending;
   registry.pending = null;
+  registry.streams.get(assessmentId)?.delete(pending.stream);
   const currentDeviceId = pending.stream.getVideoTracks()[0]?.getSettings().deviceId;
-  if (deviceId && currentDeviceId && currentDeviceId !== deviceId) {
+  if (pending.cameraSelectionPolicy !== cameraSelectionPolicy || (deviceId && currentDeviceId !== deviceId)) {
     pending.stream.getTracks().forEach((track) => track.stop());
     return null;
   }
@@ -55,7 +68,6 @@ export function releaseAssessmentStream(assessmentId: string) {
     registry.streams.delete(assessmentId);
   }
   if (registry.pending?.assessmentId === assessmentId) {
-    registry.pending.stream.getTracks().forEach((track) => track.stop());
     registry.pending = null;
   }
 }
