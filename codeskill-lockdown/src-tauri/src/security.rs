@@ -262,7 +262,7 @@ pub fn detect_system_proxy() -> (bool, Vec<String>) {
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::System::Registry::{
-            RegOpenKeyExW, RegQueryValueExW, RegCloseKey, HKEY, HKEY_CURRENT_USER, KEY_READ, REG_DWORD,
+            RegOpenKeyExW, RegQueryValueExW, RegCloseKey, HKEY, HKEY_CURRENT_USER, KEY_READ,
         };
         unsafe {
             let mut key = HKEY::default();

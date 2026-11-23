@@ -24,7 +24,7 @@ use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::HHOOK;
 
 #[cfg(target_os = "windows")]
-static KEYBOARD_HOOK: Mutex<Option<HHOOK>> = Mutex::new(None);
+static KEYBOARD_HOOK: Mutex<Option<isize>> = Mutex::new(None);
 
 // ---------------------------------------------------------------------------
 // Windows Kiosk: Low-Level Keyboard Hook, Desktop Isolation, Shell Lock & Clipboard
@@ -122,7 +122,7 @@ mod windows_impl {
             ).map_err(|e| format!("Failed to set WH_KEYBOARD_LL hook: {}", e))?;
 
             let mut lock = KEYBOARD_HOOK.lock().map_err(|_| "Failed to lock KEYBOARD_HOOK")?;
-            *lock = Some(hook);
+            *lock = Some(hook.0 as isize);
             prevent_display_sleep();
             start_clipboard_guard();
             set_registry_policies(true);
@@ -135,9 +135,9 @@ mod windows_impl {
         stop_clipboard_guard();
         set_registry_policies(false);
         if let Ok(mut lock) = KEYBOARD_HOOK.lock() {
-            if let Some(hook) = lock.take() {
+            if let Some(h) = lock.take() {
                 unsafe {
-                    let _ = UnhookWindowsHookEx(hook);
+                    let _ = UnhookWindowsHookEx(HHOOK(h as *mut core::ffi::c_void));
                 }
             }
         }
@@ -226,8 +226,8 @@ mod windows_impl {
                 desktop_name,
                 None,
                 None,
-                0,
-                DESKTOP_ACCESS_FLAGS(DESKTOP_CREATEWINDOW.0 | DESKTOP_SWITCHDESKTOP.0 | DESKTOP_WRITEOBJECTS.0),
+                DESKTOP_CONTROL_FLAGS(0),
+                DESKTOP_CREATEWINDOW.0 | DESKTOP_SWITCHDESKTOP.0 | DESKTOP_WRITEOBJECTS.0,
                 None,
             ).map_err(|e| format!("CreateDesktopW failed: {}", e))?;
 
