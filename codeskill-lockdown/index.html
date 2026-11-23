@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CodeSkill LockDown</title>
   <style>
+    * { box-sizing: border-box; }
     body {
       margin: 0;
       background: #0f172a;
@@ -15,31 +16,37 @@
       align-items: center;
       justify-content: center;
       height: 100vh;
+      overflow: hidden;
       user-select: none;
     }
     .card {
       text-align: center;
-      max-width: 460px;
-      padding: 32px;
+      max-width: 480px;
+      padding: 36px 32px;
       background: #1e293b;
-      border-radius: 12px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.08);
+      z-index: 10;
     }
     h1 {
-      font-size: 24px;
+      font-size: 22px;
       margin-bottom: 8px;
       color: #38bdf8;
+      font-weight: 700;
+      letter-spacing: -0.01em;
     }
     p {
       color: #94a3b8;
-      font-size: 14px;
+      font-size: 13.5px;
       line-height: 1.5;
+      margin: 8px 0 0 0;
     }
     .spinner {
-      margin: 20px auto;
+      margin: 0 auto 20px auto;
       width: 40px;
       height: 40px;
-      border: 4px solid rgba(255,255,255,0.1);
+      border: 3.5px solid rgba(255,255,255,0.1);
       border-left-color: #38bdf8;
       border-radius: 50%;
       animation: spin 1s linear infinite;
@@ -47,6 +54,129 @@
     @keyframes spin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
+    }
+
+    /* Floating Utility Dock */
+    #lockdownDock {
+      position: fixed;
+      bottom: 16px;
+      left: 16px;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 12px;
+      padding: 5px 8px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+      font-size: 12px;
+      color: #e2e8f0;
+      gap: 6px;
+      user-select: none;
+      transition: box-shadow 0.2s ease;
+    }
+    #lockdownDock:hover {
+      box-shadow: 0 16px 40px rgba(0,0,0,0.7);
+    }
+    .dock-drag-handle {
+      cursor: grab;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      padding: 0 2px;
+    }
+    .dock-btn {
+      background: transparent;
+      border: none;
+      color: #cbd5e1;
+      padding: 5px 7px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11.5px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+    .dock-btn:hover {
+      background: rgba(255,255,255,0.1);
+      color: #f8fafc;
+    }
+    .dock-btn.active {
+      background: rgba(56, 189, 248, 0.2);
+      color: #38bdf8;
+    }
+    .dock-pill {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 6px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #94a3b8;
+    }
+    .dock-divider {
+      width: 1px;
+      height: 16px;
+      background: rgba(255,255,255,0.12);
+      margin: 0 2px;
+    }
+    .dock-btn-danger {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+    }
+    .dock-btn-danger:hover {
+      background: rgba(239, 68, 68, 0.25);
+      color: #fca5a5;
+    }
+
+    /* Popovers & Modals */
+    .dock-popover {
+      position: absolute;
+      bottom: 48px;
+      left: 0;
+      background: #1e293b;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+      min-width: 240px;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 10000;
+    }
+    .dock-popover.open {
+      display: flex;
+    }
+    .dock-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      z-index: 10001;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .dock-modal-overlay.open {
+      display: flex;
+    }
+    .dock-modal {
+      background: #1e293b;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.8);
+      color: #f8fafc;
     }
   </style>
 </head>
@@ -61,10 +191,140 @@
       </button>
     </div>
   </div>
+
+  <!-- Persistent LockDown Floating Utility Dock -->
+  <aside id="lockdownDock" aria-label="CodeSkill LockDown Floating Utility Dock">
+    <div class="dock-drag-handle" title="Drag to move dock">
+      <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor">
+        <circle cx="4" cy="3" r="1.3" />
+        <circle cx="8" cy="3" r="1.3" />
+        <circle cx="4" cy="7" r="1.3" />
+        <circle cx="8" cy="7" r="1.3" />
+        <circle cx="4" cy="11" r="1.3" />
+        <circle cx="8" cy="11" r="1.3" />
+      </svg>
+    </div>
+
+    <!-- Wi-Fi Status & Popover -->
+    <div style="position: relative;">
+      <button id="dockWifiBtn" class="dock-btn" title="Wi-Fi Connection & Reconnect">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+          <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+          <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+          <line x1="12" y1="20" x2="12.01" y2="20"></line>
+        </svg>
+        <span id="dockWifiLabel">Wi-Fi</span>
+      </button>
+
+      <div id="dockWifiPopover" class="dock-popover">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 6px;">
+          <span style="font-weight: 600; font-size: 12px; color: #38bdf8;">Wi-Fi Networks</span>
+          <button id="dockWifiRefreshBtn" style="background: none; border: none; color: #38bdf8; cursor: pointer; font-size: 11px;">Refresh</button>
+        </div>
+        <div id="dockWifiList" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-size: 11px;">
+          <div style="color: #64748b; text-align: center; padding: 12px;">Scanning networks...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Battery Status -->
+    <div id="dockBatteryPill" class="dock-pill" title="Battery Status">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="7" width="16" height="10" rx="2" ry="2"></rect>
+        <line x1="22" y1="11" x2="22" y2="13"></line>
+      </svg>
+      <span id="dockBatteryText">100%</span>
+    </div>
+
+    <!-- Clock -->
+    <div id="dockClock" class="dock-pill" style="font-family: monospace; color: #cbd5e1;" title="Current Time">
+      --:--
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <!-- Volume Control -->
+    <div style="position: relative;">
+      <button id="dockVolumeBtn" class="dock-btn" title="System Volume">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+        </svg>
+      </button>
+      <div id="dockVolumePopover" class="dock-popover" style="min-width: 180px;">
+        <div style="display: flex; justify-content: space-between; font-size: 11px;">
+          <span>Volume</span>
+          <span id="dockVolumeVal" style="color: #38bdf8; font-family: monospace;">50%</span>
+        </div>
+        <input type="range" id="dockVolumeSlider" min="0" max="100" value="50" style="width: 100%; accent-color: #38bdf8; cursor: pointer;" />
+      </div>
+    </div>
+
+    <!-- Live Diagnostic Logs -->
+    <button id="dockLogsBtn" class="dock-btn" title="View Diagnostic Logs">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="4 17 10 11 4 5"></polyline>
+        <line x1="12" y1="19" x2="20" y2="19"></line>
+      </svg>
+      <span>Logs</span>
+    </button>
+
+    <!-- Exit LockDown Button -->
+    <button id="dockExitBtn" class="dock-btn dock-btn-danger" title="Exit CodeSkill LockDown">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+        <line x1="12" y1="2" x2="12" y2="12"></line>
+      </svg>
+      <span>Exit</span>
+    </button>
+  </aside>
+
+  <!-- Logs Modal -->
+  <div id="dockLogsModal" class="dock-modal-overlay">
+    <div class="dock-modal">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="margin: 0; font-size: 15px; color: #38bdf8; font-weight: 600;">LockDown Diagnostic Logs</h3>
+        <button id="dockCloseLogsBtn" style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;">&times;</button>
+      </div>
+      <div id="dockLogsContent" style="background: #090d16; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; height: 240px; overflow-y: auto; font-family: monospace; font-size: 11px; line-height: 1.5; color: #cbd5e1;">
+        Loading logs...
+      </div>
+    </div>
+  </div>
+
+  <!-- Exit Confirmation Modal -->
+  <div id="dockExitModal" class="dock-modal-overlay">
+    <div class="dock-modal" style="max-width: 400px; text-align: center;">
+      <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto; color: #f87171;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+          <line x1="12" y1="2" x2="12" y2="12"></line>
+        </svg>
+      </div>
+      <h3 style="margin: 0 0 6px 0; font-size: 16px; font-weight: 700;">Exit CodeSkill LockDown?</h3>
+      <p style="font-size: 12.5px; color: #94a3b8; margin: 0 0 20px 0;">This will close the secure browser and safely release all system kiosk restrictions.</p>
+      <div style="display: flex; gap: 10px; justify-content: center;">
+        <button id="dockCancelExitBtn" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #e2e8f0; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer;">Cancel</button>
+        <button id="dockConfirmExitBtn" style="background: #dc2626; border: none; color: #fff; padding: 8px 18px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;">Exit LockDown</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (function() {
       var redirected = false;
       var defaultOrigin = 'https://codeskill.novaserve.cloud';
+
+      function getInvoker() {
+        if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+          return window.__TAURI_INTERNALS__.invoke;
+        } else if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
+          return window.__TAURI__.core.invoke;
+        }
+        return null;
+      }
 
       function navigateTo(url) {
         if (!redirected) {
@@ -74,21 +334,11 @@
       }
 
       function resolveOrigin(cb) {
-        var invoker = null;
-        if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
-          invoker = window.__TAURI_INTERNALS__.invoke;
-        } else if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-          invoker = window.__TAURI__.core.invoke;
-        }
-
+        var invoker = getInvoker();
         if (invoker) {
           invoker('get_frontend_origin')
-            .then(function(origin) {
-              cb(origin || defaultOrigin);
-            })
-            .catch(function() {
-              cb(defaultOrigin);
-            });
+            .then(function(origin) { cb(origin || defaultOrigin); })
+            .catch(function() { cb(defaultOrigin); });
         } else {
           cb(defaultOrigin);
         }
@@ -112,21 +362,17 @@
         });
       }
 
-      // Standalone Launch: do NOT redirect to /assessments. Show diagnostic button so candidate can test setup.
+      // Standalone Launch fallback prompt
       setTimeout(function() {
         if (!redirected) {
           var spinner = document.querySelector('.spinner');
-          if (spinner) {
-            spinner.style.display = 'none';
-          }
+          if (spinner) spinner.style.display = 'none';
           var p = document.querySelector('p');
           if (p) {
             p.innerText = "Single-Assessment Isolation Active. Click 'Launch in CodeSkill LockDown' from your exam portal, or test your setup below.";
           }
           var actions = document.getElementById('diagnosticActions');
-          if (actions) {
-            actions.style.display = 'block';
-          }
+          if (actions) actions.style.display = 'block';
           var btn = document.getElementById('systemCheckBtn');
           if (btn) {
             btn.onclick = function() {
@@ -137,6 +383,168 @@
           }
         }
       }, 800);
+
+      // --- Dock Logic ---
+      // Clock
+      function updateClock() {
+        var now = new Date();
+        var hours = String(now.getHours()).padStart(2, '0');
+        var mins = String(now.getMinutes()).padStart(2, '0');
+        var clockEl = document.getElementById('dockClock');
+        if (clockEl) clockEl.innerText = hours + ':' + mins;
+      }
+      setInterval(updateClock, 1000);
+      updateClock();
+
+      // Battery
+      function updateBattery() {
+        var invoker = getInvoker();
+        if (!invoker) return;
+        invoker('get_battery_status').then(function(b) {
+          if (b && typeof b.percentage === 'number') {
+            var text = document.getElementById('dockBatteryText');
+            if (text) text.innerText = b.percentage + '%' + (b.is_charging ? ' ⚡' : '');
+          }
+        }).catch(function() {});
+      }
+      setInterval(updateBattery, 10000);
+      updateBattery();
+
+      // Volume
+      var volumeBtn = document.getElementById('dockVolumeBtn');
+      var volumePopover = document.getElementById('dockVolumePopover');
+      var volumeSlider = document.getElementById('dockVolumeSlider');
+      var volumeVal = document.getElementById('dockVolumeVal');
+      if (volumeBtn && volumePopover) {
+        volumeBtn.onclick = function(e) {
+          e.stopPropagation();
+          volumePopover.classList.toggle('open');
+          var invoker = getInvoker();
+          if (invoker) {
+            invoker('get_system_volume').then(function(v) {
+              if (typeof v === 'number') {
+                volumeSlider.value = v;
+                volumeVal.innerText = v + '%';
+              }
+            }).catch(function() {});
+          }
+        };
+      }
+      if (volumeSlider) {
+        volumeSlider.oninput = function() {
+          var val = parseInt(volumeSlider.value, 10);
+          volumeVal.innerText = val + '%';
+          var invoker = getInvoker();
+          if (invoker) invoker('set_system_volume', { volume: val }).catch(function() {});
+        };
+      }
+
+      // Wi-Fi
+      var wifiBtn = document.getElementById('dockWifiBtn');
+      var wifiPopover = document.getElementById('dockWifiPopover');
+      var wifiList = document.getElementById('dockWifiList');
+      var wifiRefresh = document.getElementById('dockWifiRefreshBtn');
+
+      function scanWifi() {
+        if (!wifiList) return;
+        wifiList.innerHTML = '<div style="color: #64748b; text-align: center; padding: 12px;">Scanning networks...</div>';
+        var invoker = getInvoker();
+        if (invoker) {
+          invoker('scan_wifi_networks').then(function(nets) {
+            if (!nets || nets.length === 0) {
+              wifiList.innerHTML = '<div style="color: #94a3b8; text-align: center; padding: 12px;">No Wi-Fi networks found</div>';
+              return;
+            }
+            wifiList.innerHTML = '';
+            nets.forEach(function(n) {
+              var row = document.createElement('div');
+              row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.05); margin-bottom: 2px;';
+              row.innerHTML = '<span>' + (n.ssid || 'Hidden') + (n.is_connected ? ' <strong style="color: #22c55e;">(Connected)</strong>' : '') + '</span>' +
+                '<span style="color: #64748b;">' + (n.signal_strength || 0) + '%</span>';
+              wifiList.appendChild(row);
+            });
+          }).catch(function(err) {
+            wifiList.innerHTML = '<div style="color: #f87171; text-align: center; padding: 8px;">Scan error</div>';
+          });
+        }
+      }
+
+      if (wifiBtn && wifiPopover) {
+        wifiBtn.onclick = function(e) {
+          e.stopPropagation();
+          wifiPopover.classList.toggle('open');
+          if (wifiPopover.classList.contains('open')) scanWifi();
+        };
+      }
+      if (wifiRefresh) {
+        wifiRefresh.onclick = function(e) {
+          e.stopPropagation();
+          scanWifi();
+        };
+      }
+
+      // Diagnostic Logs
+      var logsBtn = document.getElementById('dockLogsBtn');
+      var logsModal = document.getElementById('dockLogsModal');
+      var closeLogsBtn = document.getElementById('dockCloseLogsBtn');
+      var logsContent = document.getElementById('dockLogsContent');
+      if (logsBtn && logsModal) {
+        logsBtn.onclick = function() {
+          logsModal.classList.add('open');
+          var invoker = getInvoker();
+          if (invoker) {
+            logsContent.innerText = 'Loading diagnostic logs...';
+            invoker('get_lockdown_diagnostic_logs').then(function(logs) {
+              if (!logs || logs.length === 0) {
+                logsContent.innerText = 'No diagnostic logs recorded yet.';
+                return;
+              }
+              logsContent.innerText = logs.map(function(l) {
+                return '[' + (l.timestamp || '') + '] [' + (l.level || 'INFO') + '] [' + (l.category || '') + '] ' + (l.message || '');
+              }).join('\n');
+            }).catch(function(e) {
+              logsContent.innerText = 'Failed to load logs: ' + e;
+            });
+          }
+        };
+      }
+      if (closeLogsBtn && logsModal) {
+        closeLogsBtn.onclick = function() { logsModal.classList.remove('open'); };
+      }
+
+      // Exit LockDown
+      var exitBtn = document.getElementById('dockExitBtn');
+      var exitModal = document.getElementById('dockExitModal');
+      var cancelExitBtn = document.getElementById('dockCancelExitBtn');
+      var confirmExitBtn = document.getElementById('dockConfirmExitBtn');
+      if (exitBtn && exitModal) {
+        exitBtn.onclick = function() { exitModal.classList.add('open'); };
+      }
+      if (cancelExitBtn && exitModal) {
+        cancelExitBtn.onclick = function() { exitModal.classList.remove('open'); };
+      }
+      if (confirmExitBtn) {
+        confirmExitBtn.onclick = function() {
+          var invoker = getInvoker();
+          if (invoker) {
+            invoker('exit_lockdown_app').catch(function() {
+              window.close();
+            });
+          } else {
+            window.close();
+          }
+        };
+      }
+
+      // Close popovers on click outside
+      document.addEventListener('click', function(e) {
+        if (volumePopover && !volumePopover.contains(e.target) && e.target !== volumeBtn) {
+          volumePopover.classList.remove('open');
+        }
+        if (wifiPopover && !wifiPopover.contains(e.target) && e.target !== wifiBtn) {
+          wifiPopover.classList.remove('open');
+        }
+      });
     })();
   </script>
 </body>

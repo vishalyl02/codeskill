@@ -639,7 +639,8 @@ pub fn scan_wifi_networks() -> Result<Vec<WifiNetworkInfo>, String> {
 }
 
 #[tauri::command]
-pub fn connect_wifi_network(ssid: String, _password: Option<String>) -> Result<(), String> {
+pub fn connect_wifi_network(ssid: String, password: Option<String>) -> Result<(), String> {
+    let _ = &password;
     if ssid.trim().is_empty() {
         return Err("SSID cannot be empty".to_string());
     }
@@ -650,7 +651,7 @@ pub fn connect_wifi_network(ssid: String, _password: Option<String>) -> Result<(
         let mut cmd = std::process::Command::new("networksetup");
         cmd.arg("-setairportnetwork").arg(&wifi_dev).arg(&ssid);
 
-        if let Some(pass) = _password {
+        if let Some(pass) = password {
             if !pass.trim().is_empty() {
                 cmd.arg(pass);
             }
