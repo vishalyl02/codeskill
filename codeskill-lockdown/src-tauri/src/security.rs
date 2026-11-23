@@ -270,8 +270,7 @@ pub fn detect_system_proxy() -> (bool, Vec<String>) {
             if RegOpenKeyExW(HKEY_CURRENT_USER, subkey, 0, KEY_READ, &mut key).is_ok() {
                 let mut val: u32 = 0;
                 let mut size: u32 = std::mem::size_of::<u32>() as u32;
-                let mut val_type: u32 = REG_DWORD.0;
-                if RegQueryValueExW(key, windows::core::w!("ProxyEnable"), None, Some(&mut val_type), Some(&mut val as *mut u32 as *mut u8), Some(&mut size)).is_ok() {
+                if RegQueryValueExW(key, windows::core::w!("ProxyEnable"), None, None, Some(&mut val as *mut u32 as *mut u8), Some(&mut size)).is_ok() {
                     if val == 1 {
                         indicators.push("Windows system proxy active (ProxyEnable = 1)".to_string());
                     }
@@ -976,15 +975,15 @@ pub fn run_preflight_checks(window: tauri::Window) -> PreflightResult {
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{GetWindowDisplayAffinity, WINDOW_DISPLAY_AFFINITY};
+        use windows::Win32::UI::WindowsAndMessaging::GetWindowDisplayAffinity;
         const WDA_EXCLUDEFROMCAPTURE: u32 = 0x00000011;
 
         if let Ok(hwnd_raw) = window.hwnd() {
             let hwnd = HWND(hwnd_raw.0 as _);
-            let mut affinity = WINDOW_DISPLAY_AFFINITY(0);
+            let mut affinity: u32 = 0;
             unsafe {
                 if GetWindowDisplayAffinity(hwnd, &mut affinity).is_ok() {
-                    if affinity.0 == WDA_EXCLUDEFROMCAPTURE {
+                    if affinity == WDA_EXCLUDEFROMCAPTURE {
                         violations.push("DISPLAY_AFFINITY_VIOLATION: Window display affinity is set to WDA_EXCLUDEFROMCAPTURE. Screen capture cloaking tools are strictly forbidden.".to_string());
                     }
                 }
@@ -1951,7 +1950,9 @@ pub fn run_runtime_integrity_check() -> Result<RuntimeIntegrityReport, String> {
 }
 
 pub fn check_media_hardware_audit() -> MediaHardwareAudit {
+    #[allow(unused_mut)]
     let mut devices = Vec::new();
+    #[allow(unused_mut)]
     let mut virtual_detected = Vec::new();
 
     #[cfg(target_os = "macos")]
