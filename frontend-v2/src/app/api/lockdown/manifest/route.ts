@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
-import { DEFAULT_VERSION, DEFAULT_TAG, getPlatformCandidates } from '../download/route';
+import {
+  DEFAULT_VERSION,
+  DEFAULT_TAG,
+  CANONICAL_REPO,
+  getPlatformCandidates,
+} from '@/lib/lockdown-download-config';
 
 export const dynamic = 'force-dynamic';
 
-const CANONICAL_REPO = 'sazamansari/codeskill';
 const CURRENT_VERSION = DEFAULT_VERSION;
 
 export async function GET() {
