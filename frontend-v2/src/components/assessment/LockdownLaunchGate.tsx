@@ -111,19 +111,20 @@ export default function LockdownLaunchGate({
 
       const downloadUrl = `/api/lockdown/download?${queryParams.toString()}`;
 
-      // Trigger background download via invisible iframe to prevent top-level navigation / external 404 pages
-      const iframe = document.createElement("iframe");
-      iframe.style.display = "none";
-      iframe.src = downloadUrl;
-      document.body.appendChild(iframe);
+      // Trigger background download via anchor element
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.setAttribute("download", "");
+      document.body.appendChild(link);
+      link.click();
 
       setTimeout(() => {
-        if (document.body.contains(iframe)) {
-          document.body.removeChild(iframe);
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
         }
         setDownloadingPlatform(null);
         setDownloadStatus(`Download started for ${platform.toUpperCase()}! Check your browser's downloads.`);
-      }, 2500);
+      }, 2000);
     } catch {
       setDownloadingPlatform(null);
       setDownloadError(`Unable to start download for ${platform}. Please check your connection and try again.`);

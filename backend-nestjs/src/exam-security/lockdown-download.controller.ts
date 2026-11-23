@@ -114,7 +114,7 @@ export class LockdownDownloadController {
 
   @Get('download')
   @HttpCode(302)
-  downloadLockdown(
+  async downloadLockdown(
     @Query('platform') queryPlatform: string | undefined,
     @Query('redirect') redirectQuery: string | undefined,
     @Req() req: Request,
@@ -178,12 +178,68 @@ export class LockdownDownloadController {
       });
     }
 
+    if (cdnBase) {
+      return res.redirect(302, directUrl);
+    }
+
+    // Authenticated GitHub Release Asset Proxy for private repositories
+    const githubToken =
+      process.env.LOCKDOWN_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+    if (githubToken) {
+      try {
+        const releaseApiUrl = `https://api.github.com/repos/${CANONICAL_REPO}/releases/tags/${tag}`;
+        const releaseRes = await fetch(releaseApiUrl, {
+          headers: {
+            Authorization: `Bearer ${githubToken}`,
+            Accept: 'application/vnd.github.v3+json',
+            'User-Agent': 'CodeSkill-Installer-Downloader',
+          },
+        });
+
+        if (releaseRes.ok) {
+          const releaseData = (await releaseRes.json()) as {
+            assets?: Array<{ id: number; name: string }>;
+          };
+          const assets = releaseData.assets || [];
+
+          let matchedAsset = null;
+          for (const candidate of candidates) {
+            const found = assets.find((a) => a.name === candidate);
+            if (found) {
+              matchedAsset = found;
+              break;
+            }
+          }
+
+          if (matchedAsset) {
+            const assetDownloadUrl = `https://api.github.com/repos/${CANONICAL_REPO}/releases/assets/${matchedAsset.id}`;
+            const assetRes = await fetch(assetDownloadUrl, {
+              headers: {
+                Authorization: `Bearer ${githubToken}`,
+                Accept: 'application/octet-stream',
+                'User-Agent': 'CodeSkill-Installer-Downloader',
+              },
+              redirect: 'manual',
+            });
+
+            const signedS3Url = assetRes.headers.get('location');
+            if (signedS3Url) {
+              res.set('X-CodeSkill-Asset-Source', 'github-signed-s3');
+              return res.redirect(302, signedS3Url);
+            }
+          }
+        }
+      } catch (proxyErr) {
+        // Fall through to canonical redirect
+      }
+    }
+
     return res.redirect(302, directUrl);
   }
 
   @Get('download/:platform')
   @HttpCode(302)
-  downloadByPlatform(
+  async downloadByPlatform(
     @Param('platform') platformParam: string,
     @Req() req: Request,
     @Res() res: Response,
