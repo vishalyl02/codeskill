@@ -365,13 +365,12 @@ export default function LockdownSystemCheckPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <a
-                href="/api/lockdown/download?platform=windows"
+                href="/api/lockdown/download"
                 className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs shrink-0 transition-colors inline-flex items-center gap-1.5"
-                download="CodeSkill-LockDown-Setup.exe"
-                title="Download CodeSkill LockDown for Windows (.exe)"
+                title="Download CodeSkill LockDown for your operating system"
               >
                 <Download className="w-3.5 h-3.5" />
-                Download Windows .exe
+                Download LockDown
               </a>
               <button
                 onClick={() => { window.location.href = "codeskill-lockdown://system-check"; }}

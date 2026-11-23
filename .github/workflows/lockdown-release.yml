@@ -91,10 +91,93 @@ jobs:
             cp "$NSIS_FILE" dist-nsis/CodeSkill-LockDown-Setup.exe
             cp "$NSIS_FILE" dist-nsis/codeskill-lockdown-setup.exe
             cp "$NSIS_FILE" "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe"
-            echo "Publishing standardized assets to $TAG_NAME"
+            echo "Publishing standardized Windows assets to $TAG_NAME"
             if command -v gh >/dev/null 2>&1; then
               gh release upload "$TAG_NAME" dist-nsis/CodeSkill-LockDown-Setup.exe dist-nsis/codeskill-lockdown-setup.exe "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe" --clobber || echo "Notice: gh release upload skipped or release not created yet"
             fi
           else
             echo "Notice: No NSIS installer binary found to standardize."
+          fi
+
+      - name: Standardize and Upload macOS DMG Asset
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-dmg
+          DMG_FILE=""
+          for f in codeskill-lockdown/src-tauri/target/release/bundle/dmg/*.dmg codeskill-lockdown/src-tauri/target/*/release/bundle/dmg/*.dmg; do
+            if [ -f "$f" ]; then
+              DMG_FILE="$f"
+              break
+            fi
+          done
+
+          if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
+            echo "Found macOS DMG installer: $DMG_FILE"
+            VERSION=$(node -p "require('./codeskill-lockdown/src-tauri/tauri.conf.json').version")
+            REF_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
+            TAG_NAME="${REF_NAME}"
+            cp "$DMG_FILE" dist-dmg/codeskill-lockdown.dmg
+            cp "$DMG_FILE" dist-dmg/CodeSkill-LockDown.dmg
+            cp "$DMG_FILE" "dist-dmg/CodeSkill-LockDown-${VERSION}.dmg"
+            echo "Publishing standardized macOS assets to $TAG_NAME"
+            if command -v gh >/dev/null 2>&1; then
+              gh release upload "$TAG_NAME" dist-dmg/codeskill-lockdown.dmg dist-dmg/CodeSkill-LockDown.dmg "dist-dmg/CodeSkill-LockDown-${VERSION}.dmg" --clobber || echo "Notice: gh release upload skipped or release not created yet"
+            fi
+          else
+            echo "Notice: No macOS DMG installer binary found to standardize."
+          fi
+
+      - name: Standardize and Upload Linux Package Assets
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist-linux
+          DEB_FILE=""
+          APPIMAGE_FILE=""
+          for f in codeskill-lockdown/src-tauri/target/release/bundle/deb/*.deb; do
+            if [ -f "$f" ]; then
+              DEB_FILE="$f"
+              break
+            fi
+          done
+          for f in codeskill-lockdown/src-tauri/target/release/bundle/appimage/*.AppImage; do
+            if [ -f "$f" ]; then
+              APPIMAGE_FILE="$f"
+              break
+            fi
+          done
+
+          VERSION=$(node -p "require('./codeskill-lockdown/src-tauri/tauri.conf.json').version")
+          REF_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
+          TAG_NAME="${REF_NAME}"
+
+          UPLOAD_FILES=()
+          if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
+            echo "Found Linux DEB package: $DEB_FILE"
+            cp "$DEB_FILE" dist-linux/codeskill-lockdown.deb
+            cp "$DEB_FILE" dist-linux/CodeSkill-LockDown.deb
+            cp "$DEB_FILE" "dist-linux/CodeSkill-LockDown-${VERSION}.deb"
+            UPLOAD_FILES+=(dist-linux/codeskill-lockdown.deb dist-linux/CodeSkill-LockDown.deb "dist-linux/CodeSkill-LockDown-${VERSION}.deb")
+          fi
+
+          if [ -n "$APPIMAGE_FILE" ] && [ -f "$APPIMAGE_FILE" ]; then
+            echo "Found Linux AppImage package: $APPIMAGE_FILE"
+            cp "$APPIMAGE_FILE" dist-linux/codeskill-lockdown.AppImage
+            cp "$APPIMAGE_FILE" dist-linux/CodeSkill-LockDown.AppImage
+            cp "$APPIMAGE_FILE" "dist-linux/CodeSkill-LockDown-${VERSION}.AppImage"
+            UPLOAD_FILES+=(dist-linux/codeskill-lockdown.AppImage dist-linux/CodeSkill-LockDown.AppImage "dist-linux/CodeSkill-LockDown-${VERSION}.AppImage")
+          fi
+
+          if [ ${#UPLOAD_FILES[@]} -gt 0 ]; then
+            echo "Publishing standardized Linux assets to $TAG_NAME: ${UPLOAD_FILES[*]}"
+            if command -v gh >/dev/null 2>&1; then
+              gh release upload "$TAG_NAME" "${UPLOAD_FILES[@]}" --clobber || echo "Notice: gh release upload skipped or release not created yet"
+            fi
+          else
+            echo "Notice: No Linux installer binaries found to standardize."
           fi

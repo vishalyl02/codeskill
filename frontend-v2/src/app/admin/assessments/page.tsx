@@ -289,15 +289,6 @@ export default function AdminAssessmentsPage() {
                 <div className="pt-2 flex items-center justify-between border-t border-border/40 gap-2">
                   <div className="flex items-center gap-1.5">
                     <Link
-                      href={`/admin/assessments/${test._id}/lockdown-control`}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-xs font-bold text-purple-400 transition-colors"
-                      title="Live Student Invigilation & LockDown Controls"
-                    >
-                      <ShieldAlert className="w-3.5 h-3.5" />
-                      <span>Student Controls</span>
-                    </Link>
-
-                    <Link
                       href={`/admin/assessments/${test._id}/results`}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold transition-colors border border-border"
                     >

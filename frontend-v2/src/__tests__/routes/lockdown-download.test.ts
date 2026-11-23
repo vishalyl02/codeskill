@@ -47,6 +47,9 @@ describe('LockDown Download & Manifest API Routes', () => {
       expect(data.filename).toBe('CodeSkill-LockDown-Setup.exe');
       expect(data.format).toBe('exe');
       expect(data.installerType).toBe('nsis');
+      expect(data.version).toBe('1.0.0');
+      expect(data.tag).toBe('lockdown-v1.0.0');
+      expect(data.candidates).toContain('CodeSkill-LockDown-Setup.exe');
       expect(data.fallbackUrl).toContain('CodeSkill-LockDown-Setup.exe');
       expect(data.releasesPage).toContain('sazamansari/codeskill/releases');
     });
@@ -73,22 +76,40 @@ describe('LockDown Download & Manifest API Routes', () => {
       expect(response.headers.get('location')).toBe('https://cdn.codeskill.com/lockdown/CodeSkill-LockDown-Setup.exe');
     });
 
-    it('supports macOS platform target', async () => {
+    it('supports macOS platform target with version tag', async () => {
       process.env.LOCKDOWN_CDN_URL = 'https://cdn.codeskill.com/lockdown';
-      const req = new NextRequest('http://localhost:3000/api/lockdown/download?platform=macos');
+      const req = new NextRequest('http://localhost:3000/api/lockdown/download?platform=macos&version=1.0.0');
       const response = await getDownload(req);
 
       expect(response.status).toBe(302);
       expect(response.headers.get('location')).toBe('https://cdn.codeskill.com/lockdown/codeskill-lockdown.dmg');
+      expect(response.headers.get('x-codeskill-installer-version')).toBe('1.0.0');
     });
 
-    it('supports Linux platform target', async () => {
-      process.env.LOCKDOWN_CDN_URL = 'https://cdn.codeskill.com/lockdown';
-      const req = new NextRequest('http://localhost:3000/api/lockdown/download?platform=linux');
+    it('supports Linux platform target with AppImage format', async () => {
+      const req = new NextRequest('http://localhost:3000/api/lockdown/download?platform=linux&format=appimage&version=1.0.0');
       const response = await getDownload(req);
 
       expect(response.status).toBe(302);
-      expect(response.headers.get('location')).toBe('https://cdn.codeskill.com/lockdown/codeskill-lockdown.deb');
+      const location = response.headers.get('location');
+      expect(location).toContain('AppImage');
+      expect(location).toContain('lockdown-v1.0.0');
+    });
+
+    it('resolves macOS candidate DMG without CDN', async () => {
+      const req = new NextRequest('http://localhost:3000/api/lockdown/download?platform=macos&version=1.0.0');
+      const response = await getDownload(req);
+
+      // If local compiled binary exists, it serves 200 directly; otherwise 302 redirects to release
+      expect([200, 302]).toContain(response.status);
+      if (response.status === 200) {
+        expect(response.headers.get('content-type')).toBe('application/x-apple-diskimage');
+        expect(response.headers.get('content-disposition')).toContain('dmg');
+      } else {
+        const location = response.headers.get('location');
+        expect(location).toContain('dmg');
+        expect(location).toContain('lockdown-v1.0.0');
+      }
     });
   });
 
@@ -99,12 +120,17 @@ describe('LockDown Download & Manifest API Routes', () => {
 
       const json = await response.json();
       expect(json.success).toBe(true);
+      expect(json.version).toBe('1.0.0');
+      expect(json.tag).toBe('lockdown-v1.0.0');
       expect(json.bundleTargets.windows).toBe('nsis');
       expect(json.platforms.windows.format).toBe('exe');
       expect(json.platforms.windows.filename).toBe('CodeSkill-LockDown-Setup.exe');
       expect(json.platforms.windows.filename).not.toContain('.msi');
       expect(json.platforms.macos.format).toBe('dmg');
       expect(json.platforms.linux.format).toBe('deb');
+      expect(json.platforms.windows.candidates.length).toBeGreaterThan(0);
+      expect(json.platforms.macos.candidates.length).toBeGreaterThan(0);
+      expect(json.platforms.linux.candidates.length).toBeGreaterThan(0);
     });
   });
 });

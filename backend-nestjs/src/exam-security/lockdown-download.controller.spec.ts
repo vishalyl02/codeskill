@@ -54,9 +54,11 @@ describe('LockdownDownloadController', () => {
       expect(redirectedUrl).toContain('CodeSkill-LockDown-Setup.exe');
       expect(redirectedUrl).not.toContain('.msi');
       expect(setHeaders['Content-Type']).toBe('application/vnd.microsoft.portable-executable');
-      expect(setHeaders['Content-Disposition']).toBe('attachment; filename="CodeSkill-LockDown-Setup.exe"');
+      expect(setHeaders['Content-Disposition']).toContain('CodeSkill-LockDown-Setup.exe');
       expect(setHeaders['X-CodeSkill-Installer-Format']).toBe('exe');
       expect(setHeaders['X-CodeSkill-Installer-Type']).toBe('nsis');
+      expect(setHeaders['X-CodeSkill-Installer-Version']).toBe('1.0.0');
+      expect(setHeaders['X-CodeSkill-Installer-Tag']).toBe('lockdown-v1.0.0');
     });
 
     it('returns json response when redirect=false is passed', () => {
@@ -83,10 +85,13 @@ describe('LockdownDownloadController', () => {
       expect(jsonPayload).toBeDefined();
       expect(jsonPayload.success).toBe(true);
       expect(jsonPayload.platform).toBe('windows');
+      expect(jsonPayload.version).toBe('1.0.0');
+      expect(jsonPayload.tag).toBe('lockdown-v1.0.0');
       expect(jsonPayload.filename).toBe('CodeSkill-LockDown-Setup.exe');
       expect(jsonPayload.format).toBe('exe');
       expect(jsonPayload.installerType).toBe('nsis');
       expect(jsonPayload.url).toContain('CodeSkill-LockDown-Setup.exe');
+      expect(jsonPayload.candidates).toBeDefined();
     });
 
     it('redirects to CDN base when configured in environment', () => {
@@ -106,7 +111,7 @@ describe('LockdownDownloadController', () => {
       expect(redirectedUrl).toBe('https://cdn.example.com/assets/CodeSkill-LockDown-Setup.exe');
     });
 
-    it('handles macos and linux platforms correctly', () => {
+    it('handles macos and linux platforms correctly with candidate resolution', () => {
       let macUrl = '';
       let linuxUrl = '';
 
@@ -121,10 +126,12 @@ describe('LockdownDownloadController', () => {
       } as unknown as Response;
 
       controller.downloadLockdown('macos', undefined, mockReq, mockResMac);
-      expect(macUrl).toContain('codeskill-lockdown.dmg');
+      expect(macUrl).toContain('dmg');
+      expect(macUrl).toContain('lockdown-v1.0.0');
 
       controller.downloadLockdown('linux', undefined, mockReq, mockResLinux);
-      expect(linuxUrl).toContain('codeskill-lockdown.deb');
+      expect(linuxUrl).toContain('deb');
+      expect(linuxUrl).toContain('lockdown-v1.0.0');
     });
   });
 
@@ -132,6 +139,8 @@ describe('LockdownDownloadController', () => {
     it('returns structured manifest referencing Windows NSIS .exe and never .msi', () => {
       const manifest = controller.getManifest();
       expect(manifest.success).toBe(true);
+      expect(manifest.version).toBe('1.0.0');
+      expect(manifest.tag).toBe('lockdown-v1.0.0');
       expect(manifest.bundleTargets.windows).toBe('nsis');
       expect(manifest.platforms.windows.format).toBe('exe');
       expect(manifest.platforms.windows.filename).toBe('CodeSkill-LockDown-Setup.exe');
@@ -139,6 +148,9 @@ describe('LockdownDownloadController', () => {
       expect(manifest.platforms.windows.installerType).toBe('nsis');
       expect(manifest.platforms.macos.format).toBe('dmg');
       expect(manifest.platforms.linux.format).toBe('deb');
+      expect(manifest.platforms.windows.candidates.length).toBeGreaterThan(0);
+      expect(manifest.platforms.macos.candidates.length).toBeGreaterThan(0);
+      expect(manifest.platforms.linux.candidates.length).toBeGreaterThan(0);
     });
   });
 });
