@@ -48,9 +48,9 @@
     "targets": ["dmg", "app", "nsis", "deb", "appimage"],
     "windows": {
       "nsis": {
-        "installMode": "perMachine",
+        "installMode": "currentUser",
         "displayLanguageSelector": false,
-        "shortcutName": "CodeSkill LockDown"
+        "installerIcon": "icons/icon.ico"
       }
     },
     "macOS": {

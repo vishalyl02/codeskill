@@ -5,6 +5,7 @@ import { ExamSecurityService } from './exam-security.service';
 import { ExamSecurityController } from './exam-security.controller';
 import { LockdownCommandCenterService } from './lockdown-command-center.service';
 import { LockdownCommandCenterController } from './lockdown-command-center.controller';
+import { LockdownDownloadController } from './lockdown-download.controller';
 import { OperationalHealthService } from './operational-health.service';
 import { Assessment } from '../database/entities/assessment.entity';
 import { ExamSession } from '../database/entities/exam-session.entity';
@@ -33,7 +34,11 @@ import { LockdownSignatureGuard } from './lockdown-signature.guard';
     SubmissionShardingModule,
     BullModule.registerQueue({ name: 'submissions' }),
   ],
-  controllers: [ExamSecurityController, LockdownCommandCenterController],
+  controllers: [
+    ExamSecurityController,
+    LockdownCommandCenterController,
+    LockdownDownloadController,
+  ],
   providers: [
     ExamSecurityService,
     LockdownCommandCenterService,

@@ -123,3 +123,30 @@ if (validAppDir && fs.existsSync(validAppDir)) {
     console.warn(`[postbuild] Failed to package signed DMG: ${e.message}`);
   }
 }
+
+// Package Windows NSIS installer if generated
+const nsisSearchDirs = [
+  path.join(__dirname, '../src-tauri/target/release/bundle/nsis'),
+  path.join(__dirname, '../src-tauri/target/debug/bundle/nsis'),
+];
+
+for (const nsisDir of nsisSearchDirs) {
+  if (fs.existsSync(nsisDir)) {
+    try {
+      const files = fs.readdirSync(nsisDir);
+      const exeFile = files.find(f => f.endsWith('.exe') && !f.toLowerCase().includes('uninst'));
+      if (exeFile) {
+        fs.mkdirSync(frontendDownloadsDir, { recursive: true });
+        const srcExe = path.join(nsisDir, exeFile);
+        const destCanonical = path.join(frontendDownloadsDir, 'CodeSkill-LockDown-Setup.exe');
+        const destLowercase = path.join(frontendDownloadsDir, 'codeskill-lockdown-setup.exe');
+        fs.copyFileSync(srcExe, destCanonical);
+        fs.copyFileSync(srcExe, destLowercase);
+        console.log(`[postbuild] Packaged Windows NSIS installer to ${destCanonical} and ${destLowercase}`);
+        break;
+      }
+    } catch (nsisErr) {
+      console.warn(`[postbuild] Failed to package Windows NSIS installer: ${nsisErr.message}`);
+    }
+  }
+}

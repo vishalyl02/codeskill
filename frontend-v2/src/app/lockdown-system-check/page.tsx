@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Sparkles,
   ExternalLink,
+  Download,
 } from "lucide-react";
 import {
   runFullSystemDiagnostic,
@@ -362,12 +363,23 @@ export default function LockdownSystemCheckPage() {
                 <p className="text-amber-200/80">To run authentic hardware attestation and process isolation, launch inside CodeSkill LockDown.</p>
               </div>
             </div>
-            <button
-              onClick={() => { window.location.href = "codeskill-lockdown://system-check"; }}
-              className="px-3.5 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-semibold text-xs shrink-0 hover:bg-amber-400 transition-colors cursor-pointer self-start sm:self-auto"
-            >
-              Launch in LockDown
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href="/api/lockdown/download?platform=windows"
+                className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs shrink-0 transition-colors inline-flex items-center gap-1.5"
+                download="CodeSkill-LockDown-Setup.exe"
+                title="Download CodeSkill LockDown for Windows (.exe)"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download Windows .exe
+              </a>
+              <button
+                onClick={() => { window.location.href = "codeskill-lockdown://system-check"; }}
+                className="px-3.5 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-semibold text-xs shrink-0 hover:bg-amber-400 transition-colors cursor-pointer self-start sm:self-auto"
+              >
+                Launch in LockDown
+              </button>
+            </div>
           </div>
         )}
         {/* Readiness Hero Banner */}

@@ -1,0 +1,4 @@
+CodeSkill LockDown Desktop Application - Windows NSIS Setup Installer (.exe)
+Version: 1.0.0
+Build: NSIS Package (Target: x86_64 / x64)
+To produce a production Windows NSIS installer binary, run `npm run build:windows` on Windows or trigger GitHub Actions CI.
