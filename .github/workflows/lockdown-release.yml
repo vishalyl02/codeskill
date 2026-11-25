@@ -2,6 +2,8 @@ name: CodeSkill LockDown Release
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'codeskill-lockdown-macos/**'
       - 'codeskill-lockdown-windows/**'
@@ -55,6 +57,17 @@ jobs:
             echo "macos=${{ steps.filter.outputs.macos }}" >> "$GITHUB_OUTPUT"
             echo "windows=${{ steps.filter.outputs.windows }}" >> "$GITHUB_OUTPUT"
             echo "linux=${{ steps.filter.outputs.linux }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Ensure GitHub Release Exists
+        if: github.event_name != 'pull_request' && (steps.set.outputs.macos == 'true' || steps.set.outputs.windows == 'true' || steps.set.outputs.linux == 'true')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./codeskill-lockdown-macos/src-tauri/tauri.conf.json').version")
+          TAG_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
+          if [[ "$TAG_NAME" != lockdown-v* ]]; then TAG_NAME="lockdown-v${VERSION}"; fi
+          if command -v gh >/dev/null 2>&1; then
+            gh release create "$TAG_NAME" --title "CodeSkill LockDown v${VERSION}" --notes "Official secure examination browser release for CodeSkill assessments." || true
           fi
 
   build-windows:
