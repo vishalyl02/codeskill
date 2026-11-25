@@ -22,7 +22,9 @@ export class PlacementFileStore {
         'Placement file storage is not configured.',
       );
     if (storage === 's3') {
-      const bucket = process.env.AWS_S3_BUCKET_NAME;
+      const bucket =
+        process.env.AWS_S3_BUCKET_NAME?.trim() ||
+        process.env.S3_BUCKET_NAME?.trim();
       if (!bucket)
         throw new ServiceUnavailableException(
           'Placement PDF storage requires the configured S3 bucket.',
