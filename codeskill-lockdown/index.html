@@ -362,6 +362,24 @@
         });
       }
 
+      // Deterministic cold-start pull: if macOS delivered the deep-link before JS listeners mounted,
+      // consume the pending launch URL directly from Rust state.
+      function checkPendingDeepLink() {
+        if (redirected) return;
+        var invoker = getInvoker();
+        if (!invoker) return;
+        invoker('consume_pending_launch_url')
+          .then(function(url) {
+            if (url && typeof url === 'string') {
+              navigateTo(url);
+            }
+          })
+          .catch(function() {});
+      }
+      checkPendingDeepLink();
+      setTimeout(checkPendingDeepLink, 150);
+      setTimeout(checkPendingDeepLink, 450);
+
       // Standalone Launch fallback prompt
       setTimeout(function() {
         if (!redirected) {
@@ -382,7 +400,7 @@
             };
           }
         }
-      }, 800);
+      }, 1200);
 
       // --- Dock Logic ---
       // Clock

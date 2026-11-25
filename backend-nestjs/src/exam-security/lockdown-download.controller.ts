@@ -141,6 +141,8 @@ export class LockdownDownloadController {
 
     const cdnBase =
       process.env.LOCKDOWN_CDN_URL || process.env.NEXT_PUBLIC_LOCKDOWN_CDN_URL;
+    const githubToken =
+      process.env.LOCKDOWN_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
     const directUrl = cdnBase
       ? `${cdnBase.replace(/\/+$/, '')}/${asset.filename}`
       : `https://github.com/${CANONICAL_REPO}/releases/download/${tag}/${preferredFilename}`;
@@ -160,6 +162,7 @@ export class LockdownDownloadController {
 
     if (
       redirectQuery === 'false' ||
+      queryFormat === 'json' ||
       (req.headers && req.headers.accept?.includes('application/json'))
     ) {
       return res.status(200).json({
@@ -171,6 +174,7 @@ export class LockdownDownloadController {
         canonicalFilename: asset.filename,
         format: asset.format,
         installerType: asset.installerType,
+        configured: Boolean(cdnBase || githubToken),
         url: directUrl,
         candidates,
         fallbackUrl,
@@ -183,8 +187,6 @@ export class LockdownDownloadController {
     }
 
     // Authenticated GitHub Release Asset Proxy for private repositories
-    const githubToken =
-      process.env.LOCKDOWN_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
     if (githubToken) {
       try {
         const releaseApiUrl = `https://api.github.com/repos/${CANONICAL_REPO}/releases/tags/${tag}`;
