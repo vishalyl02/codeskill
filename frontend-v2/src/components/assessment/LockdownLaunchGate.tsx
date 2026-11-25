@@ -41,7 +41,9 @@ export default function LockdownLaunchGate({
     }
 
     // Fetch manifest or download metadata to get the latest published version
-    fetch("/api/lockdown/download?format=json")
+    fetch("/api/lockdown/download?redirect=false&format=json", {
+      headers: { Accept: "application/json" },
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.version) {

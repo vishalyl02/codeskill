@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
   const preferredFilename = candidates[0] || assetConfig.canonicalFilename;
 
   const cdnBase = process.env.NEXT_PUBLIC_LOCKDOWN_CDN_URL || process.env.LOCKDOWN_CDN_URL;
+  const githubToken = process.env.LOCKDOWN_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
   const directUrl = cdnBase
     ? `${cdnBase.replace(/\/+$/, '')}/${assetConfig.canonicalFilename}`
     : `https://github.com/${CANONICAL_REPO}/releases/download/${tagParam}/${preferredFilename}`;
@@ -63,6 +64,7 @@ export async function GET(req: NextRequest) {
       canonicalFilename: assetConfig.canonicalFilename,
       format: assetConfig.format,
       installerType: assetConfig.installerType,
+      configured: Boolean(cdnBase || githubToken),
       url: directUrl,
       candidates,
       fallbackUrl: `${CANONICAL_LATEST_RELEASE}/download/${preferredFilename}`,
@@ -127,7 +129,6 @@ export async function GET(req: NextRequest) {
 
   // 3. Authenticated GitHub Release Asset Proxy (for private repos)
   // When LOCKDOWN_GITHUB_TOKEN or GITHUB_TOKEN is set, exchanges the asset for a signed AWS S3 download link
-  const githubToken = process.env.LOCKDOWN_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
   if (githubToken) {
     try {
       const releaseApiUrl = `https://api.github.com/repos/${CANONICAL_REPO}/releases/tags/${tagParam}`;
