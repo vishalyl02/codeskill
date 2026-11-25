@@ -99,3 +99,6 @@ uploads/
 
 # Local load testing scripts and credentials
 scripts/k6/
+
+# Private placement PDFs (configure a persistent volume in production).
+**/.placement-files/

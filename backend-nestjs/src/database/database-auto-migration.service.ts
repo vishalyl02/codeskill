@@ -22,6 +22,7 @@ import { applyExamSecurityCompositeIndexesMigration } from './migrations/exam-se
 import { applyAssessmentForensicWatermarkMigration } from './migrations/assessment-forensic-watermark';
 import { applyCandidateExamAccommodationsMigration } from './migrations/candidate-exam-accommodations';
 import { applyContestSubmissionScopeMigration } from './migrations/contest-submission-scope';
+import { applyPlacementsMigration } from './migrations/placements';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -66,6 +67,7 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       // 1. Extensions
       await queryRunner.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
       await queryRunner.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto";');
+      await this.executeStep('placements', () => applyPlacementsMigration(queryRunner));
 
       // 2. Auth tokens schema
       await this.executeStep('auth-tokens-schema', () =>

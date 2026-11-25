@@ -1,3 +1,4 @@
+import { PlacementsModule } from './placements/placements.module';
 import { S3Module } from './s3/s3.module';
 import { ReportsModule } from './reports/reports.module';
 import { PetModule } from './pet/pet.module';
@@ -59,6 +60,7 @@ import { FacultyModule } from './faculty/faculty.module';
 
 @Module({
   imports: [
+    PlacementsModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [

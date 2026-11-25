@@ -1,3 +1,4 @@
+import { applyPlacementsMigration } from './migrations/placements';
 import { DataSource } from 'typeorm';
 import { practiceSubmissionMigrationOptions } from './run-practice-submission-source';
 import { applyContestSecurityReattemptMigration } from './migrations/contest-security-reattempt';
@@ -26,6 +27,7 @@ export async function runAssessmentSchemaMigrations(): Promise<void> {
         // Share the rollout lock with the existing migration runner.
         await runner.query('SELECT pg_advisory_xact_lock(1902230159)');
         validateShardingState(sharding, await readShardingState(runner));
+        await applyPlacementsMigration(runner);
         await applyContestSecurityReattemptMigration(runner);
         await applyAssessmentAudienceTargetingMigration(runner);
         await applyAssessmentProctorCapturesMigration(runner);
