@@ -53,6 +53,7 @@ fn main() {
             "get_startup_permission_checklist",
             "request_os_permission",
             "complete_permission_onboarding",
+            "consume_pending_launch_url",
         ]),
     );
     tauri_build::try_build(attributes).expect("failed to run tauri-build");

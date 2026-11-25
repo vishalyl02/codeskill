@@ -48,6 +48,29 @@ struct DeepLinkPayload {
     token: Option<String>,
 }
 
+#[tauri::command]
+fn consume_pending_launch_url(app: AppHandle) -> Option<String> {
+    let startup_state = app.state::<StartupPermissionsState>();
+    let url = if let Ok(mut pending) = startup_state.pending_launch_url.lock() {
+        pending.take()
+    } else {
+        None
+    };
+    if url.is_some() && permissions_onboarding::is_onboarding_needed(&app) {
+        // Put the exam URL back so onboarding can consume it after permissions are granted,
+        // and send the webview to the onboarding screen.
+        if let Ok(mut pending) = startup_state.pending_launch_url.lock() {
+            *pending = url;
+        }
+        let frontend_origin = get_frontend_origin();
+        return Some(format!(
+            "{}/lockdown-startup-permissions",
+            frontend_origin.trim_end_matches('/')
+        ));
+    }
+    url
+}
+
 fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
     let clean_url = url_str.trim().trim_matches('"').trim_matches('\'');
     // Expected format: codeskill-exam://start?examId={id}&token={token}&origin={origin} or codeskill-lockdown://system-check?origin={origin}
@@ -77,6 +100,13 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
 
                 let frontend_origin = get_frontend_origin();
                 let target_url = format!("{}/lockdown-system-check", frontend_origin.trim_end_matches('/'));
+
+                {
+                    let startup_state = app.state::<StartupPermissionsState>();
+                    if let Ok(mut pending) = startup_state.pending_launch_url.lock() {
+                        *pending = Some(target_url.clone());
+                    };
+                }
 
                 if let Ok(target_url_obj) = url::Url::parse(&target_url) {
                     let _ = window.navigate(target_url_obj);
@@ -186,6 +216,15 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
                     "DEEP_LINK",
                     &format!("Deep link locked assessment: {}", id),
                 );
+
+                // Store pending launch URL so cold-start WebView can pull it deterministically
+                // if window.navigate / window.emit fired before index.html finished initializing.
+                {
+                    let startup_state = app.state::<StartupPermissionsState>();
+                    if let Ok(mut pending) = startup_state.pending_launch_url.lock() {
+                        *pending = Some(target_url.clone());
+                    };
+                }
 
                 if let Some(window) = app.get_webview_window("exam-kiosk") {
                     let _ = window.set_focus();
@@ -683,6 +722,7 @@ pub fn run() {
             permissions_onboarding::get_startup_permission_checklist,
             permissions_onboarding::request_os_permission,
             permissions_onboarding::complete_permission_onboarding,
+            consume_pending_launch_url,
             kiosk_os::exit_lockdown_app,
         ])
         .build(tauri::generate_context!())

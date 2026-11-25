@@ -64,6 +64,7 @@
     "allow-set-client-accommodations",
     "allow-get-startup-permission-checklist",
     "allow-request-os-permission",
-    "allow-complete-permission-onboarding"
+    "allow-complete-permission-onboarding",
+    "allow-consume-pending-launch-url"
   ]
 }
