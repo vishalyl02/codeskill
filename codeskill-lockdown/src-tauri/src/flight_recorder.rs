@@ -142,11 +142,11 @@ pub fn prune_old_logs(log_dir: &Path, retention_days: u64) {
                     continue;
                 }
             }
-            if meta.len() > MAX_LOG_FILE_BYTES {
-                let name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("flight.jsonl");
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("flight.jsonl");
+            if !name.ends_with(".bak") && meta.len() > MAX_LOG_FILE_BYTES {
                 let rotated = log_dir.join(format!("{}.oversize.bak", name));
                 let _ = fs::rename(&path, rotated);
             }
