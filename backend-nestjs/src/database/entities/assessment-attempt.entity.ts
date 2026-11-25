@@ -83,6 +83,9 @@ export class AssessmentAttempt {
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   startedAt: Date;
 
+  @Column({ name: 'current_question_started_at', type: 'timestamp', nullable: true })
+  currentQuestionStartedAt?: Date;
+
   @Column({ type: 'timestamp', nullable: true })
   submittedAt?: Date;
 
@@ -94,6 +97,15 @@ export class AssessmentAttempt {
 
   @Column('text', { array: true, default: '{}' })
   questionOrder: string[];
+
+  @Column({ name: 'current_question_index', type: 'int', default: 0 })
+  currentQuestionIndex: number;
+
+  @Column('text', { name: 'completed_question_ids', array: true, default: '{}' })
+  completedQuestionIds: string[];
+
+  @Column({ name: 'navigation_version', type: 'int', default: 0 })
+  navigationVersion: number;
 
   @Column({ type: 'float', default: 0 })
   score: number;

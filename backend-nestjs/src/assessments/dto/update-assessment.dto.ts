@@ -7,6 +7,7 @@ import {
   IsArray,
   IsEnum,
   Min,
+  Max,
   ValidateNested,
   Matches,
 } from 'class-validator';
@@ -91,6 +92,13 @@ export class UpdateAssessmentDto {
   @Min(5)
   @IsOptional()
   durationMinutes?: number;
+
+  @IsNumber()
+  @Type(() => Number)
+  @Min(0)
+  @Max(3600)
+  @IsOptional()
+  questionTimeLimitSeconds?: number;
 
   @IsNumber()
   @Type(() => Number)

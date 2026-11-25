@@ -23,6 +23,7 @@ import { applyAssessmentForensicWatermarkMigration } from './migrations/assessme
 import { applyCandidateExamAccommodationsMigration } from './migrations/candidate-exam-accommodations';
 import { applyContestSubmissionScopeMigration } from './migrations/contest-submission-scope';
 import { applyPlacementsMigration } from './migrations/placements';
+import { applyAssessmentSequentialSectionsMigration } from './migrations/assessment-sequential-sections';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -188,6 +189,11 @@ export class DatabaseAutoMigrationService implements OnApplicationBootstrap {
       // 24. Contest submission attempt scope column (contestAttemptId)
       await this.executeStep('contest-submission-scope', () =>
         applyContestSubmissionScopeMigration(queryRunner),
+      );
+
+      // 25. Sequential assessment navigation and attempt progression columns
+      await this.executeStep('assessment-sequential-sections', () =>
+        applyAssessmentSequentialSectionsMigration(queryRunner),
       );
     } finally {
       await queryRunner.release();

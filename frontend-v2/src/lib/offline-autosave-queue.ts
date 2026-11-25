@@ -31,6 +31,13 @@ interface StoredRecord {
   candidateId?: string;
 }
 
+function normalizeReplayEndpoint(endpoint: string): string {
+  const legacyProgressRoute = endpoint.match(/^\/api\/student\/assessments\/([^/]+)\/progress$/);
+  return legacyProgressRoute
+    ? `/assessments/${legacyProgressRoute[1]}/save-progress`
+    : endpoint;
+}
+
 // In-memory fallback storage for environments without IndexedDB (e.g. Node / SSR / Jest)
 const memoryStorage = new Map<string, string>();
 
@@ -372,6 +379,16 @@ export class OfflineAutosaveQueue {
     return this.flush();
   }
 
+  public async discardQuestions(attemptId: string, questionIds: string[]): Promise<void> {
+    for (const questionId of questionIds) {
+      const key = this.getEntryKey(attemptId, questionId);
+      this.queue.delete(key);
+      await this.removeFromStorage(attemptId, key);
+    }
+
+    this.setStatus(this.queue.size === 0 ? 'synced' : this.status);
+  }
+
   /**
    * Flushes all pending entries in the queue by replaying through apiClient.
    * Signatures are generated at transmission time by Axios interceptors.
@@ -416,19 +433,20 @@ export class OfflineAutosaveQueue {
       try {
         if (this.apiClient && typeof this.apiClient.request === 'function') {
           await this.apiClient.request({
-            url: entry.endpoint,
+            url: normalizeReplayEndpoint(entry.endpoint),
             method: entry.method,
             data: dataWithFallback,
             headers,
           });
         } else if (this.apiClient && typeof this.apiClient.post === 'function' && entry.method === 'POST') {
-          await this.apiClient.post(entry.endpoint, dataWithFallback, { headers });
+          await this.apiClient.post(normalizeReplayEndpoint(entry.endpoint), dataWithFallback, { headers });
         } else if (typeof window !== 'undefined' && typeof fetch === 'function') {
           // Standard fetch fallback - normalize relative URL if needed
           const origin = window.location?.origin || '';
-          const targetUrl = entry.endpoint.startsWith('http') || !origin
-            ? entry.endpoint
-            : `${origin}${entry.endpoint}`;
+          const endpoint = normalizeReplayEndpoint(entry.endpoint);
+          const targetUrl = endpoint.startsWith('http') || !origin
+            ? endpoint
+            : `${origin}${endpoint}`;
           const res = await fetch(targetUrl, {
             method: entry.method,
             headers: { 'Content-Type': 'application/json', ...headers },

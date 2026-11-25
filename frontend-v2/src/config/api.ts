@@ -786,6 +786,7 @@ export const studentAssessmentsAPI = {
   getOverview: (id: string) => api.get(`/assessments/${id}/overview`),
   startAttempt: (id: string) => api.post(`/assessments/${id}/start`),
   saveProgress: (id: string, data: any, config?: any) => api.post(`/assessments/${id}/save-progress`, data, config),
+  navigateAttempt: (id: string, data: { targetQuestionId?: string; targetQuestionIndex: number; navigationVersion?: number }) => api.post(`/assessments/${id}/navigate`, data),
   submitAttempt: (id: string, data: any, config?: any) => api.post(`/assessments/${id}/submit`, data, config),
   getResult: (id: string) => api.get(`/assessments/${id}/result`),
   getResumeState: (id: string) => api.get(`/assessments/${id}/resume-state`),

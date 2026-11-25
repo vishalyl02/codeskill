@@ -55,6 +55,7 @@ type AssessmentApiData = {
   description?: string;
   instructions?: string[];
   durationMinutes?: number;
+  questionTimeLimitSeconds?: number;
   passingMarks?: number | null;
   negativeMarking?: boolean;
   category?: string;
@@ -206,6 +207,7 @@ function AssessmentBuilder() {
           description: assessment.description || "",
           instructions: Array.isArray(assessment.instructions) ? assessment.instructions : [],
           durationMinutes: Number(assessment.durationMinutes ?? 60),
+          questionTimeLimitSeconds: Number(assessment.questionTimeLimitSeconds ?? 0),
           passingMarks: assessment.passingMarks == null ? "" : Number(assessment.passingMarks),
           negativeMarking: assessment.negativeMarking ?? true,
           category: assessment.category || "exam",
@@ -486,6 +488,7 @@ function AssessmentBuilder() {
         code: store.code,
         description: store.description,
         durationMinutes: store.durationMinutes,
+        questionTimeLimitSeconds: store.questionTimeLimitSeconds,
         passingMarks: store.passingMarks !== '' ? Number(store.passingMarks) : undefined,
         category: store.category,
         allowedAttempts: store.allowedAttempts,
@@ -1656,10 +1659,10 @@ function AssessmentBuilder() {
             <div className="space-y-0.5">
               <div className="flex items-center gap-2 text-sm font-bold text-foreground">
                 <Lock className="w-4 h-4 text-primary" />
-                Lock Sections Sequentially
+                Sequential Question Navigation
               </div>
               <p className="text-xs text-muted-foreground">
-                Candidates must complete and submit each section in order before unlocking the next. Questions in completed sections become read-only.
+                Candidates answer questions in the configured order. Advancing unlocks the next question and locks previous questions.
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
@@ -1672,6 +1675,36 @@ function AssessmentBuilder() {
               <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
             </label>
           </div>
+
+          {store.lockSectionsSequentially && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <label htmlFor="question-time-limit" className="block text-sm font-bold text-foreground">
+                Per-question time limit
+              </label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Optional. When enabled, the student automatically moves to the next question when time expires. The overall assessment timer still submits the attempt at its deadline.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <input
+                  id="question-time-limit"
+                  type="number"
+                  min={0}
+                  max={3600}
+                  step={15}
+                  value={store.questionTimeLimitSeconds}
+                  onChange={(event) => store.setQuestionTimeLimitSeconds(
+                    Math.min(3600, Math.max(0, Number(event.target.value) || 0)),
+                  )}
+                  className="w-32 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {store.questionTimeLimitSeconds > 0
+                    ? `${Math.floor(store.questionTimeLimitSeconds / 60)}m ${store.questionTimeLimitSeconds % 60}s per question`
+                    : "0 = no per-question limit"}
+                </span>
+              </div>
+            </div>
+          )}
 
           {store.sections.map((section) => {
             const secMarks = section.questions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
@@ -2099,4 +2132,3 @@ function AutoGenerateFromBank({ sectionId, onGenerated, onClose }: { sectionId: 
     </div>
   );
 }
-

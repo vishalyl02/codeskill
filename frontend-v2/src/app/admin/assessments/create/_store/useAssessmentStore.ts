@@ -50,6 +50,7 @@ interface AssessmentStore {
   description: string;
   instructions: string[];
   durationMinutes: number;
+  questionTimeLimitSeconds: number;
   passingMarks: number | '';
   negativeMarking: boolean;
   category: string;
@@ -80,6 +81,7 @@ interface AssessmentStore {
   setCode: (code: string) => void;
   setDescription: (desc: string) => void;
   setDurationMinutes: (dur: number) => void;
+  setQuestionTimeLimitSeconds: (seconds: number) => void;
   setPassingMarks: (marks: number | '') => void;
   setCategory: (cat: string) => void;
   setAllowedAttempts: (attempts: number) => void;
@@ -147,6 +149,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
     'The assessment will automatically submit when the countdown reaches zero.',
   ],
   durationMinutes: 60,
+  questionTimeLimitSeconds: 0,
   passingMarks: '',
   negativeMarking: true,
   category: 'exam',
@@ -177,6 +180,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   setCode: (code) => set({ code }),
   setDescription: (description) => set({ description }),
   setDurationMinutes: (durationMinutes) => set({ durationMinutes }),
+  setQuestionTimeLimitSeconds: (questionTimeLimitSeconds) => set({ questionTimeLimitSeconds }),
   setPassingMarks: (passingMarks) => set({ passingMarks }),
   setCategory: (category) => set({ category }),
   setAllowedAttempts: (allowedAttempts) => set({ allowedAttempts }),
@@ -222,6 +226,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
       ...assessment,
       targetStudentIds: assessment.targetStudentIds || [],
       lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+      questionTimeLimitSeconds: Number(assessment.questionTimeLimitSeconds || 0),
       requireLockdown: Boolean(assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB),
       allowVirtualMachine: Boolean(assessment.allowVirtualMachine),
       lockdownQuitPassword: assessment.lockdownQuitPassword || assessment.securityPolicy?.lockdownQuitPassword || '',
@@ -264,6 +269,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
       'The assessment will automatically submit when the countdown reaches zero.',
     ],
     durationMinutes: 60,
+    questionTimeLimitSeconds: 0,
     passingMarks: '',
     negativeMarking: true,
     category: 'exam',

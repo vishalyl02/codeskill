@@ -140,6 +140,20 @@ describe('OfflineAutosaveQueue (frontend-v2)', () => {
     expect(queue.getStatus()).toBe('synced');
   });
 
+  it('discards buffered saves for completed sequential questions', async () => {
+    mockApiClient.request.mockRejectedValue(new Error('Network Error'));
+    await queue.enqueue({
+      attemptId: 'attempt-sequential',
+      questionId: 'q-1',
+      payload: { responses: [{ questionId: 'q-1', selectedAnswer: 1 }] },
+    });
+
+    await queue.discardQuestions('attempt-sequential', ['q-1']);
+
+    expect(queue.getPendingCount()).toBe(0);
+    expect(queue.getStatus()).toBe('synced');
+  });
+
   it('observable onStatusChange notifies listeners on status transitions', async () => {
     const statusHistory: string[] = [];
     const countHistory: number[] = [];
@@ -181,5 +195,18 @@ describe('OfflineAutosaveQueue (frontend-v2)', () => {
     const callArgs = mockApiClient.request.mock.calls[0][0];
     expect(callArgs.headers?.['X-Idempotency-Key']).toMatch(/^autosave:asmt-attempt-99:cand-77:\d+$/);
     expect(callArgs.data.idempotencyKey).toBe(callArgs.headers['X-Idempotency-Key']);
+  });
+
+  it('replays legacy assessment progress entries through the current save-progress route', async () => {
+    await queue.enqueue({
+      attemptId: 'attempt-legacy-route',
+      questionId: 'q-legacy',
+      payload: { responses: [{ questionId: 'q-legacy', selectedAnswer: 1 }] },
+      endpoint: '/api/student/assessments/NAV-SEQ-20/progress',
+      method: 'POST',
+    });
+
+    expect(mockApiClient.request.mock.calls[0][0].url)
+      .toBe('/assessments/NAV-SEQ-20/save-progress');
   });
 });
