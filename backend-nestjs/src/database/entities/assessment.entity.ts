@@ -131,6 +131,9 @@ export class Assessment {
   lockSectionsSequentially: boolean;
 
   @Column({ default: false })
+  lockQuestionsSequentially: boolean;
+
+  @Column({ default: false })
   allowVirtualMachine: boolean;
 
   @Column({ default: false })

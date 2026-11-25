@@ -114,6 +114,20 @@ interface Question {
   testCases?: TestCase[];
 }
 
+function mergeAttemptQuestions(
+  existing: Question[],
+  incoming: Question[],
+  totalQuestionCount: number,
+): Question[] {
+  const merged = existing.slice(0, totalQuestionCount);
+  merged.length = totalQuestionCount;
+  incoming.forEach((question, fallbackIndex) => {
+    const index = Math.max(0, Number(question.questionIndex || fallbackIndex + 1) - 1);
+    if (index < totalQuestionCount) merged[index] = question;
+  });
+  return merged;
+}
+
 interface AssessmentProctoring {
   mode?: 'fully_proctored' | 'partial_proctored' | 'non_proctored';
   cameraSelectionPolicy?: 'system_default' | 'student_select';
@@ -283,6 +297,8 @@ export default function TakeAssessmentPage({
   const [startError, setStartError] = useState<string | null>(null);
   const [accommodations, setAccommodations] = useState<any>(null);
   const [lockSectionsSequentially, setLockSectionsSequentially] = useState(false);
+  const [lockQuestionsSequentially, setLockQuestionsSequentially] = useState(false);
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [permittedQuestionIndex, setPermittedQuestionIndex] = useState(0);
   const [navigationVersion, setNavigationVersion] = useState(0);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -387,23 +403,6 @@ export default function TakeAssessmentPage({
     };
   }, [id, router]);
 
-  // Restore completed sections from storage for reload resilience
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem(`codeskill_sections_done_${id}`);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) {
-            setCompletedSectionIds(parsed);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }, [id]);
-
   useEffect(() => {
     let cancelled = false;
     setIsLoadingSettings(true);
@@ -466,6 +465,9 @@ export default function TakeAssessmentPage({
           if (asmt?.lockSectionsSequentially !== undefined) {
             setLockSectionsSequentially(Boolean(asmt.lockSectionsSequentially));
           }
+          if (asmt?.lockQuestionsSequentially !== undefined) {
+            setLockQuestionsSequentially(Boolean(asmt.lockQuestionsSequentially));
+          }
           const closeAppsRequired =
             asmt?.requireCloseOtherApps ??
             asmt?.securityPolicy?.requireCloseOtherApps ??
@@ -526,8 +528,14 @@ export default function TakeAssessmentPage({
                   setPermittedQuestionIndex(resumeData.currentQuestionIndex);
                   setCurrentIndex(resumeData.currentQuestionIndex);
                 }
+                if (Array.isArray(resumeData.completedSectionIds)) {
+                  setCompletedSectionIds(resumeData.completedSectionIds.map(String));
+                }
+                if (typeof resumeData.activeSectionId === "string" || resumeData.activeSectionId === null) {
+                  setActiveSectionId(resumeData.activeSectionId);
+                }
                 if (typeof resumeData.questionTimeLimitSeconds === "number") {
-                  setQuestionTimeLimitSeconds(resumeData.lockSectionsSequentially
+                  setQuestionTimeLimitSeconds(resumeData.lockQuestionsSequentially
                     ? Math.max(0, resumeData.questionTimeLimitSeconds)
                     : 0);
                 }
@@ -715,9 +723,11 @@ export default function TakeAssessmentPage({
       }
 
       // Sync with server immediately
-      const progressQuestions = lockSectionsSequentially
+      const progressQuestions = lockQuestionsSequentially
         ? questions.filter((_, index) => index === permittedQuestionIndex)
-        : questions;
+        : lockSectionsSequentially
+          ? questions.filter((question) => question && question.sectionId === activeSectionId)
+          : questions.filter(Boolean);
       const formattedResponses = progressQuestions.map((q) => {
         const r = responsesRef.current[q._id];
         return {
@@ -738,7 +748,7 @@ export default function TakeAssessmentPage({
         violations: updated,
       }).catch(() => {});
     },
-    [id, questions, startedAt, proctoring?.detectTabSwitch, lockSectionsSequentially, permittedQuestionIndex]
+    [id, questions, startedAt, proctoring?.detectTabSwitch, lockSectionsSequentially, lockQuestionsSequentially, activeSectionId, permittedQuestionIndex]
   );
 
   // Start the attempt only after the candidate enters fullscreen from the secure gate.
@@ -835,12 +845,14 @@ export default function TakeAssessmentPage({
         : 0;
       let questionsForAttempt: Question[] = questionsList;
       if (
-        data.lockSectionsSequentially &&
-        questionsList.length === 1 &&
-        initialQuestionIndex > 0
+        (data.lockQuestionsSequentially || data.lockSectionsSequentially) &&
+        questionsList.length > 0
       ) {
         questionsForAttempt = new Array<Question>(Math.max(totalQuestions, initialQuestionIndex + 1));
-        questionsForAttempt[initialQuestionIndex] = questionsList[0];
+        questionsList.forEach((question: Question, questionPosition: number) => {
+          const index = Math.max(0, Number(question.questionIndex || questionPosition + 1) - 1);
+          questionsForAttempt[index] = question;
+        });
       }
       setQuestions(questionsForAttempt);
       setTotalQuestionCount(totalQuestions);
@@ -857,6 +869,13 @@ export default function TakeAssessmentPage({
       if (data.lockSectionsSequentially !== undefined) {
         setLockSectionsSequentially(Boolean(data.lockSectionsSequentially));
       }
+      if (data.lockQuestionsSequentially !== undefined) {
+        setLockQuestionsSequentially(Boolean(data.lockQuestionsSequentially));
+      }
+      if (Array.isArray(data.completedSectionIds)) {
+        setCompletedSectionIds(data.completedSectionIds.map(String));
+      }
+      setActiveSectionId(data.activeSectionId ?? null);
       if (typeof data.currentQuestionIndex === "number") {
         setPermittedQuestionIndex(initialQuestionIndex);
         setCurrentIndex(initialQuestionIndex);
@@ -864,7 +883,7 @@ export default function TakeAssessmentPage({
       if (typeof data.navigationVersion === "number") {
         setNavigationVersion(data.navigationVersion);
       }
-      const questionLimit = data.lockSectionsSequentially
+      const questionLimit = data.lockQuestionsSequentially
         ? Math.max(0, Number(data.questionTimeLimitSeconds) || 0)
         : 0;
       setQuestionTimeLimitSeconds(questionLimit);
@@ -1092,7 +1111,7 @@ export default function TakeAssessmentPage({
           violations: violationsRef.current,
           idempotencyKey: submissionIdempotencyKey,
           clientSubmittedAtMs,
-          currentQuestionIndex: isSequentialActive ? permittedQuestionIndex : currentIndex,
+          currentQuestionIndex: lockQuestionsSequentially ? permittedQuestionIndex : currentIndex,
         };
         let lastError: any;
         // Code evaluation can briefly fail while the judge service is busy.
@@ -1154,7 +1173,18 @@ export default function TakeAssessmentPage({
         }
       }
     },
-    [id, isSubmitting, questions, startedAt, stopCamera, router]
+    [
+      id,
+      isSubmitting,
+      questions,
+      startedAt,
+      stopCamera,
+      router,
+      currentIndex,
+      flushDraftToState,
+      lockQuestionsSequentially,
+      permittedQuestionIndex,
+    ]
   );
 
   useEffect(() => {
@@ -1276,7 +1306,7 @@ export default function TakeAssessmentPage({
   }, [cameraActive, id, isSubmitting, loadedAssessmentId, recordViolation, submitExam, timeLeftSeconds, videoRef, proctoring?.autoSubmitOnViolation]);
 
   useEffect(() => {
-    if (!lockSectionsSequentially || questionTimeLimitSeconds <= 0 || questionDeadlineAtEpochMs === null) {
+    if (!lockQuestionsSequentially || questionTimeLimitSeconds <= 0 || questionDeadlineAtEpochMs === null) {
       return;
     }
 
@@ -1292,7 +1322,7 @@ export default function TakeAssessmentPage({
       window.clearTimeout(initialTick);
       window.clearInterval(timer);
     };
-  }, [lockSectionsSequentially, questionDeadlineAtEpochMs, questionTimeLimitSeconds]);
+  }, [lockQuestionsSequentially, questionDeadlineAtEpochMs, questionTimeLimitSeconds]);
 
   // Snapshot the visible assessment page periodically for proctored exams.
   // Gated to proctored modes and downscaled to avoid main-thread freezes on low-spec CPUs.
@@ -1432,15 +1462,17 @@ export default function TakeAssessmentPage({
     const autosaveInterval = setInterval(async () => {
       const currentFingerprint = JSON.stringify(responsesRef.current)
         + `:${violationsRef.current.length}`
-        + (lockSectionsSequentially ? `:${permittedQuestionIndex}` : '');
+        + (lockQuestionsSequentially ? `:${permittedQuestionIndex}` : `:${currentIndex}`);
       if (currentFingerprint === lastSavedFingerprintRef.current) {
         // No modifications since last successful sync; avoid redundant network traffic
         return;
       }
 
-      const progressQuestions = lockSectionsSequentially
+      const progressQuestions = lockQuestionsSequentially
         ? questions.filter((_, index) => index === permittedQuestionIndex)
-        : questions;
+        : lockSectionsSequentially
+          ? questions.filter((question) => question && question.sectionId === activeSectionId)
+          : questions.filter(Boolean);
       const formattedResponses = progressQuestions.map((q) => {
         const r = responsesRef.current[q._id];
         return {
@@ -1463,7 +1495,7 @@ export default function TakeAssessmentPage({
         };
         await offlineAutosaveQueue.enqueue({
           attemptId: id,
-          questionId: questions[lockSectionsSequentially ? permittedQuestionIndex : currentIndex]?._id || 'all-progress',
+          questionId: questions[lockQuestionsSequentially ? permittedQuestionIndex : currentIndex]?._id || 'all-progress',
           payload,
           endpoint: `/api/assessments/${id}/save-progress`,
           method: 'POST',
@@ -1475,7 +1507,7 @@ export default function TakeAssessmentPage({
     }, 15000);
 
     return () => clearInterval(autosaveInterval);
-  }, [id, isLoading, questions, startedAt, lockSectionsSequentially, permittedQuestionIndex, currentIndex, violations.length]);
+  }, [id, isLoading, questions, startedAt, lockSectionsSequentially, lockQuestionsSequentially, activeSectionId, permittedQuestionIndex, currentIndex, violations.length]);
 
   // Anti-Cheat functionality is handled by the exam security container component.
   // The hooks below rely on the security container.
@@ -1658,7 +1690,9 @@ export default function TakeAssessmentPage({
     responsesRef.current = next;
     setResponses(next);
     // Removing review keeps the candidate on this question.
-    if (!isSequentialActive && !removing && currentIndex < questions.length - 1) setCurrentIndex(index => index + 1);
+    if (!isSequentialActive && !isSectionLockActive && !removing && currentIndex < questions.length - 1) {
+      setCurrentIndex(index => index + 1);
+    }
   };
 
   // Keep editor drafts in the attempt state so sidebar navigation and timed
@@ -1740,7 +1774,9 @@ export default function TakeAssessmentPage({
     responsesRef.current = nextResponses;
 
     // Send formatted progress to server immediately
-    const progressQuestions = lockSectionsSequentially ? [currentQ] : questions;
+    const progressQuestions = lockSectionsSequentially || lockQuestionsSequentially
+      ? [currentQ]
+      : questions.filter(Boolean);
     const formatted = progressQuestions.map((q) => {
       const r = nextResponses[q._id];
       return {
@@ -1803,13 +1839,16 @@ export default function TakeAssessmentPage({
     return Array.from(map.values()).sort((a, b) => a.order - b.order);
   }, [questions]);
 
-  const isSequentialActive = lockSectionsSequentially;
+  const isSequentialActive = lockQuestionsSequentially;
+  const isSectionLockActive = lockSectionsSequentially && !lockQuestionsSequentially;
 
   const activeSectionIndex = useMemo(() => {
-    if (!isSequentialActive) return -1;
+    if (!isSectionLockActive) return -1;
+    const activeIndex = sectionGroups.findIndex((section) => section.id === activeSectionId);
+    if (activeIndex >= 0) return activeIndex;
     const firstIncompleteIdx = sectionGroups.findIndex((s) => !completedSectionIds.includes(s.id));
-    return firstIncompleteIdx === -1 ? sectionGroups.length - 1 : firstIncompleteIdx;
-  }, [isSequentialActive, sectionGroups, completedSectionIds]);
+    return firstIncompleteIdx;
+  }, [isSectionLockActive, sectionGroups, activeSectionId, completedSectionIds]);
 
   const activeSection = useMemo(() => {
     if (activeSectionIndex === -1) return null;
@@ -1818,7 +1857,7 @@ export default function TakeAssessmentPage({
 
   const questionSectionMap = useMemo(() => {
     const map = new Map<number, { section: { id: string; title: string; order: number; questionIndices: number[] }; status: "completed" | "active" | "locked" | "unlocked" }>();
-    if (!isSequentialActive) {
+    if (!isSequentialActive && !isSectionLockActive) {
       sectionGroups.forEach((s) => {
         s.questionIndices.forEach((qIdx) => map.set(qIdx, { section: s, status: "unlocked" }));
       });
@@ -1826,16 +1865,22 @@ export default function TakeAssessmentPage({
     }
     sectionGroups.forEach((s) => {
       s.questionIndices.forEach((qIdx) => {
-        const status = qIdx < permittedQuestionIndex
-          ? "completed"
-          : qIdx === permittedQuestionIndex
-            ? "active"
-            : "locked";
+        const status = isSequentialActive
+          ? qIdx < permittedQuestionIndex
+            ? "completed"
+            : qIdx === permittedQuestionIndex
+              ? "active"
+              : "locked"
+          : completedSectionIds.includes(s.id)
+            ? "completed"
+            : s.id === activeSection?.id
+              ? "active"
+              : "locked";
         map.set(qIdx, { section: s, status });
       });
     });
     return map;
-  }, [isSequentialActive, sectionGroups, completedSectionIds, activeSectionIndex, permittedQuestionIndex]);
+  }, [isSequentialActive, isSectionLockActive, sectionGroups, completedSectionIds, activeSection, permittedQuestionIndex]);
 
   const isFirstQuestionOfCurrentSection = useMemo(() => {
     if (!activeSection) return currentIndex === 0;
@@ -1847,7 +1892,6 @@ export default function TakeAssessmentPage({
     return activeSection.questionIndices[activeSection.questionIndices.length - 1] === currentIndex;
   }, [activeSection, currentIndex]);
 
-  // Keep currentIndex aligned within the active section if sequential locking is enabled
   useEffect(() => {
     if (isSequentialActive && currentIndex !== permittedQuestionIndex) {
       setCurrentIndex(permittedQuestionIndex);
@@ -1878,54 +1922,164 @@ export default function TakeAssessmentPage({
   }, [activeSection, questions, responses]);
 
   const handleCompleteCurrentSection = useCallback(async () => {
-    if (!activeSection) return;
+    if (!isSectionLockActive || !activeSection || isNavigating) return;
     flushDraftToState();
-    const currentSectionId = activeSection.id;
-    const nextCompleted = completedSectionIds.includes(currentSectionId)
-      ? completedSectionIds
-      : [...completedSectionIds, currentSectionId];
-    setCompletedSectionIds(nextCompleted);
+    setIsNavigating(true);
     try {
-      localStorage.setItem(`codeskill_sections_done_${id}`, JSON.stringify(nextCompleted));
-    } catch {}
+      if (offlineAutosaveQueue.getPendingCount() > 0) {
+        const flushed = await offlineAutosaveQueue.flush();
+        if (!flushed) throw new Error("Could not sync saved answers. Reconnect before submitting this section.");
+      }
 
-    const progressQuestions = lockSectionsSequentially ? [currentQ] : questions;
-    const formatted = progressQuestions.map((q) => {
-      const r = responsesRef.current[q._id];
-      return {
-        questionId: q._id,
-        selectedAnswer: r ? r.selectedAnswer : -1,
-        selectedAnswers: r?.selectedAnswers ?? (r && r.selectedAnswer >= 0 ? [r.selectedAnswer] : []),
-        code: r?.code || "",
-        language: r?.language || q.language || q.supportedLanguages?.[0] || "python",
-        testCasesPassed: r?.testCasesPassed || 0,
-        totalTestCases: r?.totalTestCases || 0,
-        status: r ? r.status : "unvisited",
-        timeSpentSeconds: 0,
-      };
-    });
+      const sectionQuestions = activeSection.questionIndices
+        .map((index) => questions[index])
+        .filter((question): question is Question => Boolean(question));
+      const formatted = sectionQuestions.map((question) => {
+        const response = responsesRef.current[question._id];
+        return {
+          questionId: question._id,
+          selectedAnswer: response?.selectedAnswer ?? -1,
+          selectedAnswers: response?.selectedAnswers ?? [],
+          code: response?.code || "",
+          language: response?.language || question.language || question.supportedLanguages?.[0] || "python",
+          testCasesPassed: response?.testCasesPassed || 0,
+          totalTestCases: response?.totalTestCases || 0,
+          status: response?.status || "unvisited",
+          timeSpentSeconds: 0,
+        };
+      });
+      await studentAssessmentsAPI.saveProgress(id, {
+        currentQuestionIndex: currentIndex,
+        responses: formatted,
+        timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+        violations: violationsRef.current,
+      });
+      const response = await studentAssessmentsAPI.completeSection(id, {
+        sectionId: activeSection.id,
+        navigationVersion,
+      });
+      const data = response.data?.data || response.data;
+      const nextCompletedSectionIds = Array.isArray(data.completedSectionIds)
+        ? data.completedSectionIds.map(String)
+        : [...completedSectionIds, activeSection.id];
 
-    studentAssessmentsAPI.saveProgress(id, {
-      responses: formatted,
-      timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
-      violations: violationsRef.current,
-    }).catch(() => {});
+      setCompletedSectionIds(nextCompletedSectionIds);
+      setActiveSectionId(data.activeSectionId ?? null);
+      setNavigationVersion(data.navigationVersion ?? navigationVersion + 1);
+      setQuestions((previous) =>
+        mergeAttemptQuestions(previous, data.questions || [], totalQuestionCount),
+      );
+      if (typeof data.currentQuestionIndex === "number") {
+        setCurrentIndex(data.currentQuestionIndex);
+        setPermittedQuestionIndex(data.currentQuestionIndex);
+      }
+      setShowSectionSubmitModal(false);
+      await offlineAutosaveQueue.discardQuestions(
+        id,
+        sectionQuestions.map((question) => question._id),
+      );
 
-    setShowSectionSubmitModal(false);
-
-    if (activeSectionIndex < sectionGroups.length - 1) {
-      const nextSec = sectionGroups[activeSectionIndex + 1];
-      setCurrentIndex(nextSec.questionIndices[0]);
-      toast.success(`Section "${activeSection.title}" submitted. Now starting "${nextSec.title}".`);
-    } else {
-      toast.success("All sections completed! You may now submit your assessment.");
-      setShowSubmitModal(true);
+      if (data.assessmentReadyForSubmission) {
+        toast.success("All sections completed. You may now submit your assessment.");
+        setShowSubmitModal(true);
+      } else {
+        toast.success(`Section "${activeSection.title}" submitted. The next section is now unlocked.`);
+      }
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || "Could not submit this section. Please retry.";
+      toast.error(Array.isArray(message) ? message.join(" ") : message);
+    } finally {
+      setIsNavigating(false);
     }
-  }, [activeSection, completedSectionIds, id, questions, startedAt, activeSectionIndex, sectionGroups, flushDraftToState, currentQ, lockSectionsSequentially]);
+  }, [
+    isSectionLockActive,
+    isNavigating,
+    activeSection,
+    flushDraftToState,
+    id,
+    questions,
+    currentIndex,
+    startedAt,
+    navigationVersion,
+    completedSectionIds,
+    totalQuestionCount,
+  ]);
 
-  const handleSaveAndNext = async () => {
+  const navigateWithinActiveSection = useCallback(async (targetIndex: number) => {
+    if (!isSectionLockActive || !activeSection || isNavigating || targetIndex === currentIndex) return;
+    if (!activeSection.questionIndices.includes(targetIndex)) return;
+    const targetQuestion = questions[targetIndex];
+    if (!targetQuestion || !currentQ) return;
+
+    setIsNavigating(true);
+    try {
+      const currentResponse = responsesRef.current[currentQ._id];
+      await studentAssessmentsAPI.saveProgress(id, {
+        currentQuestionIndex: currentIndex,
+        responses: [{
+          questionId: currentQ._id,
+          selectedAnswer: currentResponse?.selectedAnswer ?? -1,
+          selectedAnswers: currentResponse?.selectedAnswers ?? [],
+          code: currentResponse?.code || "",
+          language: currentResponse?.language || currentQ.language || "python",
+          status: currentResponse?.status || "unvisited",
+          timeSpentSeconds: 0,
+        }],
+        timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+        violations: violationsRef.current,
+      });
+      if (offlineAutosaveQueue.getPendingCount() > 0) {
+        const flushed = await offlineAutosaveQueue.flush();
+        if (!flushed) throw new Error("Could not sync saved answers. Reconnect and retry before navigating.");
+      }
+      const response = await studentAssessmentsAPI.navigateAttempt(id, {
+        targetQuestionId: targetQuestion._id,
+        targetQuestionIndex: targetIndex,
+        navigationVersion,
+      });
+      const navigation = response.data?.data || response.data;
+      if (!navigation?.navigationAllowed) {
+        throw new Error("The server did not authorize navigation to that question.");
+      }
+      setQuestions((previous) => mergeAttemptQuestions(
+        previous,
+        navigation.permittedQuestion ? [navigation.permittedQuestion] : [],
+        totalQuestionCount,
+      ));
+      setCurrentIndex(navigation.currentQuestionIndex ?? targetIndex);
+      setNavigationVersion(navigation.navigationVersion ?? navigationVersion + 1);
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || "Could not open that question. Please retry.";
+      toast.error(Array.isArray(message) ? message.join(" ") : message);
+    } finally {
+      setIsNavigating(false);
+    }
+  }, [
+    isSectionLockActive,
+    activeSection,
+    isNavigating,
+    currentIndex,
+    questions,
+    currentQ,
+    id,
+    startedAt,
+    navigationVersion,
+    totalQuestionCount,
+  ]);
+
+  const handleSaveAndNext = useCallback(async () => {
     if (isNavigating) return;
     flushDraftToState();
+    if (isSectionLockActive) {
+      if (isLastQuestionOfCurrentSection) {
+        setShowSectionSubmitModal(true);
+      } else {
+        const currentPosition = activeSection?.questionIndices.indexOf(currentIndex) ?? -1;
+        const nextIndex = activeSection?.questionIndices[currentPosition + 1];
+        if (typeof nextIndex === "number") await navigateWithinActiveSection(nextIndex);
+      }
+      return;
+    }
     if (isSequentialActive) {
       if (currentIndex < totalQuestionCount - 1) {
         const nextIndex = currentIndex + 1;
@@ -1963,10 +2117,9 @@ export default function TakeAssessmentPage({
           if (typeof navigation.serverNowMs === "number") {
             serverClockOffsetMsRef.current = navigation.serverNowMs - Date.now();
           }
-          const questionLimit = Math.max(
-            0,
-            Number(navigation.questionTimeLimitSeconds ?? questionTimeLimitSeconds) || 0,
-          );
+          const questionLimit = lockQuestionsSequentially
+            ? Math.max(0, Number(navigation.questionTimeLimitSeconds ?? questionTimeLimitSeconds) || 0)
+            : 0;
           const questionStartedAtEpochMs = Number(navigation.currentQuestionStartedAtEpochMs)
             || new Date(navigation.currentQuestionStartedAt || Date.now()).getTime();
           setQuestionTimeLimitSeconds(questionLimit);
@@ -1983,12 +2136,11 @@ export default function TakeAssessmentPage({
           setPermittedQuestionIndex(navigation.currentQuestionIndex ?? nextIndex);
           setCurrentIndex(navigation.currentQuestionIndex ?? nextIndex);
           if (navigation.permittedQuestion) {
-            setQuestions((previous) => {
-              const nextQuestions = previous.slice();
-              const position = navigation.currentQuestionIndex ?? nextIndex;
-              nextQuestions[position] = navigation.permittedQuestion;
-              return nextQuestions;
-            });
+            setQuestions((previous) => mergeAttemptQuestions(
+              previous,
+              [navigation.permittedQuestion],
+              totalQuestionCount,
+            ));
           }
         } catch (error: any) {
           const message = error?.response?.data?.message || error?.message || "Could not advance. Please retry without refreshing your answers.";
@@ -2007,7 +2159,24 @@ export default function TakeAssessmentPage({
     } else {
       setShowSubmitModal(true);
     }
-  };
+  }, [
+    isNavigating,
+    flushDraftToState,
+    isSectionLockActive,
+    isLastQuestionOfCurrentSection,
+    activeSection,
+    navigateWithinActiveSection,
+    isSequentialActive,
+    currentIndex,
+    totalQuestionCount,
+    currentQ,
+    id,
+    startedAt,
+    navigationVersion,
+    questionTimeLimitSeconds,
+    lockQuestionsSequentially,
+    questions,
+  ]);
 
   useEffect(() => {
     questionTimerExpiryHandledRef.current = false;
@@ -2015,7 +2184,7 @@ export default function TakeAssessmentPage({
 
   useEffect(() => {
     if (
-      !lockSectionsSequentially
+      !lockQuestionsSequentially
       || questionTimeLimitSeconds <= 0
       || questionDeadlineAtEpochMs === null
       || questionTimeLeftSeconds > 0
@@ -2047,7 +2216,7 @@ export default function TakeAssessmentPage({
     id,
     currentIndex,
     totalQuestionCount,
-    lockSectionsSequentially,
+    lockQuestionsSequentially,
     questionTimeLimitSeconds,
     questionDeadlineAtEpochMs,
     questionTimeLeftSeconds,
@@ -2073,13 +2242,18 @@ export default function TakeAssessmentPage({
       else if (key === "C" && currentQ?.options?.length > 2) handleSelectOption(2);
       else if (key === "D" && currentQ?.options?.length > 3) handleSelectOption(3);
       else if (e.key === "ArrowRight") {
-        if (isSequentialActive) {
+        if (isSequentialActive || isSectionLockActive) {
           void handleSaveAndNext();
         } else if (currentIndex < totalQuestionCount - 1) {
           setCurrentIndex((i) => i + 1);
         }
       } else if (e.key === "ArrowLeft") {
-        if (!isSequentialActive && currentIndex > 0) {
+        if (isSectionLockActive && activeSection) {
+          const previousIndex = activeSection.questionIndices[
+            activeSection.questionIndices.indexOf(currentIndex) - 1
+          ];
+          if (typeof previousIndex === "number") void navigateWithinActiveSection(previousIndex);
+        } else if (!isSequentialActive && currentIndex > 0) {
           setCurrentIndex((i) => i - 1);
         }
       }
@@ -2095,8 +2269,10 @@ export default function TakeAssessmentPage({
     showSectionSubmitModal,
     showViolationModal,
     isSequentialActive,
+    isSectionLockActive,
     isLastQuestionOfCurrentSection,
     isFirstQuestionOfCurrentSection,
+    activeSection,
     activeSectionIndex,
     sectionGroups.length,
     handleSaveAndNext,
@@ -2397,7 +2573,9 @@ export default function TakeAssessmentPage({
     );
   }
 
-  const isLastQuestion = currentIndex >= totalQuestionCount - 1;
+  const isLastQuestion = isSectionLockActive && activeSection
+    ? isLastQuestionOfCurrentSection
+    : currentIndex >= totalQuestionCount - 1;
   const isTimeCritical = timeLeftSeconds < 300; // < 5 mins
 
   return (
@@ -2588,7 +2766,10 @@ export default function TakeAssessmentPage({
           <button
             aria-label="Submit Test"
             onClick={() => setShowSubmitModal(true)}
-            disabled={isSequentialActive && !isLastQuestion}
+            disabled={
+              (isSequentialActive && !isLastQuestion)
+              || (isSectionLockActive && Boolean(activeSection))
+            }
             className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-md bg-primary hover:bg-primary/90 active:bg-primary/80 text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Send className="w-3.5 h-3.5" />
@@ -2704,7 +2885,9 @@ export default function TakeAssessmentPage({
                     ? "locked"
                     : "active"
                 : sectionStatus;
-              const isQuestionLocked = isSequentialActive && sectionStatus !== "active";
+              const isQuestionLocked = isSequentialActive
+                ? index !== permittedQuestionIndex
+                : isSectionLockActive && sectionStatus !== "active";
               const response = responses[q._id];
               const answered = response?.status === "answered" && (((response.selectedAnswers && response.selectedAnswers.length > 0) || response.selectedAnswer >= 0) || Boolean(response.code?.trim()));
               const review = !isSequentialActive && response?.status === "marked_for_review";
@@ -2752,7 +2935,11 @@ export default function TakeAssessmentPage({
                     onClick={() => {
                       if (isQuestionLocked) return;
                       flushDraftToState();
-                      setCurrentIndex(index);
+                      if (isSectionLockActive) {
+                        void navigateWithinActiveSection(index);
+                      } else {
+                        setCurrentIndex(index);
+                      }
                       setMobileSidebarOpen(false);
                     }}
                     className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-colors ${
@@ -2802,13 +2989,15 @@ export default function TakeAssessmentPage({
         {(() => {
           const isCodingQuestion = ["coding", "algorithmic", "dsa"].includes(currentQ.questionType?.toLowerCase()) || (!currentQ.options?.length && Boolean(currentQ.starterCode || currentQ.codeSnippet));
           return <AssessmentReadingZoom>{readingScale => <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden p-3 pb-24 gap-3 relative">
-            {isSequentialActive && (
+            {(isSequentialActive || isSectionLockActive) && (
               <div
                 className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
                 aria-label="Sequential assessment progress"
               >
                 <span className="text-sm font-semibold text-foreground">
-                  Question {currentIndex + 1} of {totalQuestionCount}
+                  {isSectionLockActive && activeSection
+                    ? `${activeSection.title} · Question ${activeSection.questionIndices.indexOf(currentIndex) + 1} of ${activeSection.questionIndices.length}`
+                    : `Question ${currentIndex + 1} of ${totalQuestionCount}`}
                 </span>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>Attempted: <strong className="text-foreground">{attemptedQuestionCount}</strong></span>
@@ -3029,8 +3218,22 @@ export default function TakeAssessmentPage({
                 {/* Previous question */}
                 <button
                   type="button"
-                  onClick={() => { if (isSequentialActive) return; flushDraftToState(); setCurrentIndex((prev) => Math.max(0, prev - 1)); }}
-                  disabled={currentIndex === 0 || isSequentialActive}
+                  onClick={() => {
+                    if (isSequentialActive) return;
+                    flushDraftToState();
+                    if (isSectionLockActive && activeSection) {
+                      const previousIndex = activeSection.questionIndices[
+                        activeSection.questionIndices.indexOf(currentIndex) - 1
+                      ];
+                      if (typeof previousIndex === "number") void navigateWithinActiveSection(previousIndex);
+                    } else {
+                      setCurrentIndex((prev) => Math.max(0, prev - 1));
+                    }
+                  }}
+                  disabled={
+                    isSequentialActive
+                    || (isSectionLockActive ? isFirstQuestionOfCurrentSection : currentIndex === 0)
+                  }
                   className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <ChevronLeft className="w-4 h-4" /> <span>Previous</span>
@@ -3040,11 +3243,20 @@ export default function TakeAssessmentPage({
                 {isLastQuestion ? (
                   <button
                     type="button"
-                    onClick={() => setShowSubmitModal(true)}
+                    onClick={() => {
+                      if (isSectionLockActive) setShowSectionSubmitModal(true);
+                      else setShowSubmitModal(true);
+                    }}
                     className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 cursor-pointer"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>{isSequentialActive ? "Submit Assessment" : "Review answers"}</span>
+                    <span>
+                      {isSectionLockActive && activeSection
+                        ? "Submit Section"
+                        : isSequentialActive || isSectionLockActive
+                          ? "Submit Assessment"
+                          : "Review answers"}
+                    </span>
                   </button>
                 ) : (
                   <button

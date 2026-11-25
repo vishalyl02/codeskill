@@ -67,6 +67,7 @@ type AssessmentApiData = {
   targetGroups?: string[];
   targetStudentIds?: string[];
   lockSectionsSequentially?: boolean;
+  lockQuestionsSequentially?: boolean;
   requireLockdown?: boolean;
   allowVirtualMachine?: boolean;
   requireCloseOtherApps?: boolean;
@@ -217,6 +218,7 @@ function AssessmentBuilder() {
           status: assessment.status === "published" ? "published" : "draft",
           targetStudentIds: Array.isArray(assessment.targetStudentIds) ? assessment.targetStudentIds : [],
           lockSectionsSequentially: Boolean(assessment.lockSectionsSequentially),
+          lockQuestionsSequentially: Boolean(assessment.lockQuestionsSequentially),
           requireLockdown: Boolean(assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB),
           allowVirtualMachine: Boolean(assessment.allowVirtualMachine),
           requireCloseOtherApps: assessment.requireCloseOtherApps ?? assessment.securityPolicy?.requireCloseOtherApps ?? true,
@@ -497,6 +499,7 @@ function AssessmentBuilder() {
         targetGroups: targetGroup === "both" ? ["A", "B"] : targetGroup ? [targetGroup.toUpperCase()] : [],
         targetStudentIds,
         lockSectionsSequentially: store.lockSectionsSequentially,
+        lockQuestionsSequentially: store.lockQuestionsSequentially,
         requireLockdown: store.requireLockdown,
         allowVirtualMachine: store.allowVirtualMachine,
         lockdownQuitPassword: store.lockdownQuitPassword || undefined,
@@ -1654,29 +1657,53 @@ function AssessmentBuilder() {
             </button>
           </div>
 
-          {/* Sequential Section Locking Toggle Card */}
-          <div className="p-4 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                <Lock className="w-4 h-4 text-primary" />
-                Sequential Question Navigation
+          <div className="space-y-3">
+            <div className="p-4 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <Lock className="w-4 h-4 text-primary" />
+                  Lock Sections Sequentially
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Candidates may navigate within the current section, but must submit it before the next section unlocks. Submitted sections are read-only.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Candidates answer questions in the configured order. Advancing unlocks the next question and locks previous questions.
-              </p>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={store.lockSectionsSequentially}
+                  onChange={(e) => store.setLockSectionsSequentially(e.target.checked)}
+                  aria-label="Lock Sections Sequentially"
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+              </label>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={store.lockSectionsSequentially}
-                onChange={(e) => store.setLockSectionsSequentially(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-            </label>
+
+            <div className="p-4 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <Lock className="w-4 h-4 text-primary" />
+                  Lock Questions Sequentially
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Show one question at a time. Candidates must save and advance in order; previous questions cannot be revisited. This takes precedence over section locking.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={store.lockQuestionsSequentially}
+                  onChange={(e) => store.setLockQuestionsSequentially(e.target.checked)}
+                  aria-label="Lock Questions Sequentially"
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+              </label>
+            </div>
           </div>
 
-          {store.lockSectionsSequentially && (
+          {store.lockQuestionsSequentially && (
             <div className="rounded-xl border border-border bg-card p-4">
               <label htmlFor="question-time-limit" className="block text-sm font-bold text-foreground">
                 Per-question time limit

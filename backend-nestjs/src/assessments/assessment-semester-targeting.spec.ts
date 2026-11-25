@@ -78,7 +78,8 @@ function createMockService(overrides: {
     findOne: jest.fn().mockImplementation(async ({ where }: any) => {
       const conditions = Array.isArray(where) ? where : [where];
       return questions.find((q) => conditions.some((condition: any) =>
-        q.id === condition?.id || q.mongoId === condition?.mongoId,
+        q.id === condition?.id
+        || (condition?.mongoId !== undefined && q.mongoId === condition.mongoId),
       )) || null;
     }),
   };
@@ -586,12 +587,13 @@ describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
       expect(res.reviewQuestions[0].selectedAnswer).toBe(0);
     });
 
-    it('passes lockSectionsSequentially to student in overview and startAttempt', async () => {
+    it('passes section-lock settings to students without enabling a question timer', async () => {
       const assessmentSequential: any = {
         ...sem4Assessment,
         id: 'exam-seq',
         questions: ['q1'],
         lockSectionsSequentially: true,
+        lockQuestionsSequentially: false,
         questionTimeLimitSeconds: 30,
         sections: [{ id: 'sec-1', title: 'Section 1', order: 0, timeLimit: 0, questions: [{ questionId: 'q1', marks: 10, negativeMarks: 0, order: 0 }] }],
       };
@@ -605,7 +607,8 @@ describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
 
       const start = await service.startStudentAttempt('exam-seq', studentUser);
       expect(start.lockSectionsSequentially).toBe(true);
-      expect(start.questionTimeLimitSeconds).toBe(30);
+      expect(start.lockQuestionsSequentially).toBe(false);
+      expect(start.questionTimeLimitSeconds).toBe(0);
       expect(start.currentQuestionStartedAtEpochMs).toEqual(expect.any(Number));
     });
 
@@ -614,7 +617,7 @@ describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
         ...sem4Assessment,
         id: 'exam-nav',
         questions: ['q1', 'q2'],
-        lockSectionsSequentially: true,
+        lockQuestionsSequentially: true,
         questionTimeLimitSeconds: 90,
       };
       const attempt: any = {
@@ -661,12 +664,114 @@ describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
       }, studentUser)).rejects.toBeInstanceOf(Error);
     });
 
+    it('allows navigation within the active section and rejects navigation into a locked section', async () => {
+      const assessment: any = {
+        ...sem4Assessment,
+        id: 'exam-section-navigation',
+        questions: ['q1', 'q2', 'q3'],
+        shuffleQuestions: false,
+        lockSectionsSequentially: true,
+        sections: [
+          { title: 'Section 1', order: 0, questions: [{ questionId: 'q1' }, { questionId: 'q2' }] },
+          { title: 'Section 2', order: 1, questions: [{ questionId: 'q3' }] },
+        ],
+      };
+      const attempt: any = {
+        id: 'attempt-section-navigation',
+        assessmentId: assessment.id,
+        studentId: studentUser.id,
+        status: 'in_progress',
+        questionOrder: ['q1', 'q2', 'q3'],
+        currentQuestionIndex: 0,
+        completedSectionIds: [],
+        navigationVersion: 0,
+      };
+      const questions = [
+        { id: 'q1', question: 'First', questionType: 'single_choice', options: ['A', 'B'] },
+        { id: 'q2', question: 'Second', questionType: 'single_choice', options: ['A', 'B'] },
+        { id: 'q3', question: 'Third', questionType: 'single_choice', options: ['A', 'B'] },
+      ];
+      const { service } = createMockService({ assessments: [assessment], attempts: [attempt], questions });
+
+      await expect(service.navigateStudentAttempt(assessment.id, {
+        targetQuestionId: 'q2',
+        targetQuestionIndex: 1,
+        navigationVersion: 0,
+      }, studentUser)).resolves.toMatchObject({
+        navigationAllowed: true,
+        currentQuestionIndex: 1,
+        questionTimeLimitSeconds: 0,
+        permittedQuestion: { _id: 'q2', sectionId: '0' },
+      });
+
+      await expect(service.navigateStudentAttempt(assessment.id, {
+        targetQuestionId: 'q1',
+        targetQuestionIndex: 0,
+        navigationVersion: 1,
+      }, studentUser)).resolves.toMatchObject({
+        navigationAllowed: true,
+        currentQuestionIndex: 0,
+      });
+
+      await expect(service.navigateStudentAttempt(assessment.id, {
+        targetQuestionId: 'q3',
+        targetQuestionIndex: 2,
+        navigationVersion: 2,
+      }, studentUser)).rejects.toBeInstanceOf(Error);
+    });
+
+    it('persists section completion and unlocks only the next section', async () => {
+      const assessment: any = {
+        ...sem4Assessment,
+        id: 'exam-section-completion',
+        questions: ['q1', 'q2', 'q3'],
+        shuffleQuestions: false,
+        lockSectionsSequentially: true,
+        sections: [
+          { title: 'Section 1', order: 0, questions: [{ questionId: 'q1' }, { questionId: 'q2' }] },
+          { title: 'Section 2', order: 1, questions: [{ questionId: 'q3' }] },
+        ],
+      };
+      const attempt: any = {
+        id: 'attempt-section-completion',
+        assessmentId: assessment.id,
+        studentId: studentUser.id,
+        status: 'in_progress',
+        questionOrder: ['q1', 'q2', 'q3'],
+        currentQuestionIndex: 1,
+        completedSectionIds: [],
+        navigationVersion: 0,
+      };
+      const questions = [
+        { id: 'q1', question: 'First', questionType: 'single_choice', options: ['A', 'B'] },
+        { id: 'q2', question: 'Second', questionType: 'single_choice', options: ['A', 'B'] },
+        { id: 'q3', question: 'Third', questionType: 'single_choice', options: ['A', 'B'] },
+      ];
+      const { service } = createMockService({ assessments: [assessment], attempts: [attempt], questions });
+
+      await expect(service.completeStudentAttemptSection(assessment.id, {
+        sectionId: '0',
+        navigationVersion: 0,
+      }, studentUser)).resolves.toMatchObject({
+        completedSectionIds: ['0'],
+        activeSectionId: '1',
+        assessmentReadyForSubmission: false,
+        currentQuestionIndex: 2,
+        questions: [expect.objectContaining({ _id: 'q3', questionIndex: 3, sectionId: '1' })],
+      });
+      expect(attempt.completedSectionIds).toEqual(['0']);
+      await expect(service.getPermittedStudentQuestion(assessment.id, 'q1', studentUser))
+        .rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.getPermittedStudentQuestion(assessment.id, 'q3', studentUser))
+        .resolves.toMatchObject({ success: true });
+    });
+
     it('rejects direct access to future or completed questions in sequential mode', async () => {
       const assessment: any = {
         ...sem4Assessment,
         id: 'exam-direct',
         questions: ['q1', 'q2'],
-        lockSectionsSequentially: true,
+        lockQuestionsSequentially: true,
       };
       const attempt: any = {
         id: 'attempt-direct',
@@ -694,7 +799,7 @@ describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
         ...sem4Assessment,
         id: 'exam-autosave',
         questions: ['q1', 'q2'],
-        lockSectionsSequentially: true,
+        lockQuestionsSequentially: true,
       };
       const attempt: any = {
         id: 'attempt-autosave',

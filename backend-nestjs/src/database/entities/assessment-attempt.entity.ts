@@ -104,6 +104,9 @@ export class AssessmentAttempt {
   @Column('text', { name: 'completed_question_ids', array: true, default: '{}' })
   completedQuestionIds: string[];
 
+  @Column('text', { name: 'completed_section_ids', array: true, default: '{}' })
+  completedSectionIds: string[];
+
   @Column({ name: 'navigation_version', type: 'int', default: 0 })
   navigationVersion: number;
 

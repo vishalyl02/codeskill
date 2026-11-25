@@ -291,6 +291,10 @@ export class CreateAssessmentDto {
 
   @IsBoolean()
   @IsOptional()
+  lockQuestionsSequentially?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
   allowVirtualMachine?: boolean;
 
   @IsBoolean()
