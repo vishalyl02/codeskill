@@ -102,7 +102,6 @@ jobs:
           if [ -n "$NSIS_FILE" ] && [ -f "$NSIS_FILE" ]; then
             VERSION="${{ needs.detect-changes.outputs.version }}"
             cp "$NSIS_FILE" dist-nsis/CodeSkill-LockDown-Setup.exe
-            cp "$NSIS_FILE" dist-nsis/codeskill-lockdown-setup.exe
             cp "$NSIS_FILE" "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe"
             sha256sum dist-nsis/*.exe > dist-nsis/SHA256SUMS-windows.txt
             EXE_HASH=$(sha256sum dist-nsis/CodeSkill-LockDown-Setup.exe | awk '{print $1}')
@@ -151,11 +150,10 @@ jobs:
           if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
             VERSION="${{ needs.detect-changes.outputs.version }}"
             cp "$DMG_FILE" dist-dmg/codeskill-lockdown.dmg
-            cp "$DMG_FILE" dist-dmg/CodeSkill-LockDown.dmg
             cp "$DMG_FILE" "dist-dmg/CodeSkill-LockDown-${VERSION}.dmg"
             shasum -a 256 dist-dmg/*.dmg > dist-dmg/SHA256SUMS-macos.txt
-            DMG_HASH=$(shasum -a 256 dist-dmg/CodeSkill-LockDown.dmg | awk '{print $1}')
-            node -e "const fs=require('fs');fs.writeFileSync('dist-dmg/release-manifest-macos.json',JSON.stringify({platform:'macos',version:'$VERSION',filename:'CodeSkill-LockDown.dmg',sha256:'$DMG_HASH',generatedAt:new Date().toISOString()},null,2));"
+            DMG_HASH=$(shasum -a 256 dist-dmg/codeskill-lockdown.dmg | awk '{print $1}')
+            node -e "const fs=require('fs');fs.writeFileSync('dist-dmg/release-manifest-macos.json',JSON.stringify({platform:'macos',version:'$VERSION',filename:'codeskill-lockdown.dmg',sha256:'$DMG_HASH',generatedAt:new Date().toISOString()},null,2));"
           fi
       - uses: actions/upload-artifact@v4
         with:
@@ -210,15 +208,13 @@ jobs:
           UPLOAD_FILES=()
           if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
             cp "$DEB_FILE" dist-linux/codeskill-lockdown.deb
-            cp "$DEB_FILE" dist-linux/CodeSkill-LockDown.deb
             cp "$DEB_FILE" "dist-linux/CodeSkill-LockDown-${VERSION}.deb"
-            UPLOAD_FILES+=(dist-linux/codeskill-lockdown.deb dist-linux/CodeSkill-LockDown.deb "dist-linux/CodeSkill-LockDown-${VERSION}.deb")
+            UPLOAD_FILES+=(dist-linux/codeskill-lockdown.deb "dist-linux/CodeSkill-LockDown-${VERSION}.deb")
           fi
           if [ -n "$APPIMAGE_FILE" ] && [ -f "$APPIMAGE_FILE" ]; then
             cp "$APPIMAGE_FILE" dist-linux/codeskill-lockdown.AppImage
-            cp "$APPIMAGE_FILE" dist-linux/CodeSkill-LockDown.AppImage
             cp "$APPIMAGE_FILE" "dist-linux/CodeSkill-LockDown-${VERSION}.AppImage"
-            UPLOAD_FILES+=(dist-linux/codeskill-lockdown.AppImage dist-linux/CodeSkill-LockDown.AppImage "dist-linux/CodeSkill-LockDown-${VERSION}.AppImage")
+            UPLOAD_FILES+=(dist-linux/codeskill-lockdown.AppImage "dist-linux/CodeSkill-LockDown-${VERSION}.AppImage")
           fi
           if [ ${#UPLOAD_FILES[@]} -gt 0 ]; then
             sha256sum "${UPLOAD_FILES[@]}" > dist-linux/SHA256SUMS-linux.txt
