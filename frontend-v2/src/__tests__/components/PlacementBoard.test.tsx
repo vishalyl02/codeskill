@@ -138,10 +138,17 @@ it("saves metadata as a draft, uploads multiple PDFs, then publishes the complet
   expect(placementsAPI.create).toHaveBeenCalledWith(
     expect.objectContaining({ status: "draft" }),
   );
-  expect(placementsAPI.upload).toHaveBeenCalledWith(
+  expect(placementsAPI.upload).toHaveBeenNthCalledWith(
+    1,
     "company-1",
     "job-description",
-    files,
+    [files[0]],
+  );
+  expect(placementsAPI.upload).toHaveBeenNthCalledWith(
+    2,
+    "company-1",
+    "job-description",
+    [files[1]],
   );
   expect(
     (placementsAPI.upload as jest.Mock).mock.invocationCallOrder[0],
@@ -375,4 +382,61 @@ it("resizes a selected logo and includes it in the saved placement", async () =>
     context.mockRestore();
     encode.mockRestore();
   }
+});
+
+it("keeps failed PDF uploads visible beside Save and retries only unfinished files", async () => {
+  (useAuth as jest.Mock).mockReturnValue({
+    user: { id: "admin", isAdmin: true },
+    loading: false,
+  });
+  (placementsAPI.update as jest.Mock).mockResolvedValue({
+    data: { placement: { ...entry, status: "draft" } },
+  });
+  (placementsAPI.upload as jest.Mock)
+    .mockResolvedValueOnce({
+      data: {
+        placement: {
+          ...entry,
+          documents: [entry.documents[0]],
+          status: "draft",
+        },
+      },
+    })
+    .mockRejectedValueOnce({
+      response: {
+        data: {
+          message: "Placement PDF storage requires the configured S3 bucket.",
+        },
+      },
+    })
+    .mockResolvedValueOnce({ data: { placement: entry } });
+  render(<PlacementBoard manage />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  const files = [
+    new File(["%PDF-1.4 first"], "First.pdf", { type: "application/pdf" }),
+    new File(["%PDF-1.4 second"], "Second.pdf", { type: "application/pdf" }),
+  ];
+  fireEvent.change(screen.getByLabelText("Job descriptions"), {
+    target: { files },
+  });
+  const editor = screen.getByRole("region", { name: "Placement editor" });
+  expect(within(editor).getByText("First.pdf")).toBeInTheDocument();
+  expect(within(editor).getByText("Second.pdf")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Save placement" }));
+  const error = await within(editor).findByRole("alert");
+  expect(error).toHaveTextContent("configured S3 bucket");
+  expect(within(editor).queryByText("First.pdf")).not.toBeInTheDocument();
+  expect(within(editor).getByText("Second.pdf")).toBeInTheDocument();
+  expect(
+    screen.queryByText("Placement published. Students can now see it."),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Save placement" }));
+  await waitFor(() => expect(placementsAPI.upload).toHaveBeenCalledTimes(3));
+  expect(placementsAPI.upload).toHaveBeenNthCalledWith(
+    3,
+    "company-1",
+    "job-description",
+    [files[1]],
+  );
+  await screen.findByText("Placement published. Students can now see it.");
 });

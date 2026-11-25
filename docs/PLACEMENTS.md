@@ -13,7 +13,7 @@ Draft and archived entries are visible only to admins. Students see compact comp
 
 ## Files and permissions
 
-- Up to 10 PDFs per upload group/request, 8 MiB per file, and 30 attached PDFs per placement.
+- The editor uploads selected PDFs one at a time to stay below deployment proxy request limits and retains unfinished files for retry. Up to 10 PDFs per upload group/request, 8 MiB per file, and 30 attached PDFs per placement.
 - Company logos accept raster images only, with server-side format/signature checks and a 128 KiB limit after resizing. The optimized image is stored in the database, so no public logo upload directory is required.
 - PDF MIME type and file signature are checked. Resource URLs must use HTTP or HTTPS.
 - Files use generated storage names and are served through authenticated download endpoints. Students cannot download draft or archived documents, including with a previously copied URL.
@@ -24,7 +24,7 @@ Draft and archived entries are visible only to admins. Students see compact comp
 
 The additive `placements` schema migration runs through the existing assessment rollout runner, `db:migrate`, and automatic database migration service. It does not modify judge or submission tables.
 
-Production defaults to private S3 storage using the platform's existing `AWS_S3_BUCKET_NAME`, `AWS_REGION`, and IAM credentials. PDF objects live under `placements/` with AES256 server-side encryption; bytes are delivered only through the authenticated API. The backend role needs `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject` for that prefix. No bucket ACL or public URL is created. A missing bucket produces a configuration error instead of silently storing PDFs on an ephemeral production instance.
+Production defaults to private S3 storage using the platform's existing `AWS_S3_BUCKET_NAME` (or Terraform’s `S3_BUCKET_NAME`), `AWS_REGION`, and IAM credentials. PDF objects live under `placements/` with AES256 server-side encryption; bytes are delivered only through the authenticated API. The backend role needs `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject` for that prefix. No bucket ACL or public URL is created. A missing bucket produces a configuration error instead of silently storing PDFs on an ephemeral production instance.
 
 Local development defaults to `.placement-files` under the backend working directory, excluded from Git. Set `PLACEMENTS_UPLOAD_DIR` to override the directory. `PLACEMENTS_STORAGE=local` can explicitly select filesystem storage for a deployment with a private persistent shared volume. All instances must use the same storage mode. Back up stored PDFs together with the database; JSON document metadata alone does not contain PDF bytes.
 

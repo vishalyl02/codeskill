@@ -22,18 +22,21 @@ describe('production placement file storage', () => {
   const old = {
     mode: process.env.PLACEMENTS_STORAGE,
     bucket: process.env.AWS_S3_BUCKET_NAME,
+    deployedBucket: process.env.S3_BUCKET_NAME,
     node: process.env.NODE_ENV,
   };
   beforeEach(() => {
     send.mockReset();
     process.env.NODE_ENV = 'production';
     delete process.env.PLACEMENTS_STORAGE;
+    delete process.env.S3_BUCKET_NAME;
     process.env.AWS_S3_BUCKET_NAME = 'test-placement-bucket';
   });
   afterEach(() => {
     for (const [key, value] of Object.entries({
       PLACEMENTS_STORAGE: old.mode,
       AWS_S3_BUCKET_NAME: old.bucket,
+      S3_BUCKET_NAME: old.deployedBucket,
       NODE_ENV: old.node,
     })) {
       if (value === undefined) delete process.env[key];
@@ -64,6 +67,25 @@ describe('production placement file storage', () => {
     expect(send).toHaveBeenNthCalledWith(2, expect.any(GetObjectCommand));
     await store.remove('abc-123.pdf');
     expect(send).toHaveBeenNthCalledWith(3, expect.any(DeleteObjectCommand));
+  });
+  it('uses the bucket variable provided by the production Terraform templates', async () => {
+    delete process.env.AWS_S3_BUCKET_NAME;
+    process.env.S3_BUCKET_NAME = 'terraform-placement-bucket';
+    send.mockResolvedValue({});
+    await new PlacementFileStore().write('abc.pdf', Buffer.from('%PDF-1.4'));
+    expect(send.mock.calls[0][0]).toHaveProperty(
+      'input.Bucket',
+      'terraform-placement-bucket',
+    );
+  });
+  it('prefers the explicit AWS bucket setting when both names are supplied', async () => {
+    process.env.S3_BUCKET_NAME = 'terraform-placement-bucket';
+    send.mockResolvedValue({});
+    await new PlacementFileStore().write('abc.pdf', Buffer.from('%PDF-1.4'));
+    expect(send.mock.calls[0][0]).toHaveProperty(
+      'input.Bucket',
+      'test-placement-bucket',
+    );
   });
   it('rejects missing production storage and path traversal without AWS calls', async () => {
     const store = new PlacementFileStore();

@@ -257,10 +257,19 @@ export function PlacementBoard({ manage = false }: { manage?: boolean }) {
       for (const group of categories) {
         const selected = files[group.value] || [];
         if (!selected.length) continue;
-        item = (await placementsAPI.upload(savedId, group.value, selected)).data
-          .placement;
-        replace(item);
-        setFiles((prev) => ({ ...prev, [group.value]: [] }));
+        // Each request stays below the deployment proxy's body limit, even when
+        // several PDFs are selected. Keep only unfinished files on a retry.
+        for (const file of selected) {
+          item = (await placementsAPI.upload(savedId, group.value, [file])).data
+            .placement;
+          replace(item);
+          setFiles((previous) => ({
+            ...previous,
+            [group.value]: (previous[group.value] || []).filter(
+              (pending) => pending !== file,
+            ),
+          }));
+        }
       }
       if (form.status !== "draft") {
         item = (
@@ -510,7 +519,7 @@ export function PlacementBoard({ manage = false }: { manage?: boolean }) {
           </button>
         )}
       </header>
-      {error && (
+      {error && editing === undefined && (
         <div className={styles.error} role="alert">
           {error}
           <button aria-label="Dismiss error" onClick={() => setError("")}>
@@ -681,10 +690,32 @@ export function PlacementBoard({ manage = false }: { manage?: boolean }) {
                       />
                       <small>
                         {files[group.value]?.length
-                          ? `${files[group.value]!.length} new: ${files[group.value]!.map((f) => f.name).join(", ")}`
+                          ? `${files[group.value]!.length} files ready to upload`
                           : "Choose up to 10 new files"}
                       </small>
                     </label>
+                    {!!files[group.value]?.length && (
+                      <div
+                        className={styles.attached}
+                        aria-label={`${group.label} selected files`}
+                      >
+                        <p className={styles.hint}>
+                          Save placement to upload these files.
+                        </p>
+                        {files[group.value]!.map((file, index) => (
+                          <div
+                            className={styles.document}
+                            key={`${file.name}-${index}`}
+                          >
+                            <FileText size={14} />
+                            <div className={styles.fileName}>
+                              <span>{file.name}</span>
+                              <small>Ready to upload</small>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {editing && (
                       <div className={styles.attached}>
                         <p className={styles.attachedHeading}>
@@ -705,6 +736,11 @@ export function PlacementBoard({ manage = false }: { manage?: boolean }) {
                 );
               })}
             </div>
+            {error && (
+              <div className={styles.error} role="alert">
+                {error}
+              </div>
+            )}
             <div className={styles.formActions}>
               <label>
                 Visibility
