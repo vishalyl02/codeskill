@@ -60,6 +60,7 @@ interface AssessmentStore {
   status: 'draft' | 'published';
   targetStudentIds: string[];
   lockSectionsSequentially: boolean;
+  lockQuestionsSequentially: boolean;
   requireLockdown: boolean;
   allowVirtualMachine: boolean;
   lockdownQuitPassword: string;
@@ -89,6 +90,7 @@ interface AssessmentStore {
   setStatus: (status: 'draft' | 'published') => void;
   setTargetStudentIds: (ids: string[]) => void;
   setLockSectionsSequentially: (lock: boolean) => void;
+  setLockQuestionsSequentially: (lock: boolean) => void;
   setRequireLockdown: (require: boolean) => void;
   setAllowVirtualMachine: (allow: boolean) => void;
   setLockdownQuitPassword: (pwd: string) => void;
@@ -159,6 +161,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   status: 'draft',
   targetStudentIds: [],
   lockSectionsSequentially: false,
+  lockQuestionsSequentially: false,
   requireLockdown: false,
   allowVirtualMachine: false,
   lockdownQuitPassword: '',
@@ -188,6 +191,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   setStatus: (status) => set({ status }),
   setTargetStudentIds: (targetStudentIds) => set({ targetStudentIds }),
   setLockSectionsSequentially: (lockSectionsSequentially) => set({ lockSectionsSequentially }),
+  setLockQuestionsSequentially: (lockQuestionsSequentially) => set({ lockQuestionsSequentially }),
   setRequireLockdown: (requireLockdown) =>
     set((state) => ({
       requireLockdown,
@@ -226,6 +230,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
       ...assessment,
       targetStudentIds: assessment.targetStudentIds || [],
       lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+      lockQuestionsSequentially: assessment.lockQuestionsSequentially ?? false,
       questionTimeLimitSeconds: Number(assessment.questionTimeLimitSeconds || 0),
       requireLockdown: Boolean(assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB),
       allowVirtualMachine: Boolean(assessment.allowVirtualMachine),
@@ -279,6 +284,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
     status: 'draft',
     targetStudentIds: [],
     lockSectionsSequentially: false,
+    lockQuestionsSequentially: false,
     requireLockdown: false,
     allowVirtualMachine: false,
     lockdownQuitPassword: '',

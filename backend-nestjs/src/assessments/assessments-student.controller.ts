@@ -134,6 +134,16 @@ export class AssessmentsStudentController {
     return this.assessmentsService.navigateStudentAttempt(id, dto, studentUser);
   }
 
+  @Post(':id/complete-section')
+  @ApiOperation({ summary: 'Submit the active section and unlock the next section' })
+  async completeSection(
+    @Param('id') id: string,
+    @Body() dto: { sectionId: string; navigationVersion?: number },
+    @CurrentUser() studentUser: any,
+  ) {
+    return this.assessmentsService.completeStudentAttemptSection(id, dto, studentUser);
+  }
+
   @Get(':id/question/:questionId')
   @ApiOperation({ summary: 'Get one question only when the attempt permits it' })
   async getQuestion(
