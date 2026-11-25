@@ -48,6 +48,7 @@ import LockdownAppBlockerGate from "@/components/assessment/LockdownAppBlockerGa
 import LockdownSubmissionFeedback from "@/components/assessment/LockdownSubmissionFeedback";
 import { resolveAssessmentMediaRequirements } from "@/lib/assessment-media-policy";
 import { LockdownSessionStore } from "@/lib/lockdown-session-store";
+import { lockdownLogger } from "@/lib/lockdown-logger";
 import {
   isLockdownClient,
   initializeLockdownAttestation,
@@ -332,6 +333,11 @@ export default function TakeAssessmentPage({
 
     let unlisten: (() => void) | undefined;
     void listenToLockdownViolation(async (violation) => {
+      lockdownLogger.warn("SECURITY", "environment_violation", {
+        assessmentId: id,
+        violationType: violation.violation_type,
+        message: violation.message,
+      });
       try {
         await api.post("exam-security/violations", {
           assessmentId: id,
@@ -417,6 +423,13 @@ export default function TakeAssessmentPage({
               "[Lockdown] Initial attestation deferred to pre-exam gates:",
               launchRes.attestation?.error,
             );
+            lockdownLogger.warn("ATTESTATION", "initial_attestation_deferred", {
+              assessmentId: id,
+              error: launchRes.attestation?.error || "unknown",
+            });
+            void lockdownLogger.uploadDiagnosticsSnapshot(api, id, "initial_attestation_deferred", {
+              error: launchRes.attestation?.error || "unknown",
+            });
           }
         } catch (err: any) {
           console.warn("[Lockdown] Launch token ingestion warning:", err);
@@ -718,6 +731,17 @@ export default function TakeAssessmentPage({
         isMediaGatePassed,
         isAppsGatePassed,
       });
+      lockdownLogger.info("ASSESSMENT_START", "waiting_on_pre_exam_gates", {
+        assessmentId: id,
+        needsMediaGate: mediaRequirements.needsMediaGate,
+        isMediaGatePassed,
+        isAppsGatePassed,
+      });
+      void lockdownLogger.uploadDiagnosticsSnapshot(api, id, "waiting_on_pre_exam_gates", {
+        needsMediaGate: mediaRequirements.needsMediaGate,
+        isMediaGatePassed,
+        isAppsGatePassed,
+      });
       startAttemptRequestedRef.current = false;
       setIsLoading(false);
       return;
@@ -924,7 +948,19 @@ export default function TakeAssessmentPage({
       console.error("Failed to start assessment:", err);
       releaseAssessmentStream(id);
       const message = err?.response?.data?.message;
-      setStartError(Array.isArray(message) ? message.join(" ") : message || "We could not start this assessment. Please check your attempt eligibility and try again.");
+      const resolvedMessage = Array.isArray(message)
+        ? message.join(" ")
+        : message || "We could not start this assessment. Please check your attempt eligibility and try again.";
+      lockdownLogger.error("ASSESSMENT_START", "start_attempt_failed", {
+        assessmentId: id,
+        statusCode: err?.response?.status ?? null,
+        message: resolvedMessage,
+      });
+      void lockdownLogger.uploadDiagnosticsSnapshot(api, id, "start_attempt_failed", {
+        statusCode: err?.response?.status ?? null,
+        message: resolvedMessage,
+      });
+      setStartError(resolvedMessage);
       startAttemptRequestedRef.current = false;
       if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
     } finally {
@@ -2038,6 +2074,7 @@ export default function TakeAssessmentPage({
   if (isLockdownClient() && isMediaGatePassed && !isAppsGatePassed) {
     return (
       <LockdownAppBlockerGate
+        assessmentId={id}
         requireCloseOtherApps={requireCloseOtherApps}
         onReady={() => setIsAppsGatePassed(true)}
       />

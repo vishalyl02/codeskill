@@ -452,6 +452,13 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 e.stopPropagation();
                 return false;
             }
+            if ((eventName === 'copy' || eventName === 'cut') &&
+                window.__TAURI_INTERNALS__ &&
+                typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+                try {
+                    window.__TAURI_INTERNALS__.invoke('authorize_local_clipboard_copy', {}).catch(function() {});
+                } catch (_) {}
+            }
         }, true);
     });
 
@@ -930,6 +937,7 @@ pub fn run() {
             kiosk_os::engage_os_kiosk,
             kiosk_os::disable_kiosk_mode,
             kiosk_os::release_os_kiosk,
+            kiosk_os::authorize_local_clipboard_copy,
             offline_vault::vault_upsert_autosave,
             offline_vault::vault_read_all_autosaves,
             offline_vault::vault_remove_entry,
