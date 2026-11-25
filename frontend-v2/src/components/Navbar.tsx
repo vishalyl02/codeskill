@@ -19,6 +19,7 @@ import {
   Presentation,
   ArrowRight,
   Compass,
+  BriefcaseBusiness,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -99,6 +100,7 @@ export function Navbar() {
     { name: "Learning", href: "/learning", icon: Compass },
     { name: "Problems", href: "/problems", icon: Code2 },
     { name: "Assessments", href: "/assessments", icon: ClipboardList },
+    { name: "Placements", href: "/placements", icon: BriefcaseBusiness },
     { name: "Contests", href: "/contests", icon: Trophy },
     { name: "Leaderboard", href: "/leaderboard", icon: BarChart3 },
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -181,7 +183,7 @@ export function Navbar() {
           </Link>
 
           {/* 2. CENTER — NAVIGATION (Desktop 1024px and above) */}
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5 shrink-0">
+          <nav className="hidden lg:flex items-center gap-0.5 min-w-0">
             {navLinks.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -193,14 +195,14 @@ export function Navbar() {
                 <Link
                   key={item.name}
                   href={item.href}
-                  className={`relative flex items-center gap-1.5 px-2.5 xl:px-3 py-1.5 xl:py-2 rounded-xl text-[13px] xl:text-[14px] whitespace-nowrap shrink-0 transition-all duration-200 ${
+                  className={`relative flex items-center gap-1.5 px-2 xl:px-2.5 py-1.5 xl:py-2 rounded-xl text-[12px] xl:text-[13px] whitespace-nowrap shrink-0 transition-all duration-200 ${
                     isActive
                       ? "text-foreground dark:text-white font-bold"
                       : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:text-white dark:hover:bg-white/[0.05] font-medium"
                   }`}
                 >
                   <Icon
-                    className={`w-3.5 h-3.5 xl:w-4 xl:h-4 shrink-0 transition-colors duration-200 ${
+                    className={`hidden 2xl:block w-3.5 h-3.5 shrink-0 transition-colors duration-200 ${
                       isActive
                         ? "text-primary dark:text-primary"
                         : "text-muted-foreground group-hover:text-foreground dark:text-muted-foreground dark:group-hover:text-white"
