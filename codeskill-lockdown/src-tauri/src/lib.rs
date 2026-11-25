@@ -57,6 +57,11 @@ fn consume_pending_launch_url(app: AppHandle) -> Option<String> {
         None
     };
     if url.is_some() && permissions_onboarding::is_onboarding_needed(&app) {
+        security::log_diagnostic_entry(
+            "INFO",
+            "DEEP_LINK",
+            "consume_pending_launch_url: onboarding needed, routing to /lockdown-startup-permissions",
+        );
         // Put the exam URL back so onboarding can consume it after permissions are granted,
         // and send the webview to the onboarding screen.
         if let Ok(mut pending) = startup_state.pending_launch_url.lock() {
@@ -68,11 +73,19 @@ fn consume_pending_launch_url(app: AppHandle) -> Option<String> {
             frontend_origin.trim_end_matches('/')
         ));
     }
+    if let Some(ref resolved) = url {
+        security::log_diagnostic_entry(
+            "INFO",
+            "DEEP_LINK",
+            &format!("consume_pending_launch_url: delivering {}", resolved),
+        );
+    }
     url
 }
 
 fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
     let clean_url = url_str.trim().trim_matches('"').trim_matches('\'');
+    security::log_diagnostic_entry("INFO", "DEEP_LINK", &format!("Received deep-link URL: {}", clean_url));
     // Expected format: codeskill-exam://start?examId={id}&token={token}&origin={origin} or codeskill-lockdown://system-check?origin={origin}
     if let Ok(parsed) = url::Url::parse(clean_url) {
         // Extract origin from query parameters if present
@@ -821,6 +834,9 @@ pub fn run() {
                 kiosk_os::release_os_kiosk_system();
                 orig_hook(info);
             }));
+
+            // Initialize persistent diagnostic log file (Windows, macOS, Linux)
+            security::init_diagnostic_log_file(app.handle());
 
             // Startup crash-recovery cleaner: recover dirty kiosk state if abnormal power loss/crash occurred
             kiosk_os::recover_dirty_kiosk_state(app.handle());

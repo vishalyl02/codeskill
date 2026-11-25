@@ -293,9 +293,29 @@ pub struct DiagnosticLogEntry {
 }
 
 use std::collections::VecDeque;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 static DIAGNOSTIC_RING_BUFFER: Mutex<VecDeque<DiagnosticLogEntry>> = Mutex::new(VecDeque::new());
+static LOG_FILE_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub fn init_diagnostic_log_file(app: &tauri::AppHandle) {
+    if let Ok(dir) = app.path().app_data_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("lockdown.log");
+        // Rotate if > 1 MB
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.len() > 1_048_576 {
+                let _ = std::fs::rename(&path, dir.join("lockdown.log.prev"));
+            }
+        }
+        if let Ok(mut lock) = LOG_FILE_PATH.lock() {
+            *lock = Some(path);
+        }
+    }
+    log_diagnostic_entry("INFO", "SYSTEM", "CodeSkill LockDown diagnostic file logging initialized");
+}
 
 pub fn log_diagnostic_event(category: &str, message: &str) {
     log_diagnostic_entry("INFO", category, message);
@@ -312,8 +332,20 @@ pub fn log_diagnostic_entry(level: &str, category: &str, message: &str) {
         category: category.to_string(),
         message: message.to_string(),
     };
+    eprintln!("[LockDown][{}][{}] {}", level, category, message);
+    if let Ok(path_lock) = LOG_FILE_PATH.lock() {
+        if let Some(ref log_path) = *path_lock {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)
+            {
+                let _ = writeln!(file, "[{}][{}][{}] {}", now, level, category, message);
+            }
+        }
+    }
     if let Ok(mut buf) = DIAGNOSTIC_RING_BUFFER.lock() {
-        if buf.len() >= 100 {
+        if buf.len() >= 300 {
             buf.pop_front();
         }
         buf.push_back(entry);

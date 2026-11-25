@@ -713,6 +713,11 @@ export default function TakeAssessmentPage({
   const startAttemptRequestedRef = useRef(false);
   const beginAssessmentAfterFullscreen = useCallback(async () => {
     if (isLockdownClient() && ((mediaRequirements.needsMediaGate && !isMediaGatePassed) || !isAppsGatePassed)) {
+      console.info("[LockDown Start] Waiting on pre-exam gates:", {
+        needsMediaGate: mediaRequirements.needsMediaGate,
+        isMediaGatePassed,
+        isAppsGatePassed,
+      });
       startAttemptRequestedRef.current = false;
       setIsLoading(false);
       return;
@@ -722,6 +727,7 @@ export default function TakeAssessmentPage({
     setIsLoading(true);
     try {
       if (mediaRequirements.requireCamera && !getAssessmentFaceReference(id)) {
+        console.warn("[LockDown Start] Missing face reference in LockDown session; redirecting to briefing page /assessments/" + id);
         if (isLockdownClient()) {
           router.replace(`/assessments/${id}`);
           return;
@@ -731,16 +737,20 @@ export default function TakeAssessmentPage({
 
       // Ensure native CodeSkill LockDown attestation session is initialized and valid before starting attempt
       if (isLockdownClient() && (!isLockdownActive || !attestedSessionId)) {
+        console.info("[LockDown Start] Initializing native LockDown attestation for assessment:", id);
         try {
           const attestRes = await initializeLockdownAttestation(api, id, true);
           if (!attestRes.success) {
+            console.error("[LockDown Start] Attestation failed:", attestRes.error);
             throw new Error(attestRes.error || "CodeSkill LockDown attestation verification failed.");
           }
+          console.info("[LockDown Start] Attestation succeeded:", attestRes.sessionId);
           if (attestRes.sessionId) {
             setAttestedSessionId(attestRes.sessionId);
           }
           setIsLockdownActive(true);
         } catch (attestErr: any) {
+          console.error("[LockDown Start] Attestation exception:", attestErr);
           throw new Error(attestErr?.message || "Failed to establish secure CodeSkill LockDown session.");
         }
       }
