@@ -12,6 +12,7 @@ import { applyAssessmentVdiOverrideMigration } from './migrations/assessment-vdi
 import { applyContestSubmissionScopeMigration, migrateContestSubmissionShards } from './migrations/contest-submission-scope';
 import { parseSubmissionShardingConfig } from './sharding/sharding.config';
 import { readShardingState, validateShardingState } from './sharding/sharding-state';
+import { applyAssessmentSequentialSectionsMigration } from './migrations/assessment-sequential-sections';
 
 /** Idempotent schema additions applied on every container rollout before starting the API. */
 export async function runAssessmentSchemaMigrations(): Promise<void> {
@@ -33,6 +34,7 @@ export async function runAssessmentSchemaMigrations(): Promise<void> {
         await applyAssessmentProctorCapturesMigration(runner);
         await applyAssessmentProctoringModesMigration(runner);
         await applyAssessmentResumeLimitMigration(runner);
+        await applyAssessmentSequentialSectionsMigration(runner);
         await applyLearningModuleMigration(runner);
         await applyFacultyAssignmentsMigration(runner);
         await applyAssessmentVdiOverrideMigration(runner);

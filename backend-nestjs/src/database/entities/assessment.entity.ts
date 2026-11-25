@@ -48,6 +48,9 @@ export class Assessment {
   @Column({ type: 'int', default: 60 })
   durationMinutes: number;
 
+  @Column({ type: 'int', default: 0 })
+  questionTimeLimitSeconds: number;
+
   @Column({ type: 'float', default: 0 })
   totalMarks: number;
 

@@ -8,6 +8,7 @@ import {
   IsEnum,
   IsInt,
   Min,
+  Max,
   ValidateNested,
   Matches,
 } from 'class-validator';
@@ -182,6 +183,13 @@ export class CreateAssessmentDto {
   @Type(() => Number)
   @Min(5)
   durationMinutes: number;
+
+  @IsNumber()
+  @Type(() => Number)
+  @Min(0)
+  @Max(3600)
+  @IsOptional()
+  questionTimeLimitSeconds?: number;
 
   @IsNumber()
   @Type(() => Number)

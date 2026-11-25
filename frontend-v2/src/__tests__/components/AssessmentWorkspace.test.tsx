@@ -65,6 +65,40 @@ it("keeps MCQ answers and coding drafts across sidebar navigation and review", a
   expect(screen.getByRole("progressbar", { name: "Assessment progress" })).toHaveAttribute("aria-valuenow", "1");
 });
 
+it("shows only the active question and attempted counts in sequential assessments", async () => {
+  const activeQuestion = {
+    ...questions[0],
+    _id: "active-question",
+    question: "This is the active sequential question",
+    sectionTitle: "Coding Problems",
+  };
+  jest.mocked(studentAssessmentsAPI.startAttempt).mockResolvedValueOnce({ data: {
+    title: "Sequential assessment",
+    durationMinutes: 60,
+    startedAt: new Date().toISOString(),
+    lockSectionsSequentially: true,
+    totalQuestionCount: 3,
+    currentQuestionIndex: 1,
+    questions: [activeQuestion],
+    savedResponses: [
+      { questionId: "completed-question", selectedAnswer: 0, selectedAnswers: [0], status: "answered" },
+      { questionId: "active-question", selectedAnswer: -1, selectedAnswers: [], status: "unvisited" },
+    ],
+  } } as any);
+
+  await start();
+
+  expect(screen.getByText("This is the active sequential question")).toBeInTheDocument();
+  expect(screen.getByText("Question 2 of 3")).toBeInTheDocument();
+  expect(screen.getByText("Attempted:")).toBeInTheDocument();
+  expect(screen.getByText("1", { selector: "strong" })).toBeInTheDocument();
+  expect(screen.getByText("Not attempted:")).toBeInTheDocument();
+  expect(screen.getByText("Current question: Not attempted")).toBeInTheDocument();
+  expect(screen.queryByRole("complementary", { name: "Assessment question sidebar" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Sequential Navigation")).not.toBeInTheDocument();
+  expect(screen.queryByText("10 Qs")).not.toBeInTheDocument();
+});
+
 it("loads each question's uploaded language templates and keeps edits question-local", async () => {
   const customQuestions = [
     {

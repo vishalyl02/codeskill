@@ -485,6 +485,10 @@ export class AssessmentsService {
     const resumeAttemptsUsed = Math.max(0, attempt.resumeCount || 0);
     return {
       attemptExpiresAt: this.attemptExpiresAt(assessment, attempt),
+      currentQuestionStartedAt: attempt.currentQuestionStartedAt || attempt.startedAt,
+      currentQuestionStartedAtEpochMs: new Date(
+        attempt.currentQuestionStartedAt || attempt.startedAt,
+      ).getTime(),
       resumeAttemptsUsed,
       resumeAttemptsRemaining: Math.max(0, MAX_RESUME_ATTEMPTS - resumeAttemptsUsed),
       maxResumeAttempts: MAX_RESUME_ATTEMPTS,
@@ -993,6 +997,7 @@ export class AssessmentsService {
       type: dto.type || 'mcq',
       category: dto.category || 'exam',
       durationMinutes: dto.durationMinutes,
+      questionTimeLimitSeconds: dto.questionTimeLimitSeconds ?? 0,
       totalMarks,
       passingMarks,
       negativeMarking: dto.negativeMarking ?? true,
@@ -1252,6 +1257,8 @@ export class AssessmentsService {
     if (dto.category !== undefined) assessment.category = dto.category;
     if (dto.durationMinutes !== undefined)
       assessment.durationMinutes = dto.durationMinutes;
+    if (dto.questionTimeLimitSeconds !== undefined)
+      assessment.questionTimeLimitSeconds = dto.questionTimeLimitSeconds;
     if (dto.passingMarks !== undefined)
       assessment.passingMarks = dto.passingMarks;
     if (dto.negativeMarking !== undefined)
@@ -2311,6 +2318,7 @@ export class AssessmentsService {
         isAvailable,
         unavailabilityReason,
         durationMinutes: assessment.durationMinutes,
+        questionTimeLimitSeconds: assessment.questionTimeLimitSeconds || 0,
         totalMarks: assessment.totalMarks,
         passingMarks: assessment.passingMarks,
         negativeMarking: assessment.negativeMarking,
@@ -2345,6 +2353,9 @@ export class AssessmentsService {
           startedAt: latestAttempt.startedAt,
           submittedAt: latestAttempt.submittedAt,
           attemptNumber: latestAttempt.attemptNumber,
+          currentQuestionIndex: latestAttempt.currentQuestionIndex || 0,
+          completedQuestionIds: latestAttempt.completedQuestionIds || [],
+          navigationVersion: latestAttempt.navigationVersion || 0,
           ...(latestAttempt.status === 'in_progress'
             ? this.resumeDetails(assessment, latestAttempt)
             : {}),
@@ -2443,11 +2454,15 @@ export class AssessmentsService {
         studentName: studentUser.name || 'Student Candidate',
         studentEmail: studentUser.email || '',
         status: 'in_progress',
-        startedAt: new Date(),
+        startedAt: now,
+        currentQuestionStartedAt: now,
         attemptNumber: attemptNum,
         resumeCount: 0,
         highestScore: highestPreviousScore,
         questionOrder: orderedIds,
+        currentQuestionIndex: 0,
+        completedQuestionIds: [],
+        navigationVersion: 0,
         maxScore: assessment.totalMarks,
         responses: orderedIds.map((qId) => ({
           questionId: qId,
@@ -2509,6 +2524,14 @@ export class AssessmentsService {
       attempt.resumeCount = Math.max(
         previousResumeCount + 1,
         updatedAttempt?.resumeCount || 0,
+      );
+    }
+
+    if (!attempt.currentQuestionStartedAt) {
+      attempt.currentQuestionStartedAt = now;
+      await this.attemptRepo.update(
+        { id: attempt.id, studentId, status: 'in_progress' },
+        { currentQuestionStartedAt: now },
       );
     }
 
@@ -2590,6 +2613,15 @@ export class AssessmentsService {
       })
       .filter(Boolean);
 
+    const sequentialNavigationEnabled = assessment.lockSectionsSequentially ?? false;
+    const permittedQuestionIndex = Math.max(0, Math.min(
+      Number(attempt.currentQuestionIndex || 0),
+      sanitizedQuestions.length - 1,
+    ));
+    const studentVisibleQuestions = sequentialNavigationEnabled
+      ? sanitizedQuestions.filter((_, index) => index <= permittedQuestionIndex)
+      : sanitizedQuestions;
+
     this.logger.log({
       event: 'ASSESSMENT_ATTEMPT_STARTED',
       assessmentId: assessment.id,
@@ -2619,6 +2651,9 @@ export class AssessmentsService {
       _id: attempt.id,
       startedAt: attempt.startedAt,
       durationMinutes: assessment.durationMinutes,
+      questionTimeLimitSeconds: assessment.lockSectionsSequentially
+        ? assessment.questionTimeLimitSeconds || 0
+        : 0,
       ...this.resumeDetails(assessment, attempt),
       serverEndsAtEpochMs,
       serverNowMs,
@@ -2648,8 +2683,12 @@ export class AssessmentsService {
       enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
       enableForensicWatermark: assessment.enableForensicWatermark ?? assessment.securityPolicy?.enableForensicWatermark ?? false,
       sections: resolvedSections,
-      questions: sanitizedQuestions,
+      questions: studentVisibleQuestions,
+      totalQuestionCount: sanitizedQuestions.length,
       savedResponses: attempt.responses,
+      currentQuestionIndex: permittedQuestionIndex,
+      completedQuestionIds: attempt.completedQuestionIds || [],
+      navigationVersion: attempt.navigationVersion || 0,
     };
   }
 
@@ -2683,6 +2722,12 @@ export class AssessmentsService {
       assessmentId: assessment.id, studentId, status: 'in_progress',
     } });
     if (!attempt || attempt.studentId !== studentId) throw new ForbiddenException('No active assessment attempt');
+    if (assessment.lockSectionsSequentially) {
+      const currentQuestionId = attempt.questionOrder?.[attempt.currentQuestionIndex || 0];
+      if (String(currentQuestionId || '') !== String(dto.questionId)) {
+        throw new ForbiddenException('Code can only be evaluated for the active sequential question');
+      }
+    }
     const now = Date.now();
     const attemptDeadline = new Date(attempt.startedAt).getTime() + assessment.durationMinutes * 60_000;
     if ((assessment.endTime && now > new Date(assessment.endTime).getTime()) || now > attemptDeadline)
@@ -2740,6 +2785,207 @@ export class AssessmentsService {
     }
   }
 
+  async navigateStudentAttempt(
+    id: string,
+    dto: { targetQuestionId?: string; targetQuestionIndex: number; navigationVersion?: number },
+    studentUser: any,
+  ) {
+    const assessment = await this.findAssessmentByIdOrCode(id);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    if (!this.isStudentTargeted(assessment, studentUser)) {
+      throw new ForbiddenException('This assessment is not assigned to your student account.');
+    }
+
+    const studentId = String(studentUser.id || studentUser._id);
+    const attempt = await this.attemptRepo.findOne({
+      where: { assessmentId: assessment.id, studentId, status: 'in_progress' },
+    });
+    if (!attempt) throw new BadRequestException('No active attempt found for this assessment.');
+    if (attempt.studentId !== studentId) throw new ForbiddenException('You do not own this assessment attempt');
+    if (this.isAttemptExpired(assessment, attempt)) {
+      throw new BadRequestException('This assessment attempt has expired');
+    }
+
+    const sequentialEnabled = assessment.lockSectionsSequentially ?? false;
+    if (!sequentialEnabled) {
+      return {
+        success: true,
+        navigationAllowed: true,
+        currentQuestionIndex: Number(dto.targetQuestionIndex),
+        navigationVersion: attempt.navigationVersion || 0,
+      };
+    }
+
+    const questionIds = Array.isArray(attempt.questionOrder) ? attempt.questionOrder : [];
+    const currentIndex = Math.max(0, attempt.currentQuestionIndex || 0);
+    const targetIndex = Number(dto.targetQuestionIndex);
+    if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= questionIds.length) {
+      throw new BadRequestException('Invalid assessment question position');
+    }
+
+    const requestedVersion = dto.navigationVersion;
+    if (requestedVersion !== undefined && Number(requestedVersion) !== (attempt.navigationVersion || 0)) {
+      throw new ConflictException('Navigation changed in another tab. Refresh and retry.');
+    }
+
+    if (targetIndex !== currentIndex + 1) {
+      throw new BadRequestException('Sequential navigation only allows advancing one question at a time');
+    }
+
+    const targetQuestionId = dto.targetQuestionId ? String(dto.targetQuestionId) : questionIds[targetIndex];
+    if (targetQuestionId !== String(questionIds[targetIndex])) {
+      throw new BadRequestException('The requested question does not match the permitted next question');
+    }
+
+    const completedIds = new Set(attempt.completedQuestionIds || []);
+    completedIds.add(String(questionIds[currentIndex]));
+
+    const currentQuestionStartedAt = new Date();
+    const updated = await this.attemptRepo.update(
+      {
+        id: attempt.id,
+        studentId,
+        status: 'in_progress',
+        currentQuestionIndex: currentIndex,
+        navigationVersion: attempt.navigationVersion || 0,
+      } as any,
+      {
+        currentQuestionIndex: targetIndex,
+        currentQuestionStartedAt,
+        completedQuestionIds: [...completedIds],
+        navigationVersion: () => '"navigation_version" + 1',
+      } as any,
+    );
+    if (!updated.affected) {
+      throw new ConflictException('Navigation changed concurrently. Refresh and retry.');
+    }
+
+    const permittedQuestion = await this.questionRepo.findOne({
+      where: [{ id: targetQuestionId }, { mongoId: targetQuestionId }],
+    });
+    let permittedQuestionPayload: any = null;
+    if (permittedQuestion) {
+      const options = Array.isArray(permittedQuestion.options)
+        ? permittedQuestion.options.map((option: any) =>
+          typeof option === 'string' ? option : option?.text || String(option || ''),
+        )
+        : [];
+      const optionOrder = this.getQuestionOptionOrderByQuestionId(attempt, permittedQuestion.id);
+      const normalizedStarters = normalizeStarterCode(
+        permittedQuestion.starterCode,
+        permittedQuestion.metadata,
+        permittedQuestion.codeSnippet,
+        permittedQuestion.code,
+        permittedQuestion.language,
+      );
+      const rawSupported =
+        Array.isArray(permittedQuestion.supportedLanguages) && permittedQuestion.supportedLanguages.length > 0
+          ? permittedQuestion.supportedLanguages
+          : (permittedQuestion.metadata as any)?.supportedLanguages;
+      const supportedLanguages =
+        Array.isArray(rawSupported) && rawSupported.length > 0
+          ? rawSupported
+          : normalizedStarters.length > 0
+            ? [...new Set(normalizedStarters.map((starter) => starter.language))]
+            : (permittedQuestion.language ? [permittedQuestion.language] : []);
+      const sectionMeta = assessment.sections?.find((section: any) =>
+        (section.questions || []).some((item: any) => String(item.questionId) === String(permittedQuestion.id)),
+      );
+
+      permittedQuestionPayload = {
+        _id: permittedQuestion.id,
+        id: permittedQuestion.id,
+        questionIndex: targetIndex + 1,
+        title: permittedQuestion.title,
+        question: permittedQuestion.question,
+        description: permittedQuestion.problemStatement || permittedQuestion.description || '',
+        questionType: permittedQuestion.questionType,
+        sectionId: sectionMeta?.order !== undefined ? String(sectionMeta.order) : undefined,
+        sectionTitle: sectionMeta?.title,
+        sectionOrder: sectionMeta?.order,
+        topic: permittedQuestion.topic,
+        subtopic: permittedQuestion.subtopic,
+        difficulty: permittedQuestion.difficulty,
+        marks: permittedQuestion.marks || 1,
+        negativeMarks: assessment.negativeMarking ? permittedQuestion.negativeMarks || 0 : 0,
+        options: optionOrder ? optionOrder.map((optionIndex) => options[optionIndex]) : options,
+        starterCode: normalizedStarters,
+        codeSnippet: permittedQuestion.codeSnippet,
+        language: permittedQuestion.language || supportedLanguages[0] || 'python',
+        supportedLanguages,
+        hideMainMethod: Boolean(permittedQuestion.hideMainMethod ?? (permittedQuestion.metadata as any)?.hideMainMethod ?? false),
+        constraints: Array.isArray(permittedQuestion.constraints) && permittedQuestion.constraints.length > 0
+          ? permittedQuestion.constraints
+          : (permittedQuestion.metadata as any)?.constraints || [],
+        timeLimit: permittedQuestion.timeLimit || (permittedQuestion.metadata as any)?.timeLimit || 2000,
+        memoryLimit: permittedQuestion.memoryLimit || (permittedQuestion.metadata as any)?.memoryLimit || 256,
+        testCases: codingTestCases(permittedQuestion)
+          .filter((testCase) => !testCase.isHidden)
+          .map((testCase, testCaseIndex) => ({
+            id: testCase.id || String(testCaseIndex + 1),
+            input: testCase.input,
+            expected: testCase.expected,
+            output: testCase.expected,
+          })),
+      };
+    }
+
+    return {
+      success: true,
+      navigationAllowed: true,
+      currentQuestionIndex: targetIndex,
+      currentQuestionStartedAt,
+      currentQuestionStartedAtEpochMs: currentQuestionStartedAt.getTime(),
+      serverNowMs: Date.now(),
+      questionTimeLimitSeconds: assessment.questionTimeLimitSeconds || 0,
+      permittedQuestionId: targetQuestionId,
+      completedQuestionIds: [...completedIds],
+      navigationVersion: (attempt.navigationVersion || 0) + 1,
+      permittedQuestion: permittedQuestionPayload,
+    };
+  }
+
+  async getPermittedStudentQuestion(
+    id: string,
+    questionId: string,
+    studentUser: any,
+  ) {
+    const assessment = await this.findAssessmentByIdOrCode(id);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    if (!this.isStudentTargeted(assessment, studentUser)) {
+      throw new ForbiddenException('This assessment is not assigned to your student account.');
+    }
+
+    const studentId = String(studentUser.id || studentUser._id);
+    const attempt = await this.attemptRepo.findOne({
+      where: { assessmentId: assessment.id, studentId, status: 'in_progress' },
+    });
+    if (!attempt) throw new BadRequestException('No active attempt found for this assessment.');
+    if (attempt.studentId !== studentId) throw new ForbiddenException('You do not own this assessment attempt');
+    if (this.isAttemptExpired(assessment, attempt)) {
+      throw new BadRequestException('This assessment attempt has expired');
+    }
+
+    const attemptQuestionIds = attempt.questionOrder || assessment.questions || [];
+    if (!attemptQuestionIds.some((attemptQuestionId) => String(attemptQuestionId) === String(questionId))) {
+      throw new ForbiddenException('This question does not belong to this assessment attempt');
+    }
+
+    if (assessment.lockSectionsSequentially) {
+      const permittedIndex = attempt.currentQuestionIndex || 0;
+      const permittedId = String(attemptQuestionIds[permittedIndex] || '');
+      if (String(questionId) !== permittedId) {
+        throw new ForbiddenException('This question is not permitted by sequential navigation');
+      }
+    }
+
+    const question = await this.questionRepo.findOne({
+      where: [{ id: questionId }, { mongoId: questionId }],
+    });
+    if (!question) throw new NotFoundException('Question not found');
+    return { success: true, question };
+  }
+
   async saveProgress(
     id: string,
     dto: SubmitAssessmentDto,
@@ -2785,6 +3031,46 @@ export class AssessmentsService {
       throw new ForbiddenException('You do not own this assessment attempt');
     }
 
+    let responsesToSave = dto.responses;
+    if (assessment.lockSectionsSequentially && dto.responses && Array.isArray(dto.responses)) {
+      const permittedIndex = Math.max(0, attempt.currentQuestionIndex || 0);
+      const permittedIds = new Set((attempt.questionOrder || []).slice(0, permittedIndex + 1));
+      const completedIds = new Set(attempt.completedQuestionIds || []);
+      const savedResponses = new Map(
+        (attempt.responses || []).map((response) => [String(response.questionId), response]),
+      );
+      const normalizeSelectedAnswers = (response: any): number[] => {
+        if (Array.isArray(response.selectedAnswers) && response.selectedAnswers.length > 0) {
+          return response.selectedAnswers.map(Number);
+        }
+        return Number(response.selectedAnswer ?? -1) >= 0
+          ? [Number(response.selectedAnswer)]
+          : [];
+      };
+      const unauthorizedResponse = dto.responses.find((response) => {
+        const questionId = String(response.questionId);
+        if (!permittedIds.has(questionId)) return true;
+        if (!completedIds.has(questionId)) return false;
+
+        const saved = savedResponses.get(questionId);
+        return !saved
+          || Number(response.selectedAnswer ?? -1) !== Number(saved.selectedAnswer ?? -1)
+          || JSON.stringify(normalizeSelectedAnswers(response)) !== JSON.stringify(normalizeSelectedAnswers(saved))
+          || String(response.code || '') !== String(saved.code || '')
+          || (String(response.code || '') !== ''
+            && String(response.language || 'python') !== String(saved.language || 'python'));
+      });
+      if (unauthorizedResponse) {
+        throw new ForbiddenException('Responses may only update the active sequential question');
+      }
+      responsesToSave = dto.responses.filter(
+        (response) => !completedIds.has(String(response.questionId)),
+      );
+      if (dto.currentQuestionIndex !== undefined && Number(dto.currentQuestionIndex) !== permittedIndex) {
+        throw new ForbiddenException('Current question position is not server-authorized');
+      }
+    }
+
     const expiresAt = this.attemptExpiresAt(assessment, attempt);
     const endsAtEpochMs = expiresAt.getTime();
     const serverReceivedAtMs = Date.now();
@@ -2798,9 +3084,9 @@ export class AssessmentsService {
     }
     const graceWindowAccepted = serverReceivedAtMs > endsAtEpochMs;
 
-    if (dto.responses && Array.isArray(dto.responses)) {
+    if (responsesToSave && Array.isArray(responsesToSave)) {
       const previousResponses = attempt.responses || [];
-      const updatedResponses = dto.responses.map((r) => ({
+      const updatedResponses = responsesToSave.map((r) => ({
         questionId: String(r.questionId),
         optionOrder: this.getQuestionOptionOrderByQuestionId(attempt, String(r.questionId)),
         selectedAnswer: r.selectedAnswer ?? -1,
@@ -3047,6 +3333,29 @@ export class AssessmentsService {
         );
       }
       return studentResult;
+    }
+
+    if (assessment.lockSectionsSequentially) {
+      const questionIds = attempt.questionOrder || assessment.questions || [];
+      const permittedIndex = Math.max(0, attempt.currentQuestionIndex || 0);
+      const deadlinePassed = Date.now() >= this.attemptExpiresAt(assessment, attempt).getTime();
+      if (permittedIndex < questionIds.length - 1 && !deadlinePassed) {
+        throw new BadRequestException('Sequential assessment submission is only allowed after reaching the final question');
+      }
+      const permittedIds = new Set(
+        (deadlinePassed ? questionIds.slice(0, permittedIndex + 1) : questionIds)
+          .map((questionId: string) => String(questionId)),
+      );
+      const unauthorizedResponse = (dto.responses || []).find(
+        (response) => !permittedIds.has(String(response.questionId)),
+      );
+      if (unauthorizedResponse) {
+        throw new ForbiddenException('Submission contains a question outside this assessment');
+      }
+      if (dto.currentQuestionIndex !== undefined
+        && Number(dto.currentQuestionIndex) !== permittedIndex) {
+        throw new ForbiddenException('Final submission position is not server-authorized');
+      }
     }
 
     if (attempt.status === 'evaluating') {
@@ -4028,7 +4337,7 @@ export class AssessmentsService {
       };
     }
 
-    const isSubmitted = ['completed', 'evaluated', 'timed_out', 'auto_submitted'].includes(
+    const isSubmitted = ['submitted', 'completed', 'evaluated', 'timed_out', 'auto_submitted', 'disqualified'].includes(
       latestAttempt.status,
     );
 
@@ -4071,6 +4380,17 @@ export class AssessmentsService {
       remainingSeconds,
       serverEndsAtEpochMs,
       serverNowMs,
+      currentQuestionIndex: latestAttempt.currentQuestionIndex || 0,
+      completedQuestionIds: latestAttempt.completedQuestionIds || [],
+      navigationVersion: latestAttempt.navigationVersion || 0,
+      lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+      questionTimeLimitSeconds: assessment.lockSectionsSequentially
+        ? assessment.questionTimeLimitSeconds || 0
+        : 0,
+      currentQuestionStartedAt: latestAttempt.currentQuestionStartedAt || latestAttempt.startedAt,
+      currentQuestionStartedAtEpochMs: new Date(
+        latestAttempt.currentQuestionStartedAt || latestAttempt.startedAt,
+      ).getTime(),
       responses,
       resumeDetails: this.resumeDetails(assessment, latestAttempt),
       accommodations: accommodation

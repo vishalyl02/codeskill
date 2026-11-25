@@ -84,6 +84,14 @@ export class SubmitAssessmentDto {
   @IsNumber()
   @IsOptional()
   clientSubmittedAtMs?: number;
+
+  @IsNumber()
+  @IsOptional()
+  currentQuestionIndex?: number;
+
+  @IsString()
+  @IsOptional()
+  targetQuestionId?: string;
 }
 
 export class VerifyIdentityDto {

@@ -124,7 +124,7 @@ export class SebGuard implements CanActivate {
 
       // Query database for requireLockdown and securityPolicy
       const result = await this.dataSource.query(
-        `SELECT "requireLockdown", "securityPolicy" FROM "assessments" WHERE id::text = $1 OR "mongoId" = $1 LIMIT 1`,
+        `SELECT "requireLockdown", "securityPolicy" FROM "assessments" WHERE id::text = $1 OR "mongoId" = $1 OR code = $1 LIMIT 1`,
         [assessmentId],
       );
 

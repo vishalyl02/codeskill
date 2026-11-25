@@ -220,7 +220,7 @@ export class LockdownSignatureGuard implements CanActivate {
       }
 
       const rows = await this.dataSource.query(
-        `SELECT "requireLockdown" FROM "assessments" WHERE id::text = $1 OR "mongoId" = $1 LIMIT 1`,
+        `SELECT "requireLockdown" FROM "assessments" WHERE id::text = $1 OR "mongoId" = $1 OR code = $1 LIMIT 1`,
         [assessmentId],
       );
 
