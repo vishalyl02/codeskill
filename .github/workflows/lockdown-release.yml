@@ -243,12 +243,14 @@ jobs:
       - name: Publish Assets to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           TAG_NAME="${{ needs.detect-changes.outputs.tag_name }}"
           VERSION="${{ needs.detect-changes.outputs.version }}"
 
           if ! gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release create "$TAG_NAME" \
+              --target "${{ github.sha }}" \
               --title "CodeSkill LockDown v${VERSION}" \
               --notes "Official secure examination browser release for CodeSkill assessments."
             sleep 3
