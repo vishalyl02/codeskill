@@ -124,6 +124,36 @@ export class AssessmentsStudentController {
     return this.assessmentsService.recordProctorCapture(id, dto, studentUser);
   }
 
+  @Post(':id/navigate')
+  @ApiOperation({ summary: 'Atomically advance or validate sequential assessment navigation' })
+  async navigateAttempt(
+    @Param('id') id: string,
+    @Body() dto: { targetQuestionId?: string; targetQuestionIndex: number; navigationVersion?: number },
+    @CurrentUser() studentUser: any,
+  ) {
+    return this.assessmentsService.navigateStudentAttempt(id, dto, studentUser);
+  }
+
+  @Post(':id/complete-section')
+  @ApiOperation({ summary: 'Submit the active section and unlock the next section' })
+  async completeSection(
+    @Param('id') id: string,
+    @Body() dto: { sectionId: string; navigationVersion?: number },
+    @CurrentUser() studentUser: any,
+  ) {
+    return this.assessmentsService.completeStudentAttemptSection(id, dto, studentUser);
+  }
+
+  @Get(':id/question/:questionId')
+  @ApiOperation({ summary: 'Get one question only when the attempt permits it' })
+  async getQuestion(
+    @Param('id') id: string,
+    @Param('questionId') questionId: string,
+    @CurrentUser() studentUser: any,
+  ) {
+    return this.assessmentsService.getPermittedStudentQuestion(id, questionId, studentUser);
+  }
+
   @Post(':id/save-progress')
   @UseGuards(SebGuard, LockdownSignatureGuard, ExamBackpressureGuard)
   @ApiOperation({ summary: 'Autosave candidate responses during test' })

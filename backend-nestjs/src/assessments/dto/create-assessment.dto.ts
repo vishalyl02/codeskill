@@ -8,6 +8,7 @@ import {
   IsEnum,
   IsInt,
   Min,
+  Max,
   ValidateNested,
   Matches,
 } from 'class-validator';
@@ -185,6 +186,13 @@ export class CreateAssessmentDto {
 
   @IsNumber()
   @Type(() => Number)
+  @Min(0)
+  @Max(3600)
+  @IsOptional()
+  questionTimeLimitSeconds?: number;
+
+  @IsNumber()
+  @Type(() => Number)
   @IsOptional()
   passingMarks?: number;
 
@@ -280,6 +288,10 @@ export class CreateAssessmentDto {
   @IsBoolean()
   @IsOptional()
   lockSectionsSequentially?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  lockQuestionsSequentially?: boolean;
 
   @IsBoolean()
   @IsOptional()

@@ -485,6 +485,10 @@ export class AssessmentsService {
     const resumeAttemptsUsed = Math.max(0, attempt.resumeCount || 0);
     return {
       attemptExpiresAt: this.attemptExpiresAt(assessment, attempt),
+      currentQuestionStartedAt: attempt.currentQuestionStartedAt || attempt.startedAt,
+      currentQuestionStartedAtEpochMs: new Date(
+        attempt.currentQuestionStartedAt || attempt.startedAt,
+      ).getTime(),
       resumeAttemptsUsed,
       resumeAttemptsRemaining: Math.max(0, MAX_RESUME_ATTEMPTS - resumeAttemptsUsed),
       maxResumeAttempts: MAX_RESUME_ATTEMPTS,
@@ -828,6 +832,112 @@ export class AssessmentsService {
     return { orderedIds, questionSectionMap, resolvedSections };
   }
 
+  private async getActiveAttemptSection(
+    assessment: Assessment,
+    attempt: AssessmentAttempt,
+  ) {
+    const questionIds = attempt.questionOrder || assessment.questions || [];
+    const questions = questionIds.length
+      ? await this.questionRepo.find({
+          where: [{ id: In(questionIds) }, { mongoId: In(questionIds) }],
+        })
+      : [];
+    const { questionSectionMap, resolvedSections } = this.buildSectionOrderedQuestionIds(
+      assessment,
+      questions,
+    );
+    const completedSectionIds = attempt.completedSectionIds || [];
+    const activeSection = resolvedSections.find((section) => !completedSectionIds.includes(section.id));
+    const activeQuestionIds = new Set(
+      activeSection
+        ? questionIds.filter((questionId) =>
+            questionSectionMap.get(String(questionId))?.sectionId === activeSection.id,
+          ).map(String)
+        : [],
+    );
+    return { questionIds, questions, questionSectionMap, resolvedSections, completedSectionIds, activeSection, activeQuestionIds };
+  }
+
+  private serializeStudentQuestion(
+    assessment: Assessment,
+    attempt: AssessmentAttempt,
+    question: Question,
+    questionSectionMap: Map<string, { sectionId: string; sectionTitle: string; sectionOrder: number }>,
+    index: number,
+  ) {
+    const sectionMeta = questionSectionMap.get(String(question.id));
+    const options = Array.isArray(question.options)
+      ? question.options.map((option: any) =>
+          typeof option === 'string' ? option : option?.text || String(option || ''),
+        )
+      : [];
+    const optionOrder = this.getQuestionOptionOrderByQuestionId(attempt, question.id);
+    const starters = normalizeStarterCode(
+      question.starterCode,
+      question.metadata,
+      question.codeSnippet,
+      question.code,
+      question.language,
+    );
+    const rawSupported =
+      Array.isArray(question.supportedLanguages) && question.supportedLanguages.length > 0
+        ? question.supportedLanguages
+        : (question.metadata as any)?.supportedLanguages;
+    const supportedLanguages =
+      Array.isArray(rawSupported) && rawSupported.length > 0
+        ? rawSupported
+        : starters.length > 0
+          ? [...new Set(starters.map((starter) => starter.language))]
+          : (question.language ? [question.language] : []);
+    const preferredLanguage = question.language || (question.metadata as any)?.language;
+    const language =
+      preferredLanguage && (
+        supportedLanguages.length === 0
+        || supportedLanguages.some((supported) =>
+          canonicalLanguage(supported) === canonicalLanguage(preferredLanguage),
+        )
+      )
+        ? preferredLanguage
+        : supportedLanguages[0] || 'python';
+
+    return {
+      _id: question.id,
+      id: question.id,
+      questionIndex: index + 1,
+      title: question.title,
+      question: question.question,
+      description: question.problemStatement || question.description || '',
+      questionType: question.questionType,
+      sectionId: sectionMeta?.sectionId,
+      sectionTitle: sectionMeta?.sectionTitle,
+      sectionOrder: sectionMeta?.sectionOrder,
+      topic: question.topic,
+      subtopic: question.subtopic,
+      difficulty: question.difficulty,
+      marks: question.marks || 1,
+      negativeMarks: assessment.negativeMarking ? question.negativeMarks || 0 : 0,
+      options: optionOrder ? optionOrder.map((optionIndex) => options[optionIndex]) : options,
+      starterCode: starters,
+      codeSnippet: question.codeSnippet,
+      language,
+      supportedLanguages,
+      hideMainMethod: Boolean(question.hideMainMethod ?? (question.metadata as any)?.hideMainMethod ?? false),
+      constraints: Array.isArray(question.constraints) && question.constraints.length > 0
+        ? question.constraints
+        : (question.metadata as any)?.constraints || [],
+      timeLimit: question.timeLimit || (question.metadata as any)?.timeLimit || 2000,
+      memoryLimit: question.memoryLimit || (question.metadata as any)?.memoryLimit || 256,
+      testCases: codingTestCases(question)
+        .filter((testCase: any) => !testCase.isHidden)
+        .map((testCase: any, testCaseIndex: number) => ({
+          id: testCase.id || String(testCaseIndex + 1),
+          input: testCase.input || '',
+          expected: testCase.expected,
+          output: testCase.expected,
+        })),
+    };
+  }
+
   private async selectQuestionsForCreation(
     selection: {
       topic: string;
@@ -993,6 +1103,7 @@ export class AssessmentsService {
       type: dto.type || 'mcq',
       category: dto.category || 'exam',
       durationMinutes: dto.durationMinutes,
+      questionTimeLimitSeconds: dto.questionTimeLimitSeconds ?? 0,
       totalMarks,
       passingMarks,
       negativeMarking: dto.negativeMarking ?? true,
@@ -1011,6 +1122,7 @@ export class AssessmentsService {
       showResultImmediately: dto.showResultImmediately ?? true,
       allowReview: dto.allowReview ?? true,
       lockSectionsSequentially: dto.lockSectionsSequentially ?? false,
+      lockQuestionsSequentially: dto.lockQuestionsSequentially ?? false,
       allowVirtualMachine: dto.allowVirtualMachine ?? false,
       requireLockdown: dto.requireLockdown ?? (dto as any).securityPolicy?.requireSEB ?? false,
       lockdownQuitPassword: dto.lockdownQuitPassword ?? (dto as any).securityPolicy?.lockdownQuitPassword,
@@ -1252,6 +1364,8 @@ export class AssessmentsService {
     if (dto.category !== undefined) assessment.category = dto.category;
     if (dto.durationMinutes !== undefined)
       assessment.durationMinutes = dto.durationMinutes;
+    if (dto.questionTimeLimitSeconds !== undefined)
+      assessment.questionTimeLimitSeconds = dto.questionTimeLimitSeconds;
     if (dto.passingMarks !== undefined)
       assessment.passingMarks = dto.passingMarks;
     if (dto.negativeMarking !== undefined)
@@ -1272,6 +1386,8 @@ export class AssessmentsService {
     if (dto.allowReview !== undefined) assessment.allowReview = dto.allowReview;
     if (dto.lockSectionsSequentially !== undefined)
       assessment.lockSectionsSequentially = dto.lockSectionsSequentially;
+    if (dto.lockQuestionsSequentially !== undefined)
+      assessment.lockQuestionsSequentially = dto.lockQuestionsSequentially;
     if (dto.allowVirtualMachine !== undefined)
       assessment.allowVirtualMachine = dto.allowVirtualMachine;
     if (dto.requireLockdown !== undefined) {
@@ -2311,12 +2427,14 @@ export class AssessmentsService {
         isAvailable,
         unavailabilityReason,
         durationMinutes: assessment.durationMinutes,
+        questionTimeLimitSeconds: assessment.questionTimeLimitSeconds || 0,
         totalMarks: assessment.totalMarks,
         passingMarks: assessment.passingMarks,
         negativeMarking: assessment.negativeMarking,
         questionCount: assessment.questions.length,
         allowedAttempts,
         lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+        lockQuestionsSequentially: assessment.lockQuestionsSequentially ?? false,
         allowVirtualMachine: assessment.allowVirtualMachine ?? false,
         requireLockdown: assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB ?? false,
         allowCalculators: assessment.allowCalculators ?? assessment.securityPolicy?.allowCalculators ?? false,
@@ -2345,6 +2463,9 @@ export class AssessmentsService {
           startedAt: latestAttempt.startedAt,
           submittedAt: latestAttempt.submittedAt,
           attemptNumber: latestAttempt.attemptNumber,
+          currentQuestionIndex: latestAttempt.currentQuestionIndex || 0,
+          completedQuestionIds: latestAttempt.completedQuestionIds || [],
+          navigationVersion: latestAttempt.navigationVersion || 0,
           ...(latestAttempt.status === 'in_progress'
             ? this.resumeDetails(assessment, latestAttempt)
             : {}),
@@ -2443,11 +2564,15 @@ export class AssessmentsService {
         studentName: studentUser.name || 'Student Candidate',
         studentEmail: studentUser.email || '',
         status: 'in_progress',
-        startedAt: new Date(),
+        startedAt: now,
+        currentQuestionStartedAt: now,
         attemptNumber: attemptNum,
         resumeCount: 0,
         highestScore: highestPreviousScore,
         questionOrder: orderedIds,
+        currentQuestionIndex: 0,
+        completedQuestionIds: [],
+        navigationVersion: 0,
         maxScore: assessment.totalMarks,
         responses: orderedIds.map((qId) => ({
           questionId: qId,
@@ -2512,6 +2637,14 @@ export class AssessmentsService {
       );
     }
 
+    if (!attempt.currentQuestionStartedAt) {
+      attempt.currentQuestionStartedAt = now;
+      await this.attemptRepo.update(
+        { id: attempt.id, studentId, status: 'in_progress' },
+        { currentQuestionStartedAt: now },
+      );
+    }
+
     const { questionSectionMap, resolvedSections } = this.buildSectionOrderedQuestionIds(
       assessment,
       questionsList,
@@ -2521,74 +2654,26 @@ export class AssessmentsService {
       .map((qId, index) => {
         const q = qMap.get(String(qId));
         if (!q) return null;
-        const sectionMeta = questionSectionMap.get(String(q.id));
-        const options = Array.isArray(q.options)
-          ? q.options.map((opt: any) =>
-            typeof opt === 'string' ? opt : opt?.text || String(opt || ''),
-          )
-          : [];
-        const optionOrder = this.getQuestionOptionOrderByQuestionId(attempt, q.id);
-        const normalizedStarters = normalizeStarterCode(
-          q.starterCode,
-          q.metadata,
-          q.codeSnippet,
-          q.code,
-          q.language,
-        );
-        const rawSupported =
-          Array.isArray(q.supportedLanguages) && q.supportedLanguages.length > 0
-            ? q.supportedLanguages
-            : (q.metadata as any)?.supportedLanguages;
-        const supportedLanguages =
-          Array.isArray(rawSupported) && rawSupported.length > 0
-            ? rawSupported
-            : normalizedStarters.length > 0
-              ? [...new Set(normalizedStarters.map((s) => s.language))]
-              : (q.language ? [q.language] : []);
-        const preferredLang = q.language || (q.metadata as any)?.language;
-        const resolvedLanguage =
-          preferredLang && (supportedLanguages.length === 0 || supportedLanguages.some((l) => canonicalLanguage(l) === canonicalLanguage(preferredLang)))
-            ? preferredLang
-            : supportedLanguages[0] || 'python';
-
-        return {
-          _id: q.id,
-          id: q.id,
-          questionIndex: index + 1,
-          question: q.question,
-          description: q.problemStatement || q.description || '',
-          questionType: q.questionType,
-          sectionId: sectionMeta?.sectionId,
-          sectionTitle: sectionMeta?.sectionTitle,
-          sectionOrder: sectionMeta?.sectionOrder,
-          topic: q.topic,
-          subtopic: q.subtopic,
-          difficulty: q.difficulty,
-          marks: q.marks || 1,
-          negativeMarks: assessment.negativeMarking ? q.negativeMarks || 0 : 0,
-          options: optionOrder ? optionOrder.map((index) => options[index]) : options,
-          starterCode: normalizedStarters,
-          codeSnippet: q.codeSnippet,
-          language: resolvedLanguage,
-          supportedLanguages,
-          hideMainMethod: Boolean(q.hideMainMethod ?? (q.metadata as any)?.hideMainMethod ?? false),
-          constraints:
-            Array.isArray(q.constraints) && q.constraints.length > 0
-              ? q.constraints
-              : (q.metadata as any)?.constraints || [],
-          timeLimit: q.timeLimit || (q.metadata as any)?.timeLimit || 2000,
-          memoryLimit: q.memoryLimit || (q.metadata as any)?.memoryLimit || 256,
-          testCases: codingTestCases(q)
-            .filter((tc: any) => !tc.isHidden)
-            .map((tc: any, tcIdx: number) => ({
-              id: tc.id || String(tcIdx + 1),
-              input: tc.input || '',
-              expected: tc.expected,
-              output: tc.expected,
-            })),
-        };
+        return this.serializeStudentQuestion(assessment, attempt, q, questionSectionMap, index);
       })
       .filter(Boolean);
+
+    const questionLockEnabled = assessment.lockQuestionsSequentially ?? false;
+    const sectionLockEnabled = !questionLockEnabled && (assessment.lockSectionsSequentially ?? false);
+    const permittedQuestionIndex = Math.max(0, Math.min(
+      Number(attempt.currentQuestionIndex || 0),
+      sanitizedQuestions.length - 1,
+    ));
+    const completedSectionIds = attempt.completedSectionIds || [];
+    const activeSection = resolvedSections.find((section) => !completedSectionIds.includes(section.id));
+    const activeSectionId = sectionLockEnabled
+      ? activeSection?.id || null
+      : questionSectionMap.get(String(attempt.questionOrder?.[permittedQuestionIndex]))?.sectionId || null;
+    const studentVisibleQuestions = questionLockEnabled
+      ? sanitizedQuestions.filter((_, index) => index === permittedQuestionIndex)
+      : sectionLockEnabled
+        ? sanitizedQuestions.filter((question: any) => question.sectionId === activeSectionId)
+        : sanitizedQuestions;
 
     this.logger.log({
       event: 'ASSESSMENT_ATTEMPT_STARTED',
@@ -2619,6 +2704,9 @@ export class AssessmentsService {
       _id: attempt.id,
       startedAt: attempt.startedAt,
       durationMinutes: assessment.durationMinutes,
+      questionTimeLimitSeconds: assessment.lockQuestionsSequentially
+        ? assessment.questionTimeLimitSeconds || 0
+        : 0,
       ...this.resumeDetails(assessment, attempt),
       serverEndsAtEpochMs,
       serverNowMs,
@@ -2635,6 +2723,7 @@ export class AssessmentsService {
         ? (({ lockdownQuitPassword, ...rest }: any) => rest)(assessment.securityPolicy)
         : assessment.securityPolicy,
       lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+      lockQuestionsSequentially: assessment.lockQuestionsSequentially ?? false,
       allowVirtualMachine: assessment.allowVirtualMachine ?? false,
       requireLockdown: assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB ?? false,
       allowCalculators: assessment.allowCalculators ?? assessment.securityPolicy?.allowCalculators ?? false,
@@ -2648,8 +2737,14 @@ export class AssessmentsService {
       enableScreenCaptureSnapshots: assessment.enableScreenCaptureSnapshots ?? assessment.securityPolicy?.enableScreenCaptureSnapshots ?? false,
       enableForensicWatermark: assessment.enableForensicWatermark ?? assessment.securityPolicy?.enableForensicWatermark ?? false,
       sections: resolvedSections,
-      questions: sanitizedQuestions,
+      questions: studentVisibleQuestions,
+      totalQuestionCount: sanitizedQuestions.length,
       savedResponses: attempt.responses,
+      currentQuestionIndex: permittedQuestionIndex,
+      completedQuestionIds: attempt.completedQuestionIds || [],
+      completedSectionIds,
+      activeSectionId,
+      navigationVersion: attempt.navigationVersion || 0,
     };
   }
 
@@ -2683,6 +2778,17 @@ export class AssessmentsService {
       assessmentId: assessment.id, studentId, status: 'in_progress',
     } });
     if (!attempt || attempt.studentId !== studentId) throw new ForbiddenException('No active assessment attempt');
+    if (assessment.lockQuestionsSequentially) {
+      const currentQuestionId = attempt.questionOrder?.[attempt.currentQuestionIndex || 0];
+      if (String(currentQuestionId || '') !== String(dto.questionId)) {
+        throw new ForbiddenException('Code can only be evaluated for the active sequential question');
+      }
+    } else if (assessment.lockSectionsSequentially) {
+      const { activeQuestionIds } = await this.getActiveAttemptSection(assessment, attempt);
+      if (!activeQuestionIds.has(String(dto.questionId))) {
+        throw new ForbiddenException('Code can only be evaluated for a question in the active section');
+      }
+    }
     const now = Date.now();
     const attemptDeadline = new Date(attempt.startedAt).getTime() + assessment.durationMinutes * 60_000;
     if ((assessment.endTime && now > new Date(assessment.endTime).getTime()) || now > attemptDeadline)
@@ -2740,6 +2846,261 @@ export class AssessmentsService {
     }
   }
 
+  async navigateStudentAttempt(
+    id: string,
+    dto: { targetQuestionId?: string; targetQuestionIndex: number; navigationVersion?: number },
+    studentUser: any,
+  ) {
+    const assessment = await this.findAssessmentByIdOrCode(id);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    if (!this.isStudentTargeted(assessment, studentUser)) {
+      throw new ForbiddenException('This assessment is not assigned to your student account.');
+    }
+
+    const studentId = String(studentUser.id || studentUser._id);
+    const attempt = await this.attemptRepo.findOne({
+      where: { assessmentId: assessment.id, studentId, status: 'in_progress' },
+    });
+    if (!attempt) throw new BadRequestException('No active attempt found for this assessment.');
+    if (attempt.studentId !== studentId) throw new ForbiddenException('You do not own this assessment attempt');
+    if (this.isAttemptExpired(assessment, attempt)) {
+      throw new BadRequestException('This assessment attempt has expired');
+    }
+
+    const questionLockEnabled = assessment.lockQuestionsSequentially ?? false;
+    const sectionLockEnabled = !questionLockEnabled && (assessment.lockSectionsSequentially ?? false);
+    if (!questionLockEnabled && !sectionLockEnabled) {
+      return {
+        success: true,
+        navigationAllowed: true,
+        currentQuestionIndex: Number(dto.targetQuestionIndex),
+        navigationVersion: attempt.navigationVersion || 0,
+      };
+    }
+
+    const questionIds = Array.isArray(attempt.questionOrder) ? attempt.questionOrder : [];
+    const currentIndex = Math.max(0, attempt.currentQuestionIndex || 0);
+    const targetIndex = Number(dto.targetQuestionIndex);
+    if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= questionIds.length) {
+      throw new BadRequestException('Invalid assessment question position');
+    }
+
+    const requestedVersion = dto.navigationVersion;
+    if (requestedVersion !== undefined && Number(requestedVersion) !== (attempt.navigationVersion || 0)) {
+      throw new ConflictException('Navigation changed in another tab. Refresh and retry.');
+    }
+
+    const targetQuestionId = dto.targetQuestionId ? String(dto.targetQuestionId) : questionIds[targetIndex];
+    if (targetQuestionId !== String(questionIds[targetIndex])) {
+      throw new BadRequestException('The requested question does not match the permitted next question');
+    }
+
+    let activeSectionIds = new Set<string>();
+    if (sectionLockEnabled) {
+      const sectionState = await this.getActiveAttemptSection(assessment, attempt);
+      activeSectionIds = sectionState.activeQuestionIds;
+      if (!activeSectionIds.has(targetQuestionId)) {
+        throw new BadRequestException('Navigation is limited to the active section until it is submitted');
+      }
+    } else if (targetIndex !== currentIndex + 1) {
+      throw new BadRequestException('Sequential navigation only allows advancing one question at a time');
+    }
+
+    const completedIds = new Set(attempt.completedQuestionIds || []);
+    if (questionLockEnabled) {
+      completedIds.add(String(questionIds[currentIndex]));
+    }
+
+    const currentQuestionStartedAt = new Date();
+    const updated = await this.attemptRepo.update(
+      {
+        id: attempt.id,
+        studentId,
+        status: 'in_progress',
+        currentQuestionIndex: currentIndex,
+        navigationVersion: attempt.navigationVersion || 0,
+      } as any,
+      {
+        currentQuestionIndex: targetIndex,
+        currentQuestionStartedAt,
+        ...(questionLockEnabled ? { completedQuestionIds: [...completedIds] } : {}),
+        navigationVersion: () => '"navigation_version" + 1',
+      } as any,
+    );
+    if (!updated.affected) {
+      throw new ConflictException('Navigation changed concurrently. Refresh and retry.');
+    }
+
+    const permittedQuestion = await this.questionRepo.findOne({
+      where: [{ id: targetQuestionId }, { mongoId: targetQuestionId }],
+    });
+    let permittedQuestionPayload: any = null;
+    if (permittedQuestion) {
+      const { questionSectionMap } = await this.getActiveAttemptSection(assessment, attempt);
+      permittedQuestionPayload = this.serializeStudentQuestion(
+        assessment,
+        attempt,
+        permittedQuestion,
+        questionSectionMap,
+        targetIndex,
+      );
+    }
+
+    return {
+      success: true,
+      navigationAllowed: true,
+      currentQuestionIndex: targetIndex,
+      currentQuestionStartedAt,
+      currentQuestionStartedAtEpochMs: currentQuestionStartedAt.getTime(),
+      serverNowMs: Date.now(),
+      questionTimeLimitSeconds: questionLockEnabled ? assessment.questionTimeLimitSeconds || 0 : 0,
+      permittedQuestionId: targetQuestionId,
+      completedQuestionIds: [...completedIds],
+      navigationVersion: (attempt.navigationVersion || 0) + 1,
+      permittedQuestion: permittedQuestionPayload,
+    };
+  }
+
+  async completeStudentAttemptSection(
+    id: string,
+    dto: { sectionId: string; navigationVersion?: number },
+    studentUser: any,
+  ) {
+    const assessment = await this.findAssessmentByIdOrCode(id);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    if (!assessment.lockSectionsSequentially || assessment.lockQuestionsSequentially) {
+      throw new BadRequestException('Section locking is not enabled for this assessment');
+    }
+
+    const studentId = String(studentUser.id || studentUser._id);
+    const attempt = await this.attemptRepo.findOne({
+      where: { assessmentId: assessment.id, studentId, status: 'in_progress' },
+    });
+    if (!attempt) throw new BadRequestException('No active attempt found for this assessment.');
+    if (attempt.studentId !== studentId) throw new ForbiddenException('You do not own this assessment attempt');
+    if (this.isAttemptExpired(assessment, attempt)) {
+      throw new BadRequestException('This assessment attempt has expired');
+    }
+
+    const sectionState = await this.getActiveAttemptSection(assessment, attempt);
+    const activeSection = sectionState.activeSection;
+    if (!activeSection || String(dto.sectionId) !== activeSection.id) {
+      throw new BadRequestException('Only the active section can be submitted');
+    }
+    if (
+      dto.navigationVersion !== undefined
+      && Number(dto.navigationVersion) !== (attempt.navigationVersion || 0)
+    ) {
+      throw new ConflictException('Navigation changed in another tab. Refresh and retry.');
+    }
+
+    const completedSectionIds = [...sectionState.completedSectionIds, activeSection.id];
+    const nextSection = sectionState.resolvedSections.find(
+      (section) => !completedSectionIds.includes(section.id),
+    );
+    const nextQuestionIndex = nextSection
+      ? sectionState.questionIds.findIndex((questionId) =>
+          sectionState.questionSectionMap.get(String(questionId))?.sectionId === nextSection.id,
+        )
+      : Math.max(0, sectionState.questionIds.length - 1);
+    if (nextQuestionIndex < 0) {
+      throw new BadRequestException('The next section has no available questions');
+    }
+
+    const currentQuestionStartedAt = new Date();
+    const updated = await this.attemptRepo.update(
+      {
+        id: attempt.id,
+        studentId,
+        status: 'in_progress',
+        currentQuestionIndex: attempt.currentQuestionIndex || 0,
+        navigationVersion: attempt.navigationVersion || 0,
+      } as any,
+      {
+        completedSectionIds,
+        currentQuestionIndex: nextQuestionIndex,
+        currentQuestionStartedAt,
+        navigationVersion: () => '"navigation_version" + 1',
+      } as any,
+    );
+    if (!updated.affected) {
+      throw new ConflictException('Section state changed concurrently. Refresh and retry.');
+    }
+
+    const nextQuestionMap = new Map(
+      sectionState.questions.map((question) => [String(question.id), question]),
+    );
+    const nextQuestions = nextSection
+      ? sectionState.questionIds.flatMap((questionId, index) => {
+          if (sectionState.questionSectionMap.get(String(questionId))?.sectionId !== nextSection.id) {
+            return [];
+          }
+          const question = nextQuestionMap.get(String(questionId));
+          return question
+            ? [this.serializeStudentQuestion(assessment, attempt, question, sectionState.questionSectionMap, index)]
+            : [];
+        })
+      : [];
+
+    return {
+      success: true,
+      completedSectionIds,
+      activeSectionId: nextSection?.id || null,
+      assessmentReadyForSubmission: !nextSection,
+      currentQuestionIndex: nextQuestionIndex,
+      currentQuestionStartedAt,
+      currentQuestionStartedAtEpochMs: currentQuestionStartedAt.getTime(),
+      navigationVersion: (attempt.navigationVersion || 0) + 1,
+      questions: nextQuestions,
+    };
+  }
+
+  async getPermittedStudentQuestion(
+    id: string,
+    questionId: string,
+    studentUser: any,
+  ) {
+    const assessment = await this.findAssessmentByIdOrCode(id);
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    if (!this.isStudentTargeted(assessment, studentUser)) {
+      throw new ForbiddenException('This assessment is not assigned to your student account.');
+    }
+
+    const studentId = String(studentUser.id || studentUser._id);
+    const attempt = await this.attemptRepo.findOne({
+      where: { assessmentId: assessment.id, studentId, status: 'in_progress' },
+    });
+    if (!attempt) throw new BadRequestException('No active attempt found for this assessment.');
+    if (attempt.studentId !== studentId) throw new ForbiddenException('You do not own this assessment attempt');
+    if (this.isAttemptExpired(assessment, attempt)) {
+      throw new BadRequestException('This assessment attempt has expired');
+    }
+
+    const attemptQuestionIds = attempt.questionOrder || assessment.questions || [];
+    if (!attemptQuestionIds.some((attemptQuestionId) => String(attemptQuestionId) === String(questionId))) {
+      throw new ForbiddenException('This question does not belong to this assessment attempt');
+    }
+
+    if (assessment.lockQuestionsSequentially) {
+      const permittedIndex = attempt.currentQuestionIndex || 0;
+      const permittedId = String(attemptQuestionIds[permittedIndex] || '');
+      if (String(questionId) !== permittedId) {
+        throw new ForbiddenException('This question is not permitted by sequential navigation');
+      }
+    } else if (assessment.lockSectionsSequentially) {
+      const { activeQuestionIds } = await this.getActiveAttemptSection(assessment, attempt);
+      if (!activeQuestionIds.has(String(questionId))) {
+        throw new ForbiddenException('This question is outside the active section');
+      }
+    }
+
+    const question = await this.questionRepo.findOne({
+      where: [{ id: questionId }, { mongoId: questionId }],
+    });
+    if (!question) throw new NotFoundException('Question not found');
+    return { success: true, question };
+  }
+
   async saveProgress(
     id: string,
     dto: SubmitAssessmentDto,
@@ -2785,6 +3146,67 @@ export class AssessmentsService {
       throw new ForbiddenException('You do not own this assessment attempt');
     }
 
+    let responsesToSave = dto.responses;
+    if (assessment.lockQuestionsSequentially && dto.responses && Array.isArray(dto.responses)) {
+      const permittedIndex = Math.max(0, attempt.currentQuestionIndex || 0);
+      const permittedIds = new Set((attempt.questionOrder || []).slice(0, permittedIndex + 1));
+      const completedIds = new Set(attempt.completedQuestionIds || []);
+      const savedResponses = new Map(
+        (attempt.responses || []).map((response) => [String(response.questionId), response]),
+      );
+      const normalizeSelectedAnswers = (response: any): number[] => {
+        if (Array.isArray(response.selectedAnswers) && response.selectedAnswers.length > 0) {
+          return response.selectedAnswers.map(Number);
+        }
+        return Number(response.selectedAnswer ?? -1) >= 0
+          ? [Number(response.selectedAnswer)]
+          : [];
+      };
+      const unauthorizedResponse = dto.responses.find((response) => {
+        const questionId = String(response.questionId);
+        if (!permittedIds.has(questionId)) return true;
+        if (!completedIds.has(questionId)) return false;
+
+        const saved = savedResponses.get(questionId);
+        return !saved
+          || Number(response.selectedAnswer ?? -1) !== Number(saved.selectedAnswer ?? -1)
+          || JSON.stringify(normalizeSelectedAnswers(response)) !== JSON.stringify(normalizeSelectedAnswers(saved))
+          || String(response.code || '') !== String(saved.code || '')
+          || (String(response.code || '') !== ''
+            && String(response.language || 'python') !== String(saved.language || 'python'));
+      });
+      if (unauthorizedResponse) {
+        throw new ForbiddenException('Responses may only update the active sequential question');
+      }
+      responsesToSave = dto.responses.filter(
+        (response) => !completedIds.has(String(response.questionId)),
+      );
+      if (dto.currentQuestionIndex !== undefined && Number(dto.currentQuestionIndex) !== permittedIndex) {
+        throw new ForbiddenException('Current question position is not server-authorized');
+      }
+    } else if (assessment.lockSectionsSequentially && dto.responses && Array.isArray(dto.responses)) {
+      const { activeQuestionIds, completedSectionIds, questionSectionMap } =
+        await this.getActiveAttemptSection(assessment, attempt);
+      const completedQuestionIds = new Set(attempt.questionOrder.filter((questionId) =>
+        completedSectionIds.includes(
+          questionSectionMap.get(String(questionId))?.sectionId || '',
+        ),
+      ));
+      const unauthorizedQuestion = dto.responses.find((response) => {
+        const questionId = String(response.questionId);
+        return !activeQuestionIds.has(questionId) || completedQuestionIds.has(questionId);
+      });
+      if (unauthorizedQuestion) {
+        throw new ForbiddenException('Responses may only update questions in the active section');
+      }
+      if (
+        dto.currentQuestionIndex !== undefined
+        && !activeQuestionIds.has(String(attempt.questionOrder[Number(dto.currentQuestionIndex)]))
+      ) {
+        throw new ForbiddenException('Current question position is not in the active section');
+      }
+    }
+
     const expiresAt = this.attemptExpiresAt(assessment, attempt);
     const endsAtEpochMs = expiresAt.getTime();
     const serverReceivedAtMs = Date.now();
@@ -2798,9 +3220,9 @@ export class AssessmentsService {
     }
     const graceWindowAccepted = serverReceivedAtMs > endsAtEpochMs;
 
-    if (dto.responses && Array.isArray(dto.responses)) {
+    if (responsesToSave && Array.isArray(responsesToSave)) {
       const previousResponses = attempt.responses || [];
-      const updatedResponses = dto.responses.map((r) => ({
+      const updatedResponses = responsesToSave.map((r) => ({
         questionId: String(r.questionId),
         optionOrder: this.getQuestionOptionOrderByQuestionId(attempt, String(r.questionId)),
         selectedAnswer: r.selectedAnswer ?? -1,
@@ -3047,6 +3469,58 @@ export class AssessmentsService {
         );
       }
       return studentResult;
+    }
+
+    if (assessment.lockQuestionsSequentially) {
+      const questionIds = attempt.questionOrder || assessment.questions || [];
+      const permittedIndex = Math.max(0, attempt.currentQuestionIndex || 0);
+      const deadlinePassed = Date.now() >= this.attemptExpiresAt(assessment, attempt).getTime();
+      if (permittedIndex < questionIds.length - 1 && !deadlinePassed) {
+        throw new BadRequestException('Sequential assessment submission is only allowed after reaching the final question');
+      }
+      const completedQuestionIds = new Set(attempt.completedQuestionIds || []);
+      const permittedIds = new Set(
+        (deadlinePassed ? questionIds.slice(0, permittedIndex + 1) : questionIds)
+          .map((questionId: string) => String(questionId)),
+      );
+      if (!deadlinePassed && questionIds.some(
+        (questionId: string, index: number) => index < permittedIndex && !completedQuestionIds.has(String(questionId)),
+      )) {
+        throw new BadRequestException('Complete the permitted questions before submitting the assessment');
+      }
+      const unauthorizedResponse = (dto.responses || []).find(
+        (response) => !permittedIds.has(String(response.questionId)),
+      );
+      if (unauthorizedResponse) {
+        throw new ForbiddenException('Submission contains a question outside this assessment');
+      }
+      if (dto.currentQuestionIndex !== undefined
+        && Number(dto.currentQuestionIndex) !== permittedIndex) {
+        throw new ForbiddenException('Final submission position is not server-authorized');
+      }
+    } else if (assessment.lockSectionsSequentially) {
+      const sectionState = await this.getActiveAttemptSection(assessment, attempt);
+      const deadlinePassed = Date.now() >= this.attemptExpiresAt(assessment, attempt).getTime();
+      const allSectionsCompleted = sectionState.resolvedSections.every(
+        (section) => sectionState.completedSectionIds.includes(section.id),
+      );
+      if (!allSectionsCompleted && !deadlinePassed) {
+        throw new BadRequestException('Submit every section before submitting the assessment');
+      }
+      const permittedIds = new Set(
+        sectionState.questionIds.filter((questionId) => {
+          const sectionId = sectionState.questionSectionMap.get(String(questionId))?.sectionId;
+          return deadlinePassed
+            ? sectionId === sectionState.activeSection?.id || sectionState.completedSectionIds.includes(sectionId || '')
+            : sectionState.completedSectionIds.includes(sectionId || '');
+        }).map(String),
+      );
+      const unauthorizedResponse = (dto.responses || []).find(
+        (response) => !permittedIds.has(String(response.questionId)),
+      );
+      if (unauthorizedResponse) {
+        throw new ForbiddenException('Submission contains a question from a locked section');
+      }
     }
 
     if (attempt.status === 'evaluating') {
@@ -4028,7 +4502,7 @@ export class AssessmentsService {
       };
     }
 
-    const isSubmitted = ['completed', 'evaluated', 'timed_out', 'auto_submitted'].includes(
+    const isSubmitted = ['submitted', 'completed', 'evaluated', 'timed_out', 'auto_submitted', 'disqualified'].includes(
       latestAttempt.status,
     );
 
@@ -4071,6 +4545,19 @@ export class AssessmentsService {
       remainingSeconds,
       serverEndsAtEpochMs,
       serverNowMs,
+      currentQuestionIndex: latestAttempt.currentQuestionIndex || 0,
+      completedQuestionIds: latestAttempt.completedQuestionIds || [],
+      navigationVersion: latestAttempt.navigationVersion || 0,
+      lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+      lockQuestionsSequentially: assessment.lockQuestionsSequentially ?? false,
+      completedSectionIds: latestAttempt.completedSectionIds || [],
+      questionTimeLimitSeconds: assessment.lockQuestionsSequentially
+        ? assessment.questionTimeLimitSeconds || 0
+        : 0,
+      currentQuestionStartedAt: latestAttempt.currentQuestionStartedAt || latestAttempt.startedAt,
+      currentQuestionStartedAtEpochMs: new Date(
+        latestAttempt.currentQuestionStartedAt || latestAttempt.startedAt,
+      ).getTime(),
       responses,
       resumeDetails: this.resumeDetails(assessment, latestAttempt),
       accommodations: accommodation

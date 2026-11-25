@@ -50,6 +50,7 @@ interface AssessmentStore {
   description: string;
   instructions: string[];
   durationMinutes: number;
+  questionTimeLimitSeconds: number;
   passingMarks: number | '';
   negativeMarking: boolean;
   category: string;
@@ -59,6 +60,7 @@ interface AssessmentStore {
   status: 'draft' | 'published';
   targetStudentIds: string[];
   lockSectionsSequentially: boolean;
+  lockQuestionsSequentially: boolean;
   requireLockdown: boolean;
   allowVirtualMachine: boolean;
   lockdownQuitPassword: string;
@@ -80,6 +82,7 @@ interface AssessmentStore {
   setCode: (code: string) => void;
   setDescription: (desc: string) => void;
   setDurationMinutes: (dur: number) => void;
+  setQuestionTimeLimitSeconds: (seconds: number) => void;
   setPassingMarks: (marks: number | '') => void;
   setCategory: (cat: string) => void;
   setAllowedAttempts: (attempts: number) => void;
@@ -87,6 +90,7 @@ interface AssessmentStore {
   setStatus: (status: 'draft' | 'published') => void;
   setTargetStudentIds: (ids: string[]) => void;
   setLockSectionsSequentially: (lock: boolean) => void;
+  setLockQuestionsSequentially: (lock: boolean) => void;
   setRequireLockdown: (require: boolean) => void;
   setAllowVirtualMachine: (allow: boolean) => void;
   setLockdownQuitPassword: (pwd: string) => void;
@@ -147,6 +151,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
     'The assessment will automatically submit when the countdown reaches zero.',
   ],
   durationMinutes: 60,
+  questionTimeLimitSeconds: 0,
   passingMarks: '',
   negativeMarking: true,
   category: 'exam',
@@ -156,6 +161,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   status: 'draft',
   targetStudentIds: [],
   lockSectionsSequentially: false,
+  lockQuestionsSequentially: false,
   requireLockdown: false,
   allowVirtualMachine: false,
   lockdownQuitPassword: '',
@@ -177,6 +183,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   setCode: (code) => set({ code }),
   setDescription: (description) => set({ description }),
   setDurationMinutes: (durationMinutes) => set({ durationMinutes }),
+  setQuestionTimeLimitSeconds: (questionTimeLimitSeconds) => set({ questionTimeLimitSeconds }),
   setPassingMarks: (passingMarks) => set({ passingMarks }),
   setCategory: (category) => set({ category }),
   setAllowedAttempts: (allowedAttempts) => set({ allowedAttempts }),
@@ -184,6 +191,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   setStatus: (status) => set({ status }),
   setTargetStudentIds: (targetStudentIds) => set({ targetStudentIds }),
   setLockSectionsSequentially: (lockSectionsSequentially) => set({ lockSectionsSequentially }),
+  setLockQuestionsSequentially: (lockQuestionsSequentially) => set({ lockQuestionsSequentially }),
   setRequireLockdown: (requireLockdown) =>
     set((state) => ({
       requireLockdown,
@@ -222,6 +230,8 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
       ...assessment,
       targetStudentIds: assessment.targetStudentIds || [],
       lockSectionsSequentially: assessment.lockSectionsSequentially ?? false,
+      lockQuestionsSequentially: assessment.lockQuestionsSequentially ?? false,
+      questionTimeLimitSeconds: Number(assessment.questionTimeLimitSeconds || 0),
       requireLockdown: Boolean(assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB),
       allowVirtualMachine: Boolean(assessment.allowVirtualMachine),
       lockdownQuitPassword: assessment.lockdownQuitPassword || assessment.securityPolicy?.lockdownQuitPassword || '',
@@ -264,6 +274,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
       'The assessment will automatically submit when the countdown reaches zero.',
     ],
     durationMinutes: 60,
+    questionTimeLimitSeconds: 0,
     passingMarks: '',
     negativeMarking: true,
     category: 'exam',
@@ -273,6 +284,7 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
     status: 'draft',
     targetStudentIds: [],
     lockSectionsSequentially: false,
+    lockQuestionsSequentially: false,
     requireLockdown: false,
     allowVirtualMachine: false,
     lockdownQuitPassword: '',

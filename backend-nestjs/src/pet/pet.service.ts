@@ -49,7 +49,7 @@ const text = (value: unknown, max = 2500) =>
     ? String(value)
     : ''
   )
-    .replace(/<[^>]*>/g, ' ')
+    .replace(/<\/?[a-z][^<>]*>/gi, ' ')
     .replace(/&le;/g, '≤')
     .replace(/&ge;/g, '≥')
     .replace(/&nbsp;/g, ' ')
@@ -90,17 +90,25 @@ export class PetService {
       constraints: detail.statement?.constraints,
       examples: detail.statement?.samples,
     };
-    const history: Message[] = Array.isArray(input.history)
+    const recentMessages = Array.isArray(input.history)
       ? input.history.slice(-8).flatMap((item: unknown) => {
           if (!item || typeof item !== 'object') return [];
           const message = item as Record<string, unknown>;
-          if (message.role !== 'user' || typeof message.content !== 'string')
+          if (
+            (message.role !== 'user' && message.role !== 'assistant') ||
+            typeof message.content !== 'string'
+          ) {
             return [];
-          return [
-            { role: 'user' as const, content: text(message.content, 900) },
-          ];
+          }
+          return [{ role: message.role, content: message.content }];
         })
       : [];
+    const history: Message[] = recentMessages
+      .filter(({ role }) => role === 'user')
+      .map(({ content }) => ({ role: 'user', content: text(content, 900) }));
+    const recentReplies = recentMessages
+      .filter(({ role }) => role === 'assistant')
+      .map(({ content }) => content);
     const code = typeof input.code === 'string' ? input.code : '';
     const language =
       typeof input.language === 'string' ? text(input.language, 40) : '';
@@ -114,18 +122,17 @@ export class PetService {
       };
     }
 
+    const fallback = {
+      reply: this.localReply(question, problem, !!code, recentReplies),
+      source: 'local' as const,
+    };
     if (asksForSolution(question)) {
       return {
-        reply: this.localReply(question, problem, !!code),
-        source: 'local' as const,
+        ...fallback,
         notice: 'Byte gives one hint at a time, not full solutions.',
       };
     }
 
-    const fallback = {
-      reply: this.localReply(question, problem, !!code),
-      source: 'local' as const,
-    };
     const key = process.env.OPENROUTER_API_KEY?.trim();
     if (!key) {
       return {
@@ -166,8 +173,9 @@ export class PetService {
       };
     }
 
-    const unavailable =
-      'AI is temporarily unavailable. Here is a hint from this problem.';
+    const requireZeroRetention = process.env.OPENROUTER_REQUIRE_ZDR === 'true';
+    const fallbackNotice =
+      'Showing a built-in hint. You can try again for an AI hint.';
     try {
       const response = await fetch(
         'https://openrouter.ai/api/v1/chat/completions',
@@ -183,11 +191,15 @@ export class PetService {
           body: JSON.stringify({
             model: freeModel,
             stream: false,
-            max_tokens: 250,
+            // Reasoning and the visible hint share the completion budget.
+            max_tokens: 1024,
+            ...(freeModel === FREE_MODEL && {
+              reasoning: { effort: 'low', exclude: true },
+            }),
             provider: {
               max_price: { prompt: 0, completion: 0, request: 0 },
               data_collection: 'deny',
-              zdr: true,
+              ...(requireZeroRetention && { zdr: true }),
             },
             messages: [
               {
@@ -214,7 +226,7 @@ export class PetService {
       }
       if (!response.ok) {
         this.logger.warn(`OpenRouter returned HTTP ${response.status}`);
-        return { ...fallback, notice: unavailable };
+        return { ...fallback, notice: fallbackNotice };
       }
       const result = (await response.json()) as {
         choices?: Array<{
@@ -225,8 +237,15 @@ export class PetService {
       const choice = result?.choices?.[0];
       const content = choice?.message?.content;
       const reply = typeof content === 'string' ? content.trim() : '';
-      if (!reply) throw new Error('Empty hint response');
-      if (choice?.finish_reason === 'length' || !isShortHint(reply)) {
+      if (choice?.finish_reason === 'length') {
+        this.logger.warn('OpenRouter exceeded the completion budget');
+        return { ...fallback, notice: fallbackNotice };
+      }
+      if (!reply) {
+        this.logger.warn('OpenRouter returned an empty hint');
+        return { ...fallback, notice: fallbackNotice };
+      }
+      if (!isShortHint(reply)) {
         return {
           ...fallback,
           notice: 'Byte gives one hint at a time, not full solutions.',
@@ -235,7 +254,7 @@ export class PetService {
       return { reply, source: 'openrouter' as const };
     } catch {
       this.logger.warn('OpenRouter did not return a usable response');
-      return { ...fallback, notice: unavailable };
+      return { ...fallback, notice: fallbackNotice };
     }
   }
 
@@ -268,25 +287,86 @@ export class PetService {
     question: string,
     problem: PublicProblem | null,
     hasCode: boolean,
+    recentReplies: string[],
   ) {
     if (!problem) {
       return 'Pick a problem and tell me where you are stuck. I will give one hint at a time.';
     }
+    const description = text(problem.description);
+    const sentences = description.split(/(?<=[.!?])\s+(?=[A-Z])/);
+    const goal =
+      sentences.find((sentence) =>
+        /^(?:your (?:task|goal) is to |you (?:must|need to) )?(?:count|find|determine|compute|return|print|check|calculate)\b/i.test(
+          sentence,
+        ),
+      ) || sentences[0];
+    const input = text(problem.inputFormat, 220).replace(/[.!?]+$/, '');
+    const output = text(problem.outputFormat, 220).replace(/[.!?]+$/, '');
+    const constraints = text(problem.constraints, 230).replace(/[.!?]+$/, '');
     const sample = problem.examples?.[0];
-    const lower = question.toLowerCase();
-    if (/code|debug|error|fail|wrong/.test(lower) && hasCode) {
-      return 'Try your code on the first sample. Which line first makes its output differ from the expected output?';
-    }
-    if (sample?.input) {
-      return `Trace the first sample input, “${text(sample.input, 100)}”. Which values must your program identify before deciding what to output?`;
-    }
-    const inputFormat = text(problem.inputFormat, 130).replace(/[.!?]+$/, '');
-    if (inputFormat) {
-      return `Start with the input format: ${inputFormat}. Which value should you read first?`;
-    }
+    const firstSampleOutput = text(sample?.output?.split(/\r?\n/, 1)[0], 70);
     const title = text(problem.title, 80);
-    return title
-      ? `For “${title}”, identify the first piece of information you need from the input.`
-      : 'Identify the first piece of information you need from the input.';
+    const generalHint = title
+      ? `For “${title}”, identify what you need to compute from the input.`
+      : 'Identify what you need to compute from the input.';
+    const hints = {
+      goal: goal
+        ? `Focus on this requirement: “${text(goal, 230)}” What would count as one valid result?`
+        : '',
+      input: input
+        ? `Start with the input format: ${input}. Which value should you read first?`
+        : '',
+      output: output
+        ? `The output format asks for this: ${output}. Check what one answer represents.`
+        : '',
+      sample: sample?.input
+        ? firstSampleOutput
+          ? `Trace the first sample input. What makes the first expected result “${firstSampleOutput}”?`
+          : 'Trace the first sample input. Start with a single case and predict the expected output.'
+        : '',
+      constraints: constraints
+        ? `Check these limits: ${constraints}. Would your approach still finish for the largest input?`
+        : '',
+      code: hasCode
+        ? 'Run your code on a public sample and compare its result with the expected output. Which value first differs?'
+        : 'Add your attempt to the editor and ask which part you want to check.',
+    };
+    const byQuestion: [RegExp, string][] = [
+      [
+        /\b(?:constraints?|time complexity|efficient|limits?)\b/i,
+        hints.constraints,
+      ],
+      [
+        /\b(?:debug|wrong answer|error|review (?:my|the) code|code (?:fails?|doesn.t work))\b/i,
+        hints.code,
+      ],
+      [/\b(?:examples?|samples?|trace|walk through)\b/i, hints.sample],
+      [
+        /\b(?:output|result)\s+(?:format|mean)|\bwhat (?:should|do) (?:i|we) (?:print|return|output)\b/i,
+        hints.output,
+      ],
+      [/\binput\b|\b(?:parse|read)\s+(?:the )?(?:data|values)\b/i, hints.input],
+      [
+        /\b(?:problem\s+stat(?:e)?ment|explain (?:the|this) problem|what (?:is|does) (?:the|this) (?:problem|question)|what am i supposed to do)\b/i,
+        hints.goal,
+      ],
+    ];
+    const requested = byQuestion.find(
+      ([pattern, hint]) => hint && pattern.test(question),
+    )?.[1];
+    const candidates = [
+      requested,
+      hints.sample,
+      hints.input,
+      hints.goal,
+      hints.output,
+      hints.constraints,
+      generalHint,
+    ];
+    return (
+      candidates.find((hint) => hint && !recentReplies.includes(hint)) ??
+      requested ??
+      generalHint
+    );
   }
 }

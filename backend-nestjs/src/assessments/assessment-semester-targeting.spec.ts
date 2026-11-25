@@ -58,13 +58,29 @@ function createMockService(overrides: {
       );
     }),
     save: jest.fn().mockImplementation(async (att: any) => att),
+    update: jest.fn().mockImplementation(async (criteria: any, patch: any) => {
+      const att = attempts.find((item) => !criteria.id || item.id === criteria.id);
+      if (!att) return { affected: 0 };
+      if (criteria.currentQuestionIndex !== undefined
+        && att.currentQuestionIndex !== criteria.currentQuestionIndex) return { affected: 0 };
+      if (criteria.navigationVersion !== undefined
+        && (att.navigationVersion || 0) !== criteria.navigationVersion) return { affected: 0 };
+      for (const [key, value] of Object.entries(patch)) {
+        att[key] = typeof value === 'function' ? (Number(att[key] || 0) + 1) : value;
+      }
+      return { affected: 1 };
+    }),
     create: jest.fn().mockImplementation((att: any) => ({ ...att, id: 'att-created' })),
   };
 
   const questionRepo: any = {
     find: jest.fn().mockResolvedValue(questions),
     findOne: jest.fn().mockImplementation(async ({ where }: any) => {
-      return questions.find((q) => q.id === where?.id) || null;
+      const conditions = Array.isArray(where) ? where : [where];
+      return questions.find((q) => conditions.some((condition: any) =>
+        q.id === condition?.id
+        || (condition?.mongoId !== undefined && q.mongoId === condition.mongoId),
+      )) || null;
     }),
   };
 
@@ -571,12 +587,14 @@ describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
       expect(res.reviewQuestions[0].selectedAnswer).toBe(0);
     });
 
-    it('passes lockSectionsSequentially to student in overview and startAttempt', async () => {
+    it('passes section-lock settings to students without enabling a question timer', async () => {
       const assessmentSequential: any = {
         ...sem4Assessment,
         id: 'exam-seq',
         questions: ['q1'],
         lockSectionsSequentially: true,
+        lockQuestionsSequentially: false,
+        questionTimeLimitSeconds: 30,
         sections: [{ id: 'sec-1', title: 'Section 1', order: 0, timeLimit: 0, questions: [{ questionId: 'q1', marks: 10, negativeMarks: 0, order: 0 }] }],
       };
       const { service } = createMockService({
@@ -589,6 +607,233 @@ describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
 
       const start = await service.startStudentAttempt('exam-seq', studentUser);
       expect(start.lockSectionsSequentially).toBe(true);
+      expect(start.lockQuestionsSequentially).toBe(false);
+      expect(start.questionTimeLimitSeconds).toBe(0);
+      expect(start.currentQuestionStartedAtEpochMs).toEqual(expect.any(Number));
+    });
+
+    it('atomically rejects jumps and permits one-question sequential advance', async () => {
+      const assessment: any = {
+        ...sem4Assessment,
+        id: 'exam-nav',
+        questions: ['q1', 'q2'],
+        lockQuestionsSequentially: true,
+        questionTimeLimitSeconds: 90,
+      };
+      const attempt: any = {
+        id: 'attempt-nav',
+        assessmentId: 'exam-nav',
+        studentId: 'student-eval-1',
+        studentUid: 'student-eval-1',
+        status: 'in_progress',
+        questionOrder: ['q1', 'q2'],
+        currentQuestionIndex: 0,
+        completedQuestionIds: [],
+        navigationVersion: 0,
+        responses: [],
+      };
+      const { service } = createMockService({ assessments: [assessment], attempts: [attempt] });
+
+      await expect(service.navigateStudentAttempt('exam-nav', {
+        targetQuestionIndex: 1,
+        targetQuestionId: 'q2',
+        navigationVersion: 0,
+      }, studentUser)).resolves.toMatchObject({
+        navigationAllowed: true,
+        currentQuestionIndex: 1,
+        questionTimeLimitSeconds: 90,
+        currentQuestionStartedAtEpochMs: expect.any(Number),
+      });
+
+      await expect(service.navigateStudentAttempt('exam-nav', {
+        targetQuestionIndex: 1,
+        targetQuestionId: 'q2',
+        navigationVersion: 0,
+      }, studentUser)).rejects.toBeInstanceOf(Error);
+
+      await expect(service.navigateStudentAttempt('exam-nav', {
+        targetQuestionIndex: 2,
+        targetQuestionId: 'q3',
+        navigationVersion: 1,
+      }, studentUser)).rejects.toBeInstanceOf(Error);
+
+      await expect(service.navigateStudentAttempt('exam-nav', {
+        targetQuestionIndex: 0,
+        targetQuestionId: 'q1',
+        navigationVersion: 1,
+      }, studentUser)).rejects.toBeInstanceOf(Error);
+    });
+
+    it('allows navigation within the active section and rejects navigation into a locked section', async () => {
+      const assessment: any = {
+        ...sem4Assessment,
+        id: 'exam-section-navigation',
+        questions: ['q1', 'q2', 'q3'],
+        shuffleQuestions: false,
+        lockSectionsSequentially: true,
+        sections: [
+          { title: 'Section 1', order: 0, questions: [{ questionId: 'q1' }, { questionId: 'q2' }] },
+          { title: 'Section 2', order: 1, questions: [{ questionId: 'q3' }] },
+        ],
+      };
+      const attempt: any = {
+        id: 'attempt-section-navigation',
+        assessmentId: assessment.id,
+        studentId: studentUser.id,
+        status: 'in_progress',
+        questionOrder: ['q1', 'q2', 'q3'],
+        currentQuestionIndex: 0,
+        completedSectionIds: [],
+        navigationVersion: 0,
+      };
+      const questions = [
+        { id: 'q1', question: 'First', questionType: 'single_choice', options: ['A', 'B'] },
+        { id: 'q2', question: 'Second', questionType: 'single_choice', options: ['A', 'B'] },
+        { id: 'q3', question: 'Third', questionType: 'single_choice', options: ['A', 'B'] },
+      ];
+      const { service } = createMockService({ assessments: [assessment], attempts: [attempt], questions });
+
+      await expect(service.navigateStudentAttempt(assessment.id, {
+        targetQuestionId: 'q2',
+        targetQuestionIndex: 1,
+        navigationVersion: 0,
+      }, studentUser)).resolves.toMatchObject({
+        navigationAllowed: true,
+        currentQuestionIndex: 1,
+        questionTimeLimitSeconds: 0,
+        permittedQuestion: { _id: 'q2', sectionId: '0' },
+      });
+
+      await expect(service.navigateStudentAttempt(assessment.id, {
+        targetQuestionId: 'q1',
+        targetQuestionIndex: 0,
+        navigationVersion: 1,
+      }, studentUser)).resolves.toMatchObject({
+        navigationAllowed: true,
+        currentQuestionIndex: 0,
+      });
+
+      await expect(service.navigateStudentAttempt(assessment.id, {
+        targetQuestionId: 'q3',
+        targetQuestionIndex: 2,
+        navigationVersion: 2,
+      }, studentUser)).rejects.toBeInstanceOf(Error);
+    });
+
+    it('persists section completion and unlocks only the next section', async () => {
+      const assessment: any = {
+        ...sem4Assessment,
+        id: 'exam-section-completion',
+        questions: ['q1', 'q2', 'q3'],
+        shuffleQuestions: false,
+        lockSectionsSequentially: true,
+        sections: [
+          { title: 'Section 1', order: 0, questions: [{ questionId: 'q1' }, { questionId: 'q2' }] },
+          { title: 'Section 2', order: 1, questions: [{ questionId: 'q3' }] },
+        ],
+      };
+      const attempt: any = {
+        id: 'attempt-section-completion',
+        assessmentId: assessment.id,
+        studentId: studentUser.id,
+        status: 'in_progress',
+        questionOrder: ['q1', 'q2', 'q3'],
+        currentQuestionIndex: 1,
+        completedSectionIds: [],
+        navigationVersion: 0,
+      };
+      const questions = [
+        { id: 'q1', question: 'First', questionType: 'single_choice', options: ['A', 'B'] },
+        { id: 'q2', question: 'Second', questionType: 'single_choice', options: ['A', 'B'] },
+        { id: 'q3', question: 'Third', questionType: 'single_choice', options: ['A', 'B'] },
+      ];
+      const { service } = createMockService({ assessments: [assessment], attempts: [attempt], questions });
+
+      await expect(service.completeStudentAttemptSection(assessment.id, {
+        sectionId: '0',
+        navigationVersion: 0,
+      }, studentUser)).resolves.toMatchObject({
+        completedSectionIds: ['0'],
+        activeSectionId: '1',
+        assessmentReadyForSubmission: false,
+        currentQuestionIndex: 2,
+        questions: [expect.objectContaining({ _id: 'q3', questionIndex: 3, sectionId: '1' })],
+      });
+      expect(attempt.completedSectionIds).toEqual(['0']);
+      await expect(service.getPermittedStudentQuestion(assessment.id, 'q1', studentUser))
+        .rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.getPermittedStudentQuestion(assessment.id, 'q3', studentUser))
+        .resolves.toMatchObject({ success: true });
+    });
+
+    it('rejects direct access to future or completed questions in sequential mode', async () => {
+      const assessment: any = {
+        ...sem4Assessment,
+        id: 'exam-direct',
+        questions: ['q1', 'q2'],
+        lockQuestionsSequentially: true,
+      };
+      const attempt: any = {
+        id: 'attempt-direct',
+        assessmentId: 'exam-direct',
+        studentId: 'student-eval-1',
+        studentUid: 'student-eval-1',
+        status: 'in_progress',
+        questionOrder: ['q1', 'q2'],
+        currentQuestionIndex: 1,
+        completedQuestionIds: ['q1'],
+        navigationVersion: 1,
+      };
+      const questions = [
+        { id: 'q1', question: 'First' },
+        { id: 'q2', question: 'Second' },
+      ];
+      const { service } = createMockService({ assessments: [assessment], attempts: [attempt], questions });
+
+      await expect(service.getPermittedStudentQuestion('exam-direct', 'q1', studentUser)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.getPermittedStudentQuestion('exam-direct', 'q2', studentUser)).resolves.toMatchObject({ success: true });
+    });
+
+    it('replays legacy autosaves without overwriting previously completed sequential answers', async () => {
+      const assessment: any = {
+        ...sem4Assessment,
+        id: 'exam-autosave',
+        questions: ['q1', 'q2'],
+        lockQuestionsSequentially: true,
+      };
+      const attempt: any = {
+        id: 'attempt-autosave',
+        assessmentId: 'exam-autosave',
+        studentId: studentUser.id,
+        status: 'in_progress',
+        startedAt: new Date(),
+        questionOrder: ['q1', 'q2'],
+        currentQuestionIndex: 1,
+        completedQuestionIds: ['q1'],
+        navigationVersion: 1,
+        responses: [
+          { questionId: 'q1', selectedAnswer: 1, selectedAnswers: [1], code: '', language: 'python', status: 'answered' },
+          { questionId: 'q2', selectedAnswer: -1, selectedAnswers: [], code: '', language: 'python', status: 'unvisited' },
+        ],
+      };
+      const { service } = createMockService({ assessments: [assessment], attempts: [attempt] });
+
+      await service.saveProgress('exam-autosave', {
+        currentQuestionIndex: 1,
+        responses: [
+          { questionId: 'q1', selectedAnswer: 1, selectedAnswers: [1], code: '', language: 'python', status: 'answered' },
+          { questionId: 'q2', selectedAnswer: 0, selectedAnswers: [0], code: '', language: 'python', status: 'answered' },
+        ],
+      }, studentUser);
+
+      expect(attempt.responses).toEqual(expect.arrayContaining([
+        expect.objectContaining({ questionId: 'q1', selectedAnswer: 1 }),
+        expect.objectContaining({ questionId: 'q2', selectedAnswer: 0 }),
+      ]));
+      await expect(service.saveProgress('exam-autosave', {
+        currentQuestionIndex: 1,
+        responses: [{ questionId: 'q1', selectedAnswer: 2, selectedAnswers: [2] }],
+      }, studentUser)).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 

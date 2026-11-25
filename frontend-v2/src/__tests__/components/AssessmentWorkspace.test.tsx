@@ -12,7 +12,7 @@ jest.mock("next/dynamic", () => () => function MockEditor({ value, onChange, opt
 });
 jest.mock("@/hooks/useExecutionRuntimes", () => ({ useExecutionRuntimes: () => [] }));
 jest.mock("@/config/api", () => ({
-  studentAssessmentsAPI: { getOverview: jest.fn().mockResolvedValue({ data: { assessment: { proctoring: {} } } }), startAttempt: jest.fn(), submitAttempt: jest.fn(), saveProgress: jest.fn().mockResolvedValue({}), evaluateCode: jest.fn() },
+  studentAssessmentsAPI: { getOverview: jest.fn().mockResolvedValue({ data: { assessment: { proctoring: {} } } }), startAttempt: jest.fn(), submitAttempt: jest.fn(), saveProgress: jest.fn().mockResolvedValue({}), navigateAttempt: jest.fn(), completeSection: jest.fn(), evaluateCode: jest.fn() },
   runAPI: { run: jest.fn(), getJob: jest.fn() },
 }));
 jest.mock("@/hooks/useAssessmentMedia", () => ({ useAssessmentMedia: () => ({
@@ -63,6 +63,104 @@ it("keeps MCQ answers and coding drafts across sidebar navigation and review", a
   fireEvent.click(screen.getByRole("button", { name: "Question 1, answered" }));
   expect(screen.getByRole("button", { name: "A const" })).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("progressbar", { name: "Assessment progress" })).toHaveAttribute("aria-valuenow", "1");
+});
+
+it("shows only the active question and attempted counts in sequential assessments", async () => {
+  const activeQuestion = {
+    ...questions[0],
+    _id: "active-question",
+    question: "This is the active sequential question",
+    questionIndex: 2,
+    sectionTitle: "Coding Problems",
+  };
+  jest.mocked(studentAssessmentsAPI.startAttempt).mockResolvedValueOnce({ data: {
+    title: "Sequential assessment",
+    durationMinutes: 60,
+    startedAt: new Date().toISOString(),
+    lockQuestionsSequentially: true,
+    totalQuestionCount: 3,
+    currentQuestionIndex: 1,
+    questions: [activeQuestion],
+    savedResponses: [
+      { questionId: "completed-question", selectedAnswer: 0, selectedAnswers: [0], status: "answered" },
+      { questionId: "active-question", selectedAnswer: -1, selectedAnswers: [], status: "unvisited" },
+    ],
+  } } as any);
+
+  await start();
+
+  expect(screen.getByText("This is the active sequential question")).toBeInTheDocument();
+  expect(screen.getByText("Question 2 of 3")).toBeInTheDocument();
+  expect(screen.getByText("Attempted:")).toBeInTheDocument();
+  expect(screen.getByText("1", { selector: "strong" })).toBeInTheDocument();
+  expect(screen.getByText("Not attempted:")).toBeInTheDocument();
+  expect(screen.getByText("Current question: Not attempted")).toBeInTheDocument();
+  expect(screen.queryByRole("complementary", { name: "Assessment question sidebar" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Sequential Navigation")).not.toBeInTheDocument();
+  expect(screen.queryByText("10 Qs")).not.toBeInTheDocument();
+});
+
+it("allows navigation inside the active section and requires section submission before advancing", async () => {
+  const sectionQuestions = [
+    { ...questions[0], _id: "section-q1", question: "First section question", questionIndex: 1, sectionId: "0", sectionTitle: "Section One", sectionOrder: 0 },
+    { ...questions[2], _id: "section-q2", question: "Second section question", questionIndex: 2, sectionId: "0", sectionTitle: "Section One", sectionOrder: 0 },
+  ];
+  jest.mocked(studentAssessmentsAPI.startAttempt).mockResolvedValueOnce({ data: {
+    title: "Section-locked assessment",
+    durationMinutes: 60,
+    startedAt: new Date().toISOString(),
+    lockSectionsSequentially: true,
+    lockQuestionsSequentially: false,
+    totalQuestionCount: 3,
+    currentQuestionIndex: 0,
+    activeSectionId: "0",
+    completedSectionIds: [],
+    questions: sectionQuestions,
+  } } as any);
+  jest.mocked(studentAssessmentsAPI.navigateAttempt).mockResolvedValueOnce({ data: {
+    navigationAllowed: true,
+    currentQuestionIndex: 1,
+    navigationVersion: 1,
+    permittedQuestion: sectionQuestions[1],
+  } } as any);
+  jest.mocked(studentAssessmentsAPI.completeSection).mockResolvedValueOnce({ data: {
+    completedSectionIds: ["0"],
+    activeSectionId: "1",
+    assessmentReadyForSubmission: false,
+    currentQuestionIndex: 2,
+    navigationVersion: 2,
+    questions: [{
+      ...questions[0],
+      _id: "section-q3",
+      question: "First question in section two",
+      questionIndex: 3,
+      sectionId: "1",
+      sectionTitle: "Section Two",
+      sectionOrder: 1,
+    }],
+  } } as any);
+
+  await start();
+
+  expect(screen.getByText("Section One · Question 1 of 2")).toBeInTheDocument();
+  expect(screen.getByRole("complementary", { name: "Assessment question sidebar" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Question 2" }));
+  await waitFor(() => expect(studentAssessmentsAPI.navigateAttempt).toHaveBeenCalledWith("workspace", {
+    targetQuestionId: "section-q2",
+    targetQuestionIndex: 1,
+    navigationVersion: 0,
+  }));
+  expect(await screen.findByText("Second section question")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Submit Section" }));
+  expect(await screen.findByRole("dialog", { name: "Submit & Lock Section Section One" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Yes, Submit Section & Proceed" }));
+  await waitFor(() => expect(studentAssessmentsAPI.completeSection).toHaveBeenCalledWith("workspace", {
+    sectionId: "0",
+    navigationVersion: 1,
+  }));
+  expect(await screen.findByText("First question in section two")).toBeInTheDocument();
+  expect(screen.getByText("Section Two · Question 1 of 1")).toBeInTheDocument();
 });
 
 it("loads each question's uploaded language templates and keeps edits question-local", async () => {

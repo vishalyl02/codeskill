@@ -55,6 +55,7 @@ type AssessmentApiData = {
   description?: string;
   instructions?: string[];
   durationMinutes?: number;
+  questionTimeLimitSeconds?: number;
   passingMarks?: number | null;
   negativeMarking?: boolean;
   category?: string;
@@ -66,6 +67,7 @@ type AssessmentApiData = {
   targetGroups?: string[];
   targetStudentIds?: string[];
   lockSectionsSequentially?: boolean;
+  lockQuestionsSequentially?: boolean;
   requireLockdown?: boolean;
   allowVirtualMachine?: boolean;
   requireCloseOtherApps?: boolean;
@@ -206,6 +208,7 @@ function AssessmentBuilder() {
           description: assessment.description || "",
           instructions: Array.isArray(assessment.instructions) ? assessment.instructions : [],
           durationMinutes: Number(assessment.durationMinutes ?? 60),
+          questionTimeLimitSeconds: Number(assessment.questionTimeLimitSeconds ?? 0),
           passingMarks: assessment.passingMarks == null ? "" : Number(assessment.passingMarks),
           negativeMarking: assessment.negativeMarking ?? true,
           category: assessment.category || "exam",
@@ -215,6 +218,7 @@ function AssessmentBuilder() {
           status: assessment.status === "published" ? "published" : "draft",
           targetStudentIds: Array.isArray(assessment.targetStudentIds) ? assessment.targetStudentIds : [],
           lockSectionsSequentially: Boolean(assessment.lockSectionsSequentially),
+          lockQuestionsSequentially: Boolean(assessment.lockQuestionsSequentially),
           requireLockdown: Boolean(assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB),
           allowVirtualMachine: Boolean(assessment.allowVirtualMachine),
           requireCloseOtherApps: assessment.requireCloseOtherApps ?? assessment.securityPolicy?.requireCloseOtherApps ?? true,
@@ -486,6 +490,7 @@ function AssessmentBuilder() {
         code: store.code,
         description: store.description,
         durationMinutes: store.durationMinutes,
+        questionTimeLimitSeconds: store.questionTimeLimitSeconds,
         passingMarks: store.passingMarks !== '' ? Number(store.passingMarks) : undefined,
         category: store.category,
         allowedAttempts: store.allowedAttempts,
@@ -494,6 +499,7 @@ function AssessmentBuilder() {
         targetGroups: targetGroup === "both" ? ["A", "B"] : targetGroup ? [targetGroup.toUpperCase()] : [],
         targetStudentIds,
         lockSectionsSequentially: store.lockSectionsSequentially,
+        lockQuestionsSequentially: store.lockQuestionsSequentially,
         requireLockdown: store.requireLockdown,
         allowVirtualMachine: store.allowVirtualMachine,
         lockdownQuitPassword: store.lockdownQuitPassword || undefined,
@@ -1651,27 +1657,81 @@ function AssessmentBuilder() {
             </button>
           </div>
 
-          {/* Sequential Section Locking Toggle Card */}
-          <div className="p-4 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                <Lock className="w-4 h-4 text-primary" />
-                Lock Sections Sequentially
+          <div className="space-y-3">
+            <div className="p-4 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <Lock className="w-4 h-4 text-primary" />
+                  Lock Sections Sequentially
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Candidates may navigate within the current section, but must submit it before the next section unlocks. Submitted sections are read-only.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Candidates must complete and submit each section in order before unlocking the next. Questions in completed sections become read-only.
-              </p>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={store.lockSectionsSequentially}
+                  onChange={(e) => store.setLockSectionsSequentially(e.target.checked)}
+                  aria-label="Lock Sections Sequentially"
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+              </label>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={store.lockSectionsSequentially}
-                onChange={(e) => store.setLockSectionsSequentially(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-            </label>
+
+            <div className="p-4 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <Lock className="w-4 h-4 text-primary" />
+                  Lock Questions Sequentially
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Show one question at a time. Candidates must save and advance in order; previous questions cannot be revisited. This takes precedence over section locking.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={store.lockQuestionsSequentially}
+                  onChange={(e) => store.setLockQuestionsSequentially(e.target.checked)}
+                  aria-label="Lock Questions Sequentially"
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+              </label>
+            </div>
           </div>
+
+          {store.lockQuestionsSequentially && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <label htmlFor="question-time-limit" className="block text-sm font-bold text-foreground">
+                Per-question time limit
+              </label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Optional. When enabled, the student automatically moves to the next question when time expires. The overall assessment timer still submits the attempt at its deadline.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <input
+                  id="question-time-limit"
+                  type="number"
+                  min={0}
+                  max={3600}
+                  step={15}
+                  value={store.questionTimeLimitSeconds}
+                  onChange={(event) => store.setQuestionTimeLimitSeconds(
+                    Math.min(3600, Math.max(0, Number(event.target.value) || 0)),
+                  )}
+                  className="w-32 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {store.questionTimeLimitSeconds > 0
+                    ? `${Math.floor(store.questionTimeLimitSeconds / 60)}m ${store.questionTimeLimitSeconds % 60}s per question`
+                    : "0 = no per-question limit"}
+                </span>
+              </div>
+            </div>
+          )}
 
           {store.sections.map((section) => {
             const secMarks = section.questions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
@@ -2099,4 +2159,3 @@ function AutoGenerateFromBank({ sectionId, onGenerated, onClose }: { sectionId: 
     </div>
   );
 }
-

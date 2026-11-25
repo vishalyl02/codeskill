@@ -115,6 +115,20 @@ interface Question {
   testCases?: TestCase[];
 }
 
+function mergeAttemptQuestions(
+  existing: Question[],
+  incoming: Question[],
+  totalQuestionCount: number,
+): Question[] {
+  const merged = existing.slice(0, totalQuestionCount);
+  merged.length = totalQuestionCount;
+  incoming.forEach((question, fallbackIndex) => {
+    const index = Math.max(0, Number(question.questionIndex || fallbackIndex + 1) - 1);
+    if (index < totalQuestionCount) merged[index] = question;
+  });
+  return merged;
+}
+
 interface AssessmentProctoring {
   mode?: 'fully_proctored' | 'partial_proctored' | 'non_proctored';
   cameraSelectionPolicy?: 'system_default' | 'student_select';
@@ -179,6 +193,7 @@ export default function TakeAssessmentPage({
 
   // Test Session State
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [totalQuestionCount, setTotalQuestionCount] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [responses, setResponses] = useState<
     Record<
@@ -198,6 +213,9 @@ export default function TakeAssessmentPage({
   const [durationMinutes, setDurationMinutes] = useState(45);
   const [startedAt, setStartedAt] = useState<Date>(new Date());
   const [timeLeftSeconds, setTimeLeftSeconds] = useState(2700);
+  const [questionTimeLimitSeconds, setQuestionTimeLimitSeconds] = useState(0);
+  const [questionDeadlineAtEpochMs, setQuestionDeadlineAtEpochMs] = useState<number | null>(null);
+  const [questionTimeLeftSeconds, setQuestionTimeLeftSeconds] = useState(0);
   const [attemptDeadlineAt, setAttemptDeadlineAt] = useState<number | null>(null);
   const [serverEndsAtEpochMs, setServerEndsAtEpochMs] = useState<number | null>(null);
   const serverClockOffsetMsRef = useRef<number>(0);
@@ -280,6 +298,11 @@ export default function TakeAssessmentPage({
   const [startError, setStartError] = useState<string | null>(null);
   const [accommodations, setAccommodations] = useState<any>(null);
   const [lockSectionsSequentially, setLockSectionsSequentially] = useState(false);
+  const [lockQuestionsSequentially, setLockQuestionsSequentially] = useState(false);
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [permittedQuestionIndex, setPermittedQuestionIndex] = useState(0);
+  const [navigationVersion, setNavigationVersion] = useState(0);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [completedSectionIds, setCompletedSectionIds] = useState<string[]>([]);
   const [showSectionSubmitModal, setShowSectionSubmitModal] = useState(false);
   const mediaCleanupRef = useRef<{ assessmentId: string; timer: number } | null>(null);
@@ -288,6 +311,7 @@ export default function TakeAssessmentPage({
   // Live offline autosave queue status
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
+  const questionTimerExpiryHandledRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = offlineAutosaveQueue.onStatusChange((status, count) => {
@@ -385,23 +409,6 @@ export default function TakeAssessmentPage({
     };
   }, [id, router]);
 
-  // Restore completed sections from storage for reload resilience
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem(`codeskill_sections_done_${id}`);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) {
-            setCompletedSectionIds(parsed);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }, [id]);
-
   useEffect(() => {
     let cancelled = false;
     setIsLoadingSettings(true);
@@ -442,6 +449,9 @@ export default function TakeAssessmentPage({
         const res = await studentAssessmentsAPI.getOverview(id);
         if (!cancelled) {
           const asmt = res.data?.assessment;
+          if (typeof asmt?.questionCount === "number") {
+            setTotalQuestionCount(asmt.questionCount);
+          }
           setProctoring(asmt?.proctoring || {});
           setSecurityPolicy(asmt?.securityPolicy || {});
           if (asmt?.requireLockdown !== undefined) {
@@ -467,6 +477,9 @@ export default function TakeAssessmentPage({
           if (asmt?.code) setAssessmentCode(asmt.code);
           if (asmt?.lockSectionsSequentially !== undefined) {
             setLockSectionsSequentially(Boolean(asmt.lockSectionsSequentially));
+          }
+          if (asmt?.lockQuestionsSequentially !== undefined) {
+            setLockQuestionsSequentially(Boolean(asmt.lockQuestionsSequentially));
           }
           const closeAppsRequired =
             asmt?.requireCloseOtherApps ??
@@ -523,6 +536,30 @@ export default function TakeAssessmentPage({
                 if (resumeData.serverEndsAtEpochMs) {
                   setServerEndsAtEpochMs(resumeData.serverEndsAtEpochMs);
                   setAttemptDeadlineAt(resumeData.serverEndsAtEpochMs);
+                }
+                if (typeof resumeData.currentQuestionIndex === "number") {
+                  setPermittedQuestionIndex(resumeData.currentQuestionIndex);
+                  setCurrentIndex(resumeData.currentQuestionIndex);
+                }
+                if (Array.isArray(resumeData.completedSectionIds)) {
+                  setCompletedSectionIds(resumeData.completedSectionIds.map(String));
+                }
+                if (typeof resumeData.activeSectionId === "string" || resumeData.activeSectionId === null) {
+                  setActiveSectionId(resumeData.activeSectionId);
+                }
+                if (typeof resumeData.questionTimeLimitSeconds === "number") {
+                  setQuestionTimeLimitSeconds(resumeData.lockQuestionsSequentially
+                    ? Math.max(0, resumeData.questionTimeLimitSeconds)
+                    : 0);
+                }
+                if (typeof resumeData.currentQuestionStartedAtEpochMs === "number") {
+                  setQuestionDeadlineAtEpochMs(
+                    resumeData.currentQuestionStartedAtEpochMs
+                      + Math.max(0, resumeData.questionTimeLimitSeconds || 0) * 1000,
+                  );
+                }
+                if (typeof resumeData.navigationVersion === "number") {
+                  setNavigationVersion(resumeData.navigationVersion);
                 }
                 if (typeof resumeData.serverNowMs === "number") {
                   serverClockOffsetMsRef.current = resumeData.serverNowMs - Date.now();
@@ -699,7 +736,12 @@ export default function TakeAssessmentPage({
       }
 
       // Sync with server immediately
-      const formattedResponses = questions.map((q) => {
+      const progressQuestions = lockQuestionsSequentially
+        ? questions.filter((_, index) => index === permittedQuestionIndex)
+        : lockSectionsSequentially
+          ? questions.filter((question) => question && question.sectionId === activeSectionId)
+          : questions.filter(Boolean);
+      const formattedResponses = progressQuestions.map((q) => {
         const r = responsesRef.current[q._id];
         return {
           questionId: q._id,
@@ -719,7 +761,7 @@ export default function TakeAssessmentPage({
         violations: updated,
       }).catch(() => {});
     },
-    [id, questions, startedAt, proctoring?.detectTabSwitch]
+    [id, questions, startedAt, proctoring?.detectTabSwitch, lockSectionsSequentially, lockQuestionsSequentially, activeSectionId, permittedQuestionIndex]
   );
 
   // Start the attempt only after the candidate enters fullscreen from the secure gate.
@@ -815,7 +857,29 @@ export default function TakeAssessmentPage({
       const data = res.data?.data && res.data.data.questions ? res.data.data : res.data;
       if (data?.proctoring) setProctoring(data.proctoring);
       const questionsList = data?.questions || res.data?.questions || [];
-      setQuestions(questionsList);
+      const totalQuestions = (
+        typeof data.totalQuestionCount === "number"
+          ? data.totalQuestionCount
+          : typeof data.questionCount === "number"
+            ? data.questionCount
+            : questionsList.length
+      );
+      const initialQuestionIndex = typeof data.currentQuestionIndex === "number"
+        ? data.currentQuestionIndex
+        : 0;
+      let questionsForAttempt: Question[] = questionsList;
+      if (
+        (data.lockQuestionsSequentially || data.lockSectionsSequentially) &&
+        questionsList.length > 0
+      ) {
+        questionsForAttempt = new Array<Question>(Math.max(totalQuestions, initialQuestionIndex + 1));
+        questionsList.forEach((question: Question, questionPosition: number) => {
+          const index = Math.max(0, Number(question.questionIndex || questionPosition + 1) - 1);
+          questionsForAttempt[index] = question;
+        });
+      }
+      setQuestions(questionsForAttempt);
+      setTotalQuestionCount(totalQuestions);
       LockdownSessionStore.saveQuestionBundle(id, questionsList);
       if (data.attemptId || data._id) {
         attemptIdRef.current = data.attemptId || data._id;
@@ -828,6 +892,36 @@ export default function TakeAssessmentPage({
       }
       if (data.lockSectionsSequentially !== undefined) {
         setLockSectionsSequentially(Boolean(data.lockSectionsSequentially));
+      }
+      if (data.lockQuestionsSequentially !== undefined) {
+        setLockQuestionsSequentially(Boolean(data.lockQuestionsSequentially));
+      }
+      if (Array.isArray(data.completedSectionIds)) {
+        setCompletedSectionIds(data.completedSectionIds.map(String));
+      }
+      setActiveSectionId(data.activeSectionId ?? null);
+      if (typeof data.currentQuestionIndex === "number") {
+        setPermittedQuestionIndex(initialQuestionIndex);
+        setCurrentIndex(initialQuestionIndex);
+      }
+      if (typeof data.navigationVersion === "number") {
+        setNavigationVersion(data.navigationVersion);
+      }
+      const questionLimit = data.lockQuestionsSequentially
+        ? Math.max(0, Number(data.questionTimeLimitSeconds) || 0)
+        : 0;
+      setQuestionTimeLimitSeconds(questionLimit);
+      const currentQuestionStartedAtEpochMs = Number(data.currentQuestionStartedAtEpochMs)
+        || new Date(data.currentQuestionStartedAt || data.startedAt || Date.now()).getTime();
+      setQuestionDeadlineAtEpochMs(
+        questionLimit > 0 ? currentQuestionStartedAtEpochMs + questionLimit * 1000 : null,
+      );
+      setQuestionTimeLeftSeconds(questionLimit > 0
+        ? Math.max(0, Math.ceil((currentQuestionStartedAtEpochMs + questionLimit * 1000 - Date.now()) / 1000))
+        : 0);
+      questionTimerExpiryHandledRef.current = false;
+      if (Array.isArray(data.completedQuestionIds) && data.completedQuestionIds.length > 0) {
+        await offlineAutosaveQueue.discardQuestions(id, data.completedQuestionIds.map(String));
       }
       if (data.allowCalculators !== undefined) {
         setAllowCalculators(Boolean(data.allowCalculators));
@@ -1013,9 +1107,10 @@ export default function TakeAssessmentPage({
       setSubmitError(null);
       setIsSubmitting(true);
 
-      const formattedResponses = questions.map((q) => {
+      const formattedResponses = questions.flatMap((q) => {
+        if (!q) return [];
         const r = responsesRef.current[q._id];
-        return {
+        return [{
           questionId: q._id,
           selectedAnswer: r ? r.selectedAnswer : -1,
           selectedAnswers: r?.selectedAnswers ?? (r && r.selectedAnswer >= 0 ? [r.selectedAnswer] : []),
@@ -1025,7 +1120,7 @@ export default function TakeAssessmentPage({
           totalTestCases: r?.totalTestCases || 0,
           status: r ? r.status : "skipped",
           timeSpentSeconds: 0,
-        };
+        }];
       });
 
       try {
@@ -1052,6 +1147,7 @@ export default function TakeAssessmentPage({
           violations: violationsRef.current,
           idempotencyKey: submissionIdempotencyKey,
           clientSubmittedAtMs,
+          currentQuestionIndex: lockQuestionsSequentially ? permittedQuestionIndex : currentIndex,
         };
         let lastError: any;
         // Code evaluation can briefly fail while the judge service is busy.
@@ -1113,7 +1209,18 @@ export default function TakeAssessmentPage({
         }
       }
     },
-    [id, isSubmitting, questions, startedAt, stopCamera, router]
+    [
+      id,
+      isSubmitting,
+      questions,
+      startedAt,
+      stopCamera,
+      router,
+      currentIndex,
+      flushDraftToState,
+      lockQuestionsSequentially,
+      permittedQuestionIndex,
+    ]
   );
 
   useEffect(() => {
@@ -1233,6 +1340,25 @@ export default function TakeAssessmentPage({
       faceMonitorBusyRef.current = false;
     };
   }, [cameraActive, id, isSubmitting, loadedAssessmentId, recordViolation, submitExam, timeLeftSeconds, videoRef, proctoring?.autoSubmitOnViolation]);
+
+  useEffect(() => {
+    if (!lockQuestionsSequentially || questionTimeLimitSeconds <= 0 || questionDeadlineAtEpochMs === null) {
+      return;
+    }
+
+    const updateRemaining = () => {
+      setQuestionTimeLeftSeconds(Math.max(
+        0,
+        Math.ceil((questionDeadlineAtEpochMs - (Date.now() + serverClockOffsetMsRef.current)) / 1000),
+      ));
+    };
+    const initialTick = window.setTimeout(updateRemaining, 0);
+    const timer = window.setInterval(updateRemaining, 1000);
+    return () => {
+      window.clearTimeout(initialTick);
+      window.clearInterval(timer);
+    };
+  }, [lockQuestionsSequentially, questionDeadlineAtEpochMs, questionTimeLimitSeconds]);
 
   // Snapshot the visible assessment page periodically for proctored exams.
   // Gated to proctored modes and downscaled to avoid main-thread freezes on low-spec CPUs.
@@ -1370,13 +1496,20 @@ export default function TakeAssessmentPage({
     if (isLoading) return;
 
     const autosaveInterval = setInterval(async () => {
-      const currentFingerprint = JSON.stringify(responsesRef.current) + `:${violationsRef.current.length}`;
+      const currentFingerprint = JSON.stringify(responsesRef.current)
+        + `:${violationsRef.current.length}`
+        + (lockQuestionsSequentially ? `:${permittedQuestionIndex}` : `:${currentIndex}`);
       if (currentFingerprint === lastSavedFingerprintRef.current) {
         // No modifications since last successful sync; avoid redundant network traffic
         return;
       }
 
-      const formattedResponses = questions.map((q) => {
+      const progressQuestions = lockQuestionsSequentially
+        ? questions.filter((_, index) => index === permittedQuestionIndex)
+        : lockSectionsSequentially
+          ? questions.filter((question) => question && question.sectionId === activeSectionId)
+          : questions.filter(Boolean);
+      const formattedResponses = progressQuestions.map((q) => {
         const r = responsesRef.current[q._id];
         return {
           questionId: q._id,
@@ -1398,9 +1531,9 @@ export default function TakeAssessmentPage({
         };
         await offlineAutosaveQueue.enqueue({
           attemptId: id,
-          questionId: currentQ?._id || 'all-progress',
+          questionId: questions[lockQuestionsSequentially ? permittedQuestionIndex : currentIndex]?._id || 'all-progress',
           payload,
-          endpoint: `/api/student/assessments/${id}/progress`,
+          endpoint: `/api/assessments/${id}/save-progress`,
           method: 'POST',
         });
         lastSavedFingerprintRef.current = currentFingerprint;
@@ -1410,7 +1543,7 @@ export default function TakeAssessmentPage({
     }, 15000);
 
     return () => clearInterval(autosaveInterval);
-  }, [id, isLoading, questions, startedAt]);
+  }, [id, isLoading, questions, startedAt, lockSectionsSequentially, lockQuestionsSequentially, activeSectionId, permittedQuestionIndex, currentIndex, violations.length]);
 
   // Anti-Cheat functionality is handled by the exam security container component.
   // The hooks below rely on the security container.
@@ -1444,6 +1577,14 @@ export default function TakeAssessmentPage({
     )
   );
   const currentResponse = currentQ ? responses[currentQ._id] : null;
+  const isCurrentQuestionAttempted = Boolean(
+    currentResponse
+    && (
+      (Array.isArray(currentResponse.selectedAnswers) && currentResponse.selectedAnswers.length > 0)
+      || currentResponse.selectedAnswer >= 0
+      || currentResponse.code?.trim()
+    ),
+  );
   const selectedAnswer = currentResponse ? currentResponse.selectedAnswer : -1;
   const selectedAnswers = currentResponse?.selectedAnswers ?? (selectedAnswer >= 0 ? [selectedAnswer] : []);
 
@@ -1493,7 +1634,7 @@ export default function TakeAssessmentPage({
           timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
           violations: violationsRef.current,
         },
-        endpoint: `/api/student/assessments/${id}/progress`,
+        endpoint: `/api/assessments/${id}/save-progress`,
         method: 'POST',
       });
     } else {
@@ -1527,7 +1668,7 @@ export default function TakeAssessmentPage({
           timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
           violations: violationsRef.current,
         },
-        endpoint: `/api/student/assessments/${id}/progress`,
+        endpoint: `/api/assessments/${id}/save-progress`,
         method: 'POST',
       });
     }
@@ -1565,7 +1706,7 @@ export default function TakeAssessmentPage({
         timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
         violations: violationsRef.current,
       },
-      endpoint: `/api/student/assessments/${id}/progress`,
+      endpoint: `/api/assessments/${id}/save-progress`,
       method: 'POST',
     });
   };
@@ -1585,7 +1726,9 @@ export default function TakeAssessmentPage({
     responsesRef.current = next;
     setResponses(next);
     // Removing review keeps the candidate on this question.
-    if (!removing && currentIndex < questions.length - 1) setCurrentIndex(index => index + 1);
+    if (!isSequentialActive && !isSectionLockActive && !removing && currentIndex < questions.length - 1) {
+      setCurrentIndex(index => index + 1);
+    }
   };
 
   // Keep editor drafts in the attempt state so sidebar navigation and timed
@@ -1632,7 +1775,7 @@ export default function TakeAssessmentPage({
               timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
               violations: violationsRef.current,
             },
-            endpoint: `/api/student/assessments/${id}/progress`,
+            endpoint: `/api/assessments/${id}/save-progress`,
             method: 'POST',
           });
         }
@@ -1667,7 +1810,10 @@ export default function TakeAssessmentPage({
     responsesRef.current = nextResponses;
 
     // Send formatted progress to server immediately
-    const formatted = questions.map((q) => {
+    const progressQuestions = lockSectionsSequentially || lockQuestionsSequentially
+      ? [currentQ]
+      : questions.filter(Boolean);
+    const formatted = progressQuestions.map((q) => {
       const r = nextResponses[q._id];
       return {
         questionId: q._id,
@@ -1697,7 +1843,7 @@ export default function TakeAssessmentPage({
           timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
           violations: violationsRef.current,
         },
-        endpoint: `/api/student/assessments/${id}/progress`,
+        endpoint: `/api/assessments/${id}/save-progress`,
         method: 'POST',
       });
       throw err;
@@ -1729,13 +1875,16 @@ export default function TakeAssessmentPage({
     return Array.from(map.values()).sort((a, b) => a.order - b.order);
   }, [questions]);
 
-  const isSequentialActive = lockSectionsSequentially && sectionGroups.length > 1;
+  const isSequentialActive = lockQuestionsSequentially;
+  const isSectionLockActive = lockSectionsSequentially && !lockQuestionsSequentially;
 
   const activeSectionIndex = useMemo(() => {
-    if (!isSequentialActive) return -1;
+    if (!isSectionLockActive) return -1;
+    const activeIndex = sectionGroups.findIndex((section) => section.id === activeSectionId);
+    if (activeIndex >= 0) return activeIndex;
     const firstIncompleteIdx = sectionGroups.findIndex((s) => !completedSectionIds.includes(s.id));
-    return firstIncompleteIdx === -1 ? sectionGroups.length - 1 : firstIncompleteIdx;
-  }, [isSequentialActive, sectionGroups, completedSectionIds]);
+    return firstIncompleteIdx;
+  }, [isSectionLockActive, sectionGroups, activeSectionId, completedSectionIds]);
 
   const activeSection = useMemo(() => {
     if (activeSectionIndex === -1) return null;
@@ -1744,20 +1893,30 @@ export default function TakeAssessmentPage({
 
   const questionSectionMap = useMemo(() => {
     const map = new Map<number, { section: { id: string; title: string; order: number; questionIndices: number[] }; status: "completed" | "active" | "locked" | "unlocked" }>();
-    if (!isSequentialActive) {
+    if (!isSequentialActive && !isSectionLockActive) {
       sectionGroups.forEach((s) => {
         s.questionIndices.forEach((qIdx) => map.set(qIdx, { section: s, status: "unlocked" }));
       });
       return map;
     }
-    sectionGroups.forEach((s, sIdx) => {
-      const isCompleted = completedSectionIds.includes(s.id);
-      const isActive = sIdx === activeSectionIndex;
-      const status = isCompleted ? "completed" : isActive ? "active" : "locked";
-      s.questionIndices.forEach((qIdx) => map.set(qIdx, { section: s, status }));
+    sectionGroups.forEach((s) => {
+      s.questionIndices.forEach((qIdx) => {
+        const status = isSequentialActive
+          ? qIdx < permittedQuestionIndex
+            ? "completed"
+            : qIdx === permittedQuestionIndex
+              ? "active"
+              : "locked"
+          : completedSectionIds.includes(s.id)
+            ? "completed"
+            : s.id === activeSection?.id
+              ? "active"
+              : "locked";
+        map.set(qIdx, { section: s, status });
+      });
     });
     return map;
-  }, [isSequentialActive, sectionGroups, completedSectionIds, activeSectionIndex]);
+  }, [isSequentialActive, isSectionLockActive, sectionGroups, completedSectionIds, activeSection, permittedQuestionIndex]);
 
   const isFirstQuestionOfCurrentSection = useMemo(() => {
     if (!activeSection) return currentIndex === 0;
@@ -1769,12 +1928,11 @@ export default function TakeAssessmentPage({
     return activeSection.questionIndices[activeSection.questionIndices.length - 1] === currentIndex;
   }, [activeSection, currentIndex]);
 
-  // Keep currentIndex aligned within the active section if sequential locking is enabled
   useEffect(() => {
-    if (isSequentialActive && activeSection && !activeSection.questionIndices.includes(currentIndex)) {
-      setCurrentIndex(activeSection.questionIndices[0]);
+    if (isSequentialActive && currentIndex !== permittedQuestionIndex) {
+      setCurrentIndex(permittedQuestionIndex);
     }
-  }, [isSequentialActive, activeSection, currentIndex]);
+  }, [isSequentialActive, currentIndex, permittedQuestionIndex]);
 
   const activeSectionStats = useMemo(() => {
     if (!activeSection) return { answered: 0, review: 0, unattempted: 0, total: 0 };
@@ -1800,62 +1958,311 @@ export default function TakeAssessmentPage({
   }, [activeSection, questions, responses]);
 
   const handleCompleteCurrentSection = useCallback(async () => {
-    if (!activeSection) return;
+    if (!isSectionLockActive || !activeSection || isNavigating) return;
     flushDraftToState();
-    const currentSectionId = activeSection.id;
-    const nextCompleted = completedSectionIds.includes(currentSectionId)
-      ? completedSectionIds
-      : [...completedSectionIds, currentSectionId];
-    setCompletedSectionIds(nextCompleted);
+    setIsNavigating(true);
     try {
-      localStorage.setItem(`codeskill_sections_done_${id}`, JSON.stringify(nextCompleted));
-    } catch {}
+      if (offlineAutosaveQueue.getPendingCount() > 0) {
+        const flushed = await offlineAutosaveQueue.flush();
+        if (!flushed) throw new Error("Could not sync saved answers. Reconnect before submitting this section.");
+      }
 
-    const formatted = questions.map((q) => {
-      const r = responsesRef.current[q._id];
-      return {
-        questionId: q._id,
-        selectedAnswer: r ? r.selectedAnswer : -1,
-        selectedAnswers: r?.selectedAnswers ?? (r && r.selectedAnswer >= 0 ? [r.selectedAnswer] : []),
-        code: r?.code || "",
-        language: r?.language || q.language || q.supportedLanguages?.[0] || "python",
-        testCasesPassed: r?.testCasesPassed || 0,
-        totalTestCases: r?.totalTestCases || 0,
-        status: r ? r.status : "unvisited",
-        timeSpentSeconds: 0,
-      };
-    });
+      const sectionQuestions = activeSection.questionIndices
+        .map((index) => questions[index])
+        .filter((question): question is Question => Boolean(question));
+      const formatted = sectionQuestions.map((question) => {
+        const response = responsesRef.current[question._id];
+        return {
+          questionId: question._id,
+          selectedAnswer: response?.selectedAnswer ?? -1,
+          selectedAnswers: response?.selectedAnswers ?? [],
+          code: response?.code || "",
+          language: response?.language || question.language || question.supportedLanguages?.[0] || "python",
+          testCasesPassed: response?.testCasesPassed || 0,
+          totalTestCases: response?.totalTestCases || 0,
+          status: response?.status || "unvisited",
+          timeSpentSeconds: 0,
+        };
+      });
+      await studentAssessmentsAPI.saveProgress(id, {
+        currentQuestionIndex: currentIndex,
+        responses: formatted,
+        timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+        violations: violationsRef.current,
+      });
+      const response = await studentAssessmentsAPI.completeSection(id, {
+        sectionId: activeSection.id,
+        navigationVersion,
+      });
+      const data = response.data?.data || response.data;
+      const nextCompletedSectionIds = Array.isArray(data.completedSectionIds)
+        ? data.completedSectionIds.map(String)
+        : [...completedSectionIds, activeSection.id];
 
-    studentAssessmentsAPI.saveProgress(id, {
-      responses: formatted,
-      timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
-      violations: violationsRef.current,
-    }).catch(() => {});
+      setCompletedSectionIds(nextCompletedSectionIds);
+      setActiveSectionId(data.activeSectionId ?? null);
+      setNavigationVersion(data.navigationVersion ?? navigationVersion + 1);
+      setQuestions((previous) =>
+        mergeAttemptQuestions(previous, data.questions || [], totalQuestionCount),
+      );
+      if (typeof data.currentQuestionIndex === "number") {
+        setCurrentIndex(data.currentQuestionIndex);
+        setPermittedQuestionIndex(data.currentQuestionIndex);
+      }
+      setShowSectionSubmitModal(false);
+      await offlineAutosaveQueue.discardQuestions(
+        id,
+        sectionQuestions.map((question) => question._id),
+      );
 
-    setShowSectionSubmitModal(false);
-
-    if (activeSectionIndex < sectionGroups.length - 1) {
-      const nextSec = sectionGroups[activeSectionIndex + 1];
-      setCurrentIndex(nextSec.questionIndices[0]);
-      toast.success(`Section "${activeSection.title}" submitted. Now starting "${nextSec.title}".`);
-    } else {
-      toast.success("All sections completed! You may now submit your assessment.");
-      setShowSubmitModal(true);
+      if (data.assessmentReadyForSubmission) {
+        toast.success("All sections completed. You may now submit your assessment.");
+        setShowSubmitModal(true);
+      } else {
+        toast.success(`Section "${activeSection.title}" submitted. The next section is now unlocked.`);
+      }
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || "Could not submit this section. Please retry.";
+      toast.error(Array.isArray(message) ? message.join(" ") : message);
+    } finally {
+      setIsNavigating(false);
     }
-  }, [activeSection, completedSectionIds, id, questions, startedAt, activeSectionIndex, sectionGroups, flushDraftToState]);
+  }, [
+    isSectionLockActive,
+    isNavigating,
+    activeSection,
+    flushDraftToState,
+    id,
+    questions,
+    currentIndex,
+    startedAt,
+    navigationVersion,
+    completedSectionIds,
+    totalQuestionCount,
+  ]);
 
-  const handleSaveAndNext = () => {
+  const navigateWithinActiveSection = useCallback(async (targetIndex: number) => {
+    if (!isSectionLockActive || !activeSection || isNavigating || targetIndex === currentIndex) return;
+    if (!activeSection.questionIndices.includes(targetIndex)) return;
+    const targetQuestion = questions[targetIndex];
+    if (!targetQuestion || !currentQ) return;
+
+    setIsNavigating(true);
+    try {
+      const currentResponse = responsesRef.current[currentQ._id];
+      await studentAssessmentsAPI.saveProgress(id, {
+        currentQuestionIndex: currentIndex,
+        responses: [{
+          questionId: currentQ._id,
+          selectedAnswer: currentResponse?.selectedAnswer ?? -1,
+          selectedAnswers: currentResponse?.selectedAnswers ?? [],
+          code: currentResponse?.code || "",
+          language: currentResponse?.language || currentQ.language || "python",
+          status: currentResponse?.status || "unvisited",
+          timeSpentSeconds: 0,
+        }],
+        timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+        violations: violationsRef.current,
+      });
+      if (offlineAutosaveQueue.getPendingCount() > 0) {
+        const flushed = await offlineAutosaveQueue.flush();
+        if (!flushed) throw new Error("Could not sync saved answers. Reconnect and retry before navigating.");
+      }
+      const response = await studentAssessmentsAPI.navigateAttempt(id, {
+        targetQuestionId: targetQuestion._id,
+        targetQuestionIndex: targetIndex,
+        navigationVersion,
+      });
+      const navigation = response.data?.data || response.data;
+      if (!navigation?.navigationAllowed) {
+        throw new Error("The server did not authorize navigation to that question.");
+      }
+      setQuestions((previous) => mergeAttemptQuestions(
+        previous,
+        navigation.permittedQuestion ? [navigation.permittedQuestion] : [],
+        totalQuestionCount,
+      ));
+      setCurrentIndex(navigation.currentQuestionIndex ?? targetIndex);
+      setNavigationVersion(navigation.navigationVersion ?? navigationVersion + 1);
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || "Could not open that question. Please retry.";
+      toast.error(Array.isArray(message) ? message.join(" ") : message);
+    } finally {
+      setIsNavigating(false);
+    }
+  }, [
+    isSectionLockActive,
+    activeSection,
+    isNavigating,
+    currentIndex,
+    questions,
+    currentQ,
+    id,
+    startedAt,
+    navigationVersion,
+    totalQuestionCount,
+  ]);
+
+  const handleSaveAndNext = useCallback(async () => {
+    if (isNavigating) return;
     flushDraftToState();
-    if (isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1) {
-      setShowSectionSubmitModal(true);
+    if (isSectionLockActive) {
+      if (isLastQuestionOfCurrentSection) {
+        setShowSectionSubmitModal(true);
+      } else {
+        const currentPosition = activeSection?.questionIndices.indexOf(currentIndex) ?? -1;
+        const nextIndex = activeSection?.questionIndices[currentPosition + 1];
+        if (typeof nextIndex === "number") await navigateWithinActiveSection(nextIndex);
+      }
       return;
     }
-    if (currentIndex < questions.length - 1) {
+    if (isSequentialActive) {
+      if (currentIndex < totalQuestionCount - 1) {
+        const nextIndex = currentIndex + 1;
+        if (!currentQ) return;
+        setIsNavigating(true);
+        try {
+          const currentResponse = responsesRef.current[currentQ._id];
+          await studentAssessmentsAPI.saveProgress(id, {
+            responses: [{
+              questionId: currentQ._id,
+              selectedAnswer: currentResponse?.selectedAnswer ?? -1,
+              selectedAnswers: currentResponse?.selectedAnswers ?? [],
+              code: currentResponse?.code || "",
+              language: currentResponse?.language || currentQ.language || "python",
+              status: currentResponse?.status || "unvisited",
+              timeSpentSeconds: 0,
+            }],
+            timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+            violations: violationsRef.current,
+          });
+          await offlineAutosaveQueue.discardQuestions(id, [currentQ._id]);
+          if (offlineAutosaveQueue.getPendingCount() > 0) {
+            const flushed = await offlineAutosaveQueue.flush();
+            if (!flushed) {
+              throw new Error("Could not sync saved answers. Reconnect and retry before advancing.");
+            }
+          }
+          const res = await studentAssessmentsAPI.navigateAttempt(id, {
+            targetQuestionIndex: nextIndex,
+            targetQuestionId: questions[nextIndex]?._id,
+            navigationVersion,
+          });
+          const navigation = res.data?.data || res.data;
+          if (!navigation?.navigationAllowed) return;
+          if (typeof navigation.serverNowMs === "number") {
+            serverClockOffsetMsRef.current = navigation.serverNowMs - Date.now();
+          }
+          const questionLimit = lockQuestionsSequentially
+            ? Math.max(0, Number(navigation.questionTimeLimitSeconds ?? questionTimeLimitSeconds) || 0)
+            : 0;
+          const questionStartedAtEpochMs = Number(navigation.currentQuestionStartedAtEpochMs)
+            || new Date(navigation.currentQuestionStartedAt || Date.now()).getTime();
+          setQuestionTimeLimitSeconds(questionLimit);
+          setQuestionDeadlineAtEpochMs(
+            questionLimit > 0 ? questionStartedAtEpochMs + questionLimit * 1000 : null,
+          );
+          setQuestionTimeLeftSeconds(questionLimit > 0
+            ? Math.max(0, Math.ceil(
+                (questionStartedAtEpochMs + questionLimit * 1000 - (Date.now() + serverClockOffsetMsRef.current)) / 1000,
+              ))
+            : 0);
+          questionTimerExpiryHandledRef.current = false;
+          setNavigationVersion(navigation.navigationVersion ?? navigationVersion + 1);
+          setPermittedQuestionIndex(navigation.currentQuestionIndex ?? nextIndex);
+          setCurrentIndex(navigation.currentQuestionIndex ?? nextIndex);
+          if (navigation.permittedQuestion) {
+            setQuestions((previous) => mergeAttemptQuestions(
+              previous,
+              [navigation.permittedQuestion],
+              totalQuestionCount,
+            ));
+          }
+        } catch (error: any) {
+          const message = error?.response?.data?.message || error?.message || "Could not advance. Please retry without refreshing your answers.";
+          toast.error(Array.isArray(message) ? message.join(" ") : message);
+        } finally {
+          setIsNavigating(false);
+        }
+      } else {
+        setShowSubmitModal(true);
+      }
+      return;
+    }
+
+    if (currentIndex < totalQuestionCount - 1) {
       setCurrentIndex((prev) => prev + 1);
     } else {
       setShowSubmitModal(true);
     }
-  };
+  }, [
+    isNavigating,
+    flushDraftToState,
+    isSectionLockActive,
+    isLastQuestionOfCurrentSection,
+    activeSection,
+    navigateWithinActiveSection,
+    isSequentialActive,
+    currentIndex,
+    totalQuestionCount,
+    currentQ,
+    id,
+    startedAt,
+    navigationVersion,
+    questionTimeLimitSeconds,
+    lockQuestionsSequentially,
+    questions,
+  ]);
+
+  useEffect(() => {
+    questionTimerExpiryHandledRef.current = false;
+  }, [currentIndex]);
+
+  useEffect(() => {
+    if (
+      !lockQuestionsSequentially
+      || questionTimeLimitSeconds <= 0
+      || questionDeadlineAtEpochMs === null
+      || questionTimeLeftSeconds > 0
+      || isLoading
+      || loadedAssessmentId !== id
+      || isSubmitting
+      || isNavigating
+      || submissionRequestedRef.current
+      || submitStartedRef.current
+      || hasAutoSubmittedRef.current
+      || questionTimerExpiryHandledRef.current
+    ) {
+      return;
+    }
+
+    const expiryAction = window.setTimeout(() => {
+      if (submissionRequestedRef.current || submitStartedRef.current || hasAutoSubmittedRef.current) {
+        return;
+      }
+      questionTimerExpiryHandledRef.current = true;
+      if (currentIndex >= totalQuestionCount - 1) {
+        void submitExam(true);
+      } else {
+        void handleSaveAndNext();
+      }
+    }, 0);
+    return () => window.clearTimeout(expiryAction);
+  }, [
+    id,
+    currentIndex,
+    totalQuestionCount,
+    lockQuestionsSequentially,
+    questionTimeLimitSeconds,
+    questionDeadlineAtEpochMs,
+    questionTimeLeftSeconds,
+    isLoading,
+    loadedAssessmentId,
+    isSubmitting,
+    isNavigating,
+    submitExam,
+    handleSaveAndNext,
+  ]);
 
   // Keyboard Navigation (A, B, C, D to select options, Arrow keys for prev/next)
   useEffect(() => {
@@ -1871,15 +2278,18 @@ export default function TakeAssessmentPage({
       else if (key === "C" && currentQ?.options?.length > 2) handleSelectOption(2);
       else if (key === "D" && currentQ?.options?.length > 3) handleSelectOption(3);
       else if (e.key === "ArrowRight") {
-        if (isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1) {
-          setShowSectionSubmitModal(true);
-        } else if (currentIndex < questions.length - 1) {
+        if (isSequentialActive || isSectionLockActive) {
+          void handleSaveAndNext();
+        } else if (currentIndex < totalQuestionCount - 1) {
           setCurrentIndex((i) => i + 1);
         }
       } else if (e.key === "ArrowLeft") {
-        if (isSequentialActive && isFirstQuestionOfCurrentSection) {
-          // Cannot navigate backward past start of active section
-        } else if (currentIndex > 0) {
+        if (isSectionLockActive && activeSection) {
+          const previousIndex = activeSection.questionIndices[
+            activeSection.questionIndices.indexOf(currentIndex) - 1
+          ];
+          if (typeof previousIndex === "number") void navigateWithinActiveSection(previousIndex);
+        } else if (!isSequentialActive && currentIndex > 0) {
           setCurrentIndex((i) => i - 1);
         }
       }
@@ -1890,21 +2300,25 @@ export default function TakeAssessmentPage({
   }, [
     currentQ,
     currentIndex,
-    questions.length,
+    totalQuestionCount,
     showSubmitModal,
     showSectionSubmitModal,
     showViolationModal,
     isSequentialActive,
+    isSectionLockActive,
     isLastQuestionOfCurrentSection,
     isFirstQuestionOfCurrentSection,
+    activeSection,
     activeSectionIndex,
     sectionGroups.length,
+    handleSaveAndNext,
   ]);
 
   // Pre-calculate section counts once to avoid O(N^2) questions.filter inside render
   const sectionCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const q of questions) {
+      if (!q) continue;
       if (q.sectionTitle) {
         counts[q.sectionTitle] = (counts[q.sectionTitle] || 0) + 1;
       }
@@ -1927,7 +2341,18 @@ export default function TakeAssessmentPage({
     ).length;
   }, [responses]);
 
-  const unattemptedCount = Math.max(0, questions.length - answeredCount);
+  const attemptedQuestionCount = useMemo(
+    () => Object.values(responses).filter((response) =>
+      (Array.isArray(response.selectedAnswers) && response.selectedAnswers.length > 0)
+      || response.selectedAnswer >= 0
+      || Boolean(response.code?.trim()),
+    ).length,
+    [responses],
+  );
+  const unattemptedCount = Math.max(
+    0,
+    totalQuestionCount - (isSequentialActive ? attemptedQuestionCount : answeredCount + reviewCount),
+  );
 
   // Format Clock Time
   const formatTime = (seconds: number) => {
@@ -2185,7 +2610,9 @@ export default function TakeAssessmentPage({
     );
   }
 
-  const isLastQuestion = currentIndex === questions.length - 1;
+  const isLastQuestion = isSectionLockActive && activeSection
+    ? isLastQuestionOfCurrentSection
+    : currentIndex >= totalQuestionCount - 1;
   const isTimeCritical = timeLeftSeconds < 300; // < 5 mins
 
   return (
@@ -2242,7 +2669,7 @@ export default function TakeAssessmentPage({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xs sm:text-sm font-bold text-foreground">
-                Question {currentIndex + 1} <span className="text-muted-foreground font-normal">of {questions.length}</span>
+                Question {currentIndex + 1} <span className="text-muted-foreground font-normal">of {totalQuestionCount}</span>
               </h1>
               <span className="hidden sm:inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-foreground border border-border">
                 Chandigarh University
@@ -2299,6 +2726,20 @@ export default function TakeAssessmentPage({
             <Clock className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isTimeCritical ? "text-rose-600" : "text-primary"}`} />
             <span>{formatTime(timeLeftSeconds)}</span>
           </div>
+
+          {isSequentialActive && questionTimeLimitSeconds > 0 && (
+            <div
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-mono font-bold ${
+                questionTimeLeftSeconds <= 10
+                  ? "bg-rose-50 text-rose-700 border-rose-300 animate-pulse dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800"
+                  : "bg-slate-50 text-slate-800 border-slate-200"
+              }`}
+              aria-label={`Question time remaining: ${formatTime(questionTimeLeftSeconds)}`}
+            >
+              <Clock className={`w-3.5 h-3.5 ${questionTimeLeftSeconds <= 10 ? "text-rose-600" : "text-primary"}`} />
+              <span>Question {formatTime(questionTimeLeftSeconds)}</span>
+            </div>
+          )}
 
           {/* Offline Autosave Live Sync Indicator */}
           <div className="flex items-center">
@@ -2362,7 +2803,11 @@ export default function TakeAssessmentPage({
           <button
             aria-label="Submit Test"
             onClick={() => setShowSubmitModal(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-md bg-primary hover:bg-primary/90 active:bg-primary/80 text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-xs"
+            disabled={
+              (isSequentialActive && !isLastQuestion)
+              || (isSectionLockActive && Boolean(activeSection))
+            }
+            className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-md bg-primary hover:bg-primary/90 active:bg-primary/80 text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Send className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Submit Test</span>
@@ -2428,35 +2873,37 @@ export default function TakeAssessmentPage({
       {/* Exam workspace: question navigation stays separate from scrollable panes. */}
       <div className="relative flex flex-1 min-h-0 overflow-hidden">
         {mobileSidebarOpen && <button aria-label="Close question sidebar overlay" onClick={() => setMobileSidebarOpen(false)} className="absolute inset-0 z-30 bg-black/50 lg:hidden" />}
+        {!isSequentialActive && (
         <aside id="assessment-question-sidebar" aria-label="Assessment question sidebar" className={`shrink-0 w-72 min-h-0 flex-col border-r border-border bg-card ${sidebarCollapsed ? "lg:hidden" : "lg:flex"} ${mobileSidebarOpen ? "absolute inset-y-0 left-0 z-40 flex shadow-2xl" : "hidden"}`}>
           <div className="shrink-0 border-b border-border p-4 space-y-3">
             <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0"><h2 className="text-sm font-semibold text-foreground break-words">{assessmentTitle}</h2><p className="mt-1 text-xs text-muted-foreground">{answeredCount} of {questions.length} answered · {reviewCount} for review</p></div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-foreground break-words">{assessmentTitle}</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {answeredCount} of {totalQuestionCount} answered
+                  {!isSequentialActive && ` · ${reviewCount} for review`}
+                </p>
+              </div>
               <button aria-label="Close question sidebar" onClick={() => { setSidebarCollapsed(true); setMobileSidebarOpen(false); }} className="p-1 rounded hover:bg-muted"><X className="size-4" /></button>
             </div>
-            <div role="progressbar" aria-label="Assessment progress" aria-valuenow={answeredCount} aria-valuemin={0} aria-valuemax={questions.length} className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{width: `${questions.length ? answeredCount / questions.length * 100 : 0}%`}} /></div>
-            <div className="flex gap-3 text-[10px] text-muted-foreground"><span>● Answered</span><span className="text-amber-500">● Review</span><span>○ Not answered</span></div>
+            <div role="progressbar" aria-label="Assessment progress" aria-valuenow={answeredCount} aria-valuemin={0} aria-valuemax={totalQuestionCount} className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{width: `${totalQuestionCount ? answeredCount / totalQuestionCount * 100 : 0}%`}} /></div>
+            <div className="flex gap-3 text-[10px] text-muted-foreground">
+              <span>● Answered</span>
+              {!isSequentialActive && <span className="text-amber-500">● Review</span>}
+              <span>○ Not answered</span>
+            </div>
           </div>
-          {isSequentialActive && activeSection && (
+          {isSequentialActive && (
             <div className="mx-3 my-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-1.5 shrink-0">
               <div className="flex items-center justify-between text-amber-700 dark:text-amber-300 font-semibold text-[11px]">
                 <span className="flex items-center gap-1.5">
-                  <Lock className="size-3.5" /> Sequential Sections
+                  <Lock className="size-3.5" /> Sequential Navigation
                 </span>
-                <span>Section {activeSectionIndex + 1}/{sectionGroups.length}</span>
+                <span>Question {currentIndex + 1}/{totalQuestionCount}</span>
               </div>
               <p className="text-[10px] text-muted-foreground leading-tight">
-                Current: &ldquo;{activeSection.title}&rdquo;. Prior sections lock upon submission.
+                Advance to unlock the next question. Previous questions cannot be revisited.
               </p>
-              {activeSectionIndex < sectionGroups.length - 1 && (
-                <button
-                  type="button"
-                  onClick={() => setShowSectionSubmitModal(true)}
-                  className="w-full mt-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition-colors flex items-center justify-center gap-1 shadow-xs"
-                >
-                  Complete Section & Next <ChevronRight className="size-3" />
-                </button>
-              )}
             </div>
           )}
           <nav aria-label="Assessment questions" className="assessment-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1">
@@ -2467,10 +2914,20 @@ export default function TakeAssessmentPage({
               );
               const qSectionInfo = questionSectionMap.get(index);
               const sectionStatus = qSectionInfo?.status || "unlocked";
-              const isQuestionLocked = isSequentialActive && sectionStatus !== "active";
+              const sectionGroup = qSectionInfo?.section;
+              const sectionHeaderStatus = isSequentialActive && sectionGroup
+                ? sectionGroup.questionIndices[sectionGroup.questionIndices.length - 1] < permittedQuestionIndex
+                  ? "completed"
+                  : sectionGroup.questionIndices[0] > permittedQuestionIndex
+                    ? "locked"
+                    : "active"
+                : sectionStatus;
+              const isQuestionLocked = isSequentialActive
+                ? index !== permittedQuestionIndex
+                : isSectionLockActive && sectionStatus !== "active";
               const response = responses[q._id];
               const answered = response?.status === "answered" && (((response.selectedAnswers && response.selectedAnswers.length > 0) || response.selectedAnswer >= 0) || Boolean(response.code?.trim()));
-              const review = response?.status === "marked_for_review";
+              const review = !isSequentialActive && response?.status === "marked_for_review";
               const current = index === currentIndex;
               const coding = ["coding", "algorithmic", "dsa"].includes(q.questionType?.toLowerCase()) || (!q.options?.length && Boolean(q.starterCode || q.codeSnippet));
               const sectionQuestionsCount = q.sectionTitle
@@ -2483,20 +2940,20 @@ export default function TakeAssessmentPage({
                     <div className="pt-3 pb-1 px-2.5 first:pt-1">
                       <div className="flex items-center justify-between text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
                         <span className="truncate flex items-center gap-1.5">
-                          {sectionStatus === "locked" && <Lock className="size-3 text-muted-foreground shrink-0" />}
-                          {sectionStatus === "completed" && <CheckCircle2 className="size-3 text-emerald-500 shrink-0" />}
+                          {sectionHeaderStatus === "locked" && <Lock className="size-3 text-muted-foreground shrink-0" />}
+                          {sectionHeaderStatus === "completed" && <CheckCircle2 className="size-3 text-emerald-500 shrink-0" />}
                           <span className="truncate">{q.sectionTitle}</span>
                         </span>
                         <div className="flex items-center gap-1.5 shrink-0 ml-2">
                           {isSequentialActive && (
                             <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
-                              sectionStatus === "completed"
+                              sectionHeaderStatus === "completed"
                                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                : sectionStatus === "active"
+                                : sectionHeaderStatus === "active"
                                 ? "bg-primary/10 text-primary border border-primary/20"
                                 : "bg-muted text-muted-foreground border border-border"
                             }`}>
-                              {sectionStatus === "completed" ? "Submitted" : sectionStatus === "active" ? "In Progress" : "Locked"}
+                              {sectionHeaderStatus === "completed" ? "Completed" : sectionHeaderStatus === "active" ? "In Progress" : "Locked"}
                             </span>
                           )}
                           {sectionQuestionsCount > 0 && (
@@ -2515,7 +2972,11 @@ export default function TakeAssessmentPage({
                     onClick={() => {
                       if (isQuestionLocked) return;
                       flushDraftToState();
-                      setCurrentIndex(index);
+                      if (isSectionLockActive) {
+                        void navigateWithinActiveSection(index);
+                      } else {
+                        setCurrentIndex(index);
+                      }
                       setMobileSidebarOpen(false);
                     }}
                     className={`flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-colors ${
@@ -2561,9 +3022,29 @@ export default function TakeAssessmentPage({
             })}
           </nav>
         </aside>
+        )}
         {(() => {
           const isCodingQuestion = ["coding", "algorithmic", "dsa"].includes(currentQ.questionType?.toLowerCase()) || (!currentQ.options?.length && Boolean(currentQ.starterCode || currentQ.codeSnippet));
           return <AssessmentReadingZoom>{readingScale => <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden p-3 pb-24 gap-3 relative">
+            {(isSequentialActive || isSectionLockActive) && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
+                aria-label="Sequential assessment progress"
+              >
+                <span className="text-sm font-semibold text-foreground">
+                  {isSectionLockActive && activeSection
+                    ? `${activeSection.title} · Question ${activeSection.questionIndices.indexOf(currentIndex) + 1} of ${activeSection.questionIndices.length}`
+                    : `Question ${currentIndex + 1} of ${totalQuestionCount}`}
+                </span>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span>Attempted: <strong className="text-foreground">{attemptedQuestionCount}</strong></span>
+                  <span>Not attempted: <strong className="text-foreground">{unattemptedCount}</strong></span>
+                  <span className={isCurrentQuestionAttempted ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+                    Current question: {isCurrentQuestionAttempted ? "Attempted" : "Not attempted"}
+                  </span>
+                </div>
+              </div>
+            )}
             {isCodingQuestion ? (
               <DSAAssessmentEditor assessmentId={id} readingScale={readingScale} key={currentQ._id} question={currentQ} savedResponse={responses[currentQ._id]} onDraftChange={handleCodingDraft} onSave={handleSaveCodingQuestion} onControlsChange={setCodingControls} blockCopyPaste={proctoring?.blockCopyPaste !== false} />
             ) : (
@@ -2574,7 +3055,7 @@ export default function TakeAssessmentPage({
                   {/* Question Metadata Ribbon */}
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-4">
                     <div className="flex items-center gap-2">
-                      {currentQ.sectionTitle && (
+                      {!isSequentialActive && currentQ.sectionTitle && (
                         <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-secondary text-secondary-foreground border border-border">
                           {currentQ.sectionTitle}
                         </span>
@@ -2759,51 +3240,69 @@ export default function TakeAssessmentPage({
                   </>
                 )}
 
-                {/* Review later toggle */}
-                <button
-                  type="button"
-                  onClick={handleMarkForReview}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-600 dark:text-amber-400 transition-colors cursor-pointer"
-                  title={currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review"}
-                >
-                  <Bookmark className="w-3.5 h-3.5" />
-                  <span>{currentResponse?.status === "marked_for_review" ? "Unreview" : isCodingQuestion ? "Review later" : "Review"}</span>
-                </button>
+                {!isSequentialActive && (
+                  <button
+                    type="button"
+                    onClick={handleMarkForReview}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-600 dark:text-amber-400 transition-colors cursor-pointer"
+                    title={currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review"}
+                  >
+                    <Bookmark className="w-3.5 h-3.5" />
+                    <span>{currentResponse?.status === "marked_for_review" ? "Unreview" : isCodingQuestion ? "Review later" : "Review"}</span>
+                  </button>
+                )}
 
                 {/* Previous question */}
                 <button
                   type="button"
-                  onClick={() => { flushDraftToState(); setCurrentIndex((prev) => Math.max(0, prev - 1)); }}
-                  disabled={currentIndex === 0 || (isSequentialActive && isFirstQuestionOfCurrentSection)}
+                  onClick={() => {
+                    if (isSequentialActive) return;
+                    flushDraftToState();
+                    if (isSectionLockActive && activeSection) {
+                      const previousIndex = activeSection.questionIndices[
+                        activeSection.questionIndices.indexOf(currentIndex) - 1
+                      ];
+                      if (typeof previousIndex === "number") void navigateWithinActiveSection(previousIndex);
+                    } else {
+                      setCurrentIndex((prev) => Math.max(0, prev - 1));
+                    }
+                  }}
+                  disabled={
+                    isSequentialActive
+                    || (isSectionLockActive ? isFirstQuestionOfCurrentSection : currentIndex === 0)
+                  }
                   className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <ChevronLeft className="w-4 h-4" /> <span>Previous</span>
                 </button>
 
-                {/* Next Question / Complete Section / Review & Finish */}
-                {isSequentialActive && isLastQuestionOfCurrentSection && activeSectionIndex < sectionGroups.length - 1 ? (
+                {/* Advance one question or submit the final assessment. */}
+                {isLastQuestion ? (
                   <button
                     type="button"
-                    onClick={() => setShowSectionSubmitModal(true)}
-                    className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-sm shadow-amber-600/20 cursor-pointer"
-                  >
-                    Complete Section <ChevronRight className="w-4 h-4" />
-                  </button>
-                ) : isLastQuestion ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowSubmitModal(true)}
+                    onClick={() => {
+                      if (isSectionLockActive) setShowSectionSubmitModal(true);
+                      else setShowSubmitModal(true);
+                    }}
                     className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 cursor-pointer"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" /> <span>Review answers</span>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>
+                      {isSectionLockActive && activeSection
+                        ? "Submit Section"
+                        : isSequentialActive || isSectionLockActive
+                          ? "Submit Assessment"
+                          : "Review answers"}
+                    </span>
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={handleSaveAndNext}
-                    className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20 cursor-pointer"
+                    disabled={isNavigating}
+                    className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
                   >
-                    <span>Next question</span> <ChevronRight className="w-4 h-4" />
+                    <span>{isNavigating ? "Loading…" : "Next question"}</span> <ChevronRight className="w-4 h-4" />
                   </button>
                 )}
               </nav>
@@ -2953,15 +3452,15 @@ export default function TakeAssessmentPage({
               </p>
             </div>
 
-            <div className="p-4 bg-muted/40 border border-border rounded-2xl grid grid-cols-3 gap-2 text-center text-xs font-mono">
+            <div className={`p-4 bg-muted/40 border border-border rounded-2xl grid gap-2 text-center text-xs font-mono ${isSequentialActive ? "grid-cols-2" : "grid-cols-3"}`}>
               <div className="space-y-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Answered</span>
                 <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{activeSectionStats.answered}</div>
               </div>
-              <div className="space-y-0.5">
+              {!isSequentialActive && <div className="space-y-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Review</span>
                 <div className="text-xl font-bold text-amber-600 dark:text-amber-400">{activeSectionStats.review}</div>
-              </div>
+              </div>}
               <div className="space-y-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Unattempted</span>
                 <div className="text-xl font-bold text-muted-foreground">{activeSectionStats.unattempted}</div>
@@ -3009,15 +3508,15 @@ export default function TakeAssessmentPage({
               </div>
             </div>
 
-            <div className="p-4 bg-muted/40 border border-border rounded-2xl grid grid-cols-3 gap-2 text-center text-xs font-mono">
+            <div className={`p-4 bg-muted/40 border border-border rounded-2xl grid gap-2 text-center text-xs font-mono ${isSequentialActive ? "grid-cols-2" : "grid-cols-3"}`}>
               <div className="space-y-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Answered</span>
                 <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{answeredCount}</div>
               </div>
-              <div className="space-y-0.5">
+              {!isSequentialActive && <div className="space-y-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Review</span>
                 <div className="text-xl font-bold text-amber-600 dark:text-amber-400">{reviewCount}</div>
-              </div>
+              </div>}
               <div className="space-y-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold">Unattempted</span>
                 <div className="text-xl font-bold text-muted-foreground">{unattemptedCount}</div>
@@ -3031,7 +3530,7 @@ export default function TakeAssessmentPage({
               </div>
             )}
 
-            {isSequentialActive && activeSectionIndex < sectionGroups.length - 1 && (
+            {!isSequentialActive && activeSectionIndex < sectionGroups.length - 1 && (
               <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-[11px] text-rose-600 dark:text-rose-400 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>Warning: You have uncompleted sections remaining ({sectionGroups.length - 1 - activeSectionIndex} remaining). Submitting now will finalize your entire assessment.</span>
