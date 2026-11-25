@@ -86,7 +86,7 @@ function main() {
       'SANDBOX_TIMEOUT=10000',
       'SANDBOX_MEMORY_LIMIT=256',
       'OPENROUTER_API_KEY=',
-      'DEEPSEEK_API_KEY=',
+      'OPENROUTER_MODEL=openrouter/free',
       '',
     ].join('\n'),
   );
