@@ -13,7 +13,7 @@ Draft and archived entries are visible only to admins. Students see compact comp
 
 ## Files and permissions
 
-- The editor uploads selected PDFs one at a time to stay below deployment proxy request limits and retains unfinished files for retry. Up to 10 PDFs per upload group/request, 8 MiB per file, and 30 attached PDFs per placement.
+- The editor uploads selected PDFs one at a time to stay below deployment proxy request limits and retains unfinished files for retry. Up to 10 PDFs per upload group/request, 10 MiB per file, and 30 attached PDFs per placement.
 - Company logos accept raster images only, with server-side format/signature checks and a 128 KiB limit after resizing. The optimized image is stored in the database, so no public logo upload directory is required.
 - PDF MIME type and file signature are checked. Resource URLs must use HTTP or HTTPS.
 - Files use generated storage names and are served through authenticated download endpoints. Students cannot download draft or archived documents, including with a previously copied URL.
@@ -43,3 +43,9 @@ All paths use the normal `/api` prefix and existing JWT authentication:
 | DELETE | `/placements/:id/documents/:docId` | Admin |
 
 Document category values: `job-description`, `company-profile`, `learning-resource`.
+
+## Firewall deployment for PDF uploads
+
+The WAF size-label rule exempts only `POST /api/placements/<UUID>/documents` (plus the pre-existing import exceptions). Other placement methods and routes keep the original body-size protection, and all other managed rules remain enabled. NestJS still requires JWT authentication and an admin role, validates the PDF signature, and limits each PDF to 10 MiB.
+
+**Deploy the Terraform WAF module change as well as the application.** The application image rollout workflow does not run Terraform. Merging/redeploying only the API/frontend will not remove an already-active WAF 403. The AWS infrastructure operator must plan/apply the production environment using its existing remote state, review that the Web ACL size-label exception is the intended change, then retry the upload. Do not create a new Terraform state or disable the Web ACL.

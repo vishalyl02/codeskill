@@ -1,7 +1,7 @@
 name: Piston integration validation
 on:
   pull_request:
-    paths: ['backend-nestjs/**', 'frontend-v2/**', 'deployment/piston/**', 'scripts/piston/**', 'terraform/modules/piston-execution/**', '.github/scripts/**', '.github/workflows/deploy.yml', '.github/workflows/piston-validation.yml']
+    paths: ['backend-nestjs/**', 'frontend-v2/**', 'deployment/piston/**', 'scripts/piston/**', 'terraform/modules/piston-execution/**', 'terraform/modules/waf/**', 'terraform/tests/**', '.github/scripts/**', '.github/workflows/deploy.yml', '.github/workflows/piston-validation.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,6 +12,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Validate AWS deployment configuration checks
         run: bash .github/scripts/test-aws-deployment-config.sh
+      - name: Validate placement upload firewall and file limits
+        run: python3 -m unittest discover -s terraform/tests -p 'test_*limits.py' -v
       - uses: actions/setup-node@v7
         with:
           node-version: '22'

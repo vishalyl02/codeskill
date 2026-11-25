@@ -227,3 +227,13 @@ describe('company logo validation', () => {
     ).toThrow(BadRequestException);
   });
 });
+
+it('accepts exactly 10 MiB per PDF and rejects one byte beyond the limit', () => {
+  expect(PDF_LIMIT).toBe(10 * 1024 * 1024);
+  const maximum = Buffer.alloc(10 * 1024 * 1024);
+  maximum.write('%PDF-1.4');
+  expect(() => validatePlacementPdfs([pdf(maximum)])).not.toThrow();
+  const oversized = Buffer.alloc(10 * 1024 * 1024 + 1);
+  oversized.write('%PDF-1.4');
+  expect(() => validatePlacementPdfs([pdf(oversized)])).toThrow('10 MB');
+});
