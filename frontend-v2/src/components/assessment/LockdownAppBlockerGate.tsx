@@ -9,13 +9,17 @@ import {
   BlockingAppInfo,
   isLockdownClient,
 } from "@/lib/lockdown-bridge";
+import { lockdownLogger } from "@/lib/lockdown-logger";
+import api from "@/config/api";
 
 interface LockdownAppBlockerGateProps {
+  assessmentId?: string;
   onReady: () => void;
   requireCloseOtherApps?: boolean;
 }
 
 export default function LockdownAppBlockerGate({
+  assessmentId,
   onReady,
   requireCloseOtherApps = true,
 }: LockdownAppBlockerGateProps) {
@@ -24,6 +28,7 @@ export default function LockdownAppBlockerGate({
   const [isClosingAll, setIsClosingAll] = useState<boolean>(false);
   const [closingPid, setClosingPid] = useState<number | null>(null);
   const hasInitializedRef = useRef<boolean>(false);
+  const lastLoggedAppsKeyRef = useRef<string>("");
 
   const fetchApps = useCallback(async () => {
     if (!isLockdownClient() || !requireCloseOtherApps) {
@@ -37,7 +42,25 @@ export default function LockdownAppBlockerGate({
       const apps = await listBlockingApps();
       setBlockingApps(apps);
       if (apps.length === 0) {
+        if (lastLoggedAppsKeyRef.current !== "") {
+          lastLoggedAppsKeyRef.current = "";
+          lockdownLogger.info("PREFLIGHT", "blocking_apps_cleared", {});
+        }
         onReady();
+      } else {
+        const key = apps.map((a) => `${a.name}:${a.category}`).sort().join(",");
+        if (key !== lastLoggedAppsKeyRef.current) {
+          lastLoggedAppsKeyRef.current = key;
+          const appSummaries = apps.map((a) => ({ name: a.name, category: a.category, pid: a.pid }));
+          lockdownLogger.warn("PREFLIGHT", "blocking_apps_detected", {
+            count: apps.length,
+            apps: appSummaries,
+          });
+          void lockdownLogger.uploadDiagnosticsSnapshot(api, assessmentId, "blocking_apps_detected", {
+            count: apps.length,
+            apps: appSummaries,
+          });
+        }
       }
       hasInitializedRef.current = true;
     } catch (err) {

@@ -333,6 +333,19 @@ pub fn log_diagnostic_entry(level: &str, category: &str, message: &str) {
         message: message.to_string(),
     };
     eprintln!("[LockDown][{}][{}] {}", level, category, message);
+    let fr_level = match level {
+        "ERROR" => "ERROR",
+        "WARN" => "WARN",
+        _ => "INFO",
+    };
+    crate::flight_recorder::record_event(
+        fr_level,
+        "SECURITY",
+        "SECURITY_DIAGNOSTIC",
+        category,
+        "recorded",
+        serde_json::json!({ "message": message }),
+    );
     if let Ok(path_lock) = LOG_FILE_PATH.lock() {
         if let Some(ref log_path) = *path_lock {
             if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -1099,12 +1112,21 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64;
+                let msg = format!("Stealth overlay window detected: {}", overlays.join("; "));
+                crate::flight_recorder::record_event(
+                    "WARN",
+                    "SECURITY_WATCHDOG",
+                    "SCENARIO_D_WATCHDOG",
+                    "OVERLAY_WINDOW_DETECTED",
+                    "violation",
+                    serde_json::json!({ "overlays": overlays, "message": msg }),
+                );
 
                 let _ = app_handle.emit(
                     "exam:environment-violation",
                     EnvironmentViolationEvent {
                         violation_type: "OVERLAY_WINDOW_DETECTED".to_string(),
-                        message: format!("Stealth overlay window detected: {}", overlays.join("; ")),
+                        message: msg,
                         timestamp: now,
                     },
                 );
@@ -1117,12 +1139,21 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64;
+                let msg = format!("Forbidden process detected: {}", forbidden);
+                crate::flight_recorder::record_event(
+                    "WARN",
+                    "SECURITY_WATCHDOG",
+                    "SCENARIO_D_WATCHDOG",
+                    "FORBIDDEN_PROCESS_SPAWNED",
+                    "violation",
+                    serde_json::json!({ "process": forbidden, "forbiddenList": forbidden_list }),
+                );
 
                 let _ = app_handle.emit(
                     "exam:environment-violation",
                     EnvironmentViolationEvent {
                         violation_type: "FORBIDDEN_PROCESS_SPAWNED".to_string(),
-                        message: format!("Forbidden process detected: {}", forbidden),
+                        message: msg,
                         timestamp: now,
                     },
                 );
@@ -1135,12 +1166,21 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64;
+                let msg = format!("Runtime integrity violation: {}", integrity.violations.join("; "));
+                crate::flight_recorder::record_event(
+                    "ERROR",
+                    "SECURITY_WATCHDOG",
+                    "SCENARIO_D_WATCHDOG",
+                    "RUNTIME_TAMPER_DETECTED",
+                    "violation",
+                    serde_json::json!({ "violations": integrity.violations }),
+                );
 
                 let _ = app_handle.emit(
                     "exam:environment-violation",
                     EnvironmentViolationEvent {
                         violation_type: "RUNTIME_TAMPER_DETECTED".to_string(),
-                        message: format!("Runtime integrity violation: {}", integrity.violations.join("; ")),
+                        message: msg,
                         timestamp: now,
                     },
                 );

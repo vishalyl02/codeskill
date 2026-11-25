@@ -86,4 +86,52 @@ describe("lockdownLogger", () => {
     );
     errSpy.mockRestore();
   });
+
+  it("uploads client diagnostic snapshot with breadcrumbs and respects cooldown", async () => {
+    (bridge.isLockdownClient as jest.Mock).mockReturnValue(true);
+    (bridge.getFlightRecorderContext as jest.Mock).mockResolvedValue({
+      bootId: "boot-uuid-123",
+      platform: "macos",
+      osVersion: "unix",
+      arch: "aarch64",
+      logDir: "/tmp/logs",
+      clientVersion: "1.0.0",
+    });
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    const apiClient = { post: jest.fn(() => Promise.resolve({ data: { success: true } })) };
+
+    lockdownLogger.error("ASSESSMENT_START", "start_attempt_failed", { statusCode: 403 });
+    const first = await lockdownLogger.uploadDiagnosticsSnapshot(
+      apiClient,
+      "exam-42",
+      "start_attempt_failed",
+      { statusCode: 403 },
+      15000,
+    );
+    const second = await lockdownLogger.uploadDiagnosticsSnapshot(
+      apiClient,
+      "exam-42",
+      "start_attempt_failed",
+      { statusCode: 403 },
+      15000,
+    );
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "exam-security/client-diagnostics",
+      expect.objectContaining({
+        assessmentId: "exam-42",
+        bootId: "boot-uuid-123",
+        platform: "macos",
+        clientVersion: "1.0.0",
+        summary: expect.objectContaining({ reason: "start_attempt_failed", statusCode: 403 }),
+        breadcrumbs: expect.arrayContaining([
+          expect.objectContaining({ event: "start_attempt_failed" }),
+        ]),
+      }),
+    );
+    errSpy.mockRestore();
+  });
 });

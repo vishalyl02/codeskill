@@ -50,6 +50,12 @@ class LockdownStructuredLogger {
   } = {};
   private initialized = false;
   private bootIdPromise: Promise<void> | null = null;
+  private flightContext: {
+    bootId: string;
+    platform: string;
+    clientVersion: string;
+  } | null = null;
+  private lastUploadByKey = new Map<string, number>();
 
   public setCorrelationContext(ctx: {
     assessmentId?: string;
@@ -104,12 +110,17 @@ class LockdownStructuredLogger {
   }
 
   private async ensureBootId(): Promise<void> {
-    if (this.bootId) return;
+    if (this.bootId && this.flightContext) return;
     if (!this.bootIdPromise) {
       this.bootIdPromise = getFlightRecorderContext()
         .then((ctx) => {
           if (ctx?.bootId) {
             this.bootId = ctx.bootId;
+            this.flightContext = {
+              bootId: ctx.bootId,
+              platform: ctx.platform,
+              clientVersion: ctx.clientVersion,
+            };
           }
         })
         .catch(() => {})
@@ -207,6 +218,42 @@ class LockdownStructuredLogger {
 
   public clearBreadcrumbs() {
     this.buffer = [];
+  }
+
+  public async uploadDiagnosticsSnapshot(
+    apiClient: { post: (url: string, data?: unknown) => Promise<unknown> },
+    assessmentId: string | undefined,
+    reason: string,
+    summary: Record<string, unknown> = {},
+    cooldownMs = 15000,
+  ): Promise<boolean> {
+    if (typeof window === "undefined" || !isLockdownClient()) return false;
+    const dedupeKey = `${assessmentId || "global"}:${reason}`;
+    const now = Date.now();
+    const lastSent = this.lastUploadByKey.get(dedupeKey) || 0;
+    if (now - lastSent < cooldownMs) {
+      return false;
+    }
+    this.lastUploadByKey.set(dedupeKey, now);
+
+    try {
+      await this.ensureBootId();
+      await apiClient.post("exam-security/client-diagnostics", {
+        assessmentId: assessmentId || this.correlation.assessmentId,
+        sessionId: this.correlation.sessionId,
+        bootId: this.bootId,
+        platform: this.flightContext?.platform,
+        clientVersion: this.flightContext?.clientVersion,
+        summary: {
+          reason,
+          ...sanitizeDetails(summary),
+        },
+        breadcrumbs: this.getBreadcrumbs(25),
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

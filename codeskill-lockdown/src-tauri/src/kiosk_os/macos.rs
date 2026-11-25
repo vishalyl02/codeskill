@@ -2,7 +2,7 @@ use super::*;
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationPresentationOptions,
     NSNormalWindowLevel, NSStatusWindowLevel, NSWindow,
-    NSEvent, NSEventMask, NSEventModifierFlags,
+    NSEvent, NSEventMask, NSEventModifierFlags, NSPasteboard,
 };
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
@@ -411,15 +411,109 @@ pub fn disable_macos_kiosk(window_ptr: Option<*mut std::ffi::c_void>) {
     }
 }
 
-pub fn clear_clipboard() {
-    use std::io::Write;
-    if let Ok(mut child) = std::process::Command::new("pbcopy")
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-    {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(b"");
+static CLIPBOARD_GUARD_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+static CLIPBOARD_GUARD_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static EXPECTED_PASTEBOARD_CHANGE_COUNT: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(-1);
+static LOCAL_COPY_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+unsafe fn pasteboard_has_remote_marker(pb: &NSPasteboard) -> bool {
+    let remote_type = objc2_foundation::NSString::from_str("com.apple.is-remote-clipboard");
+    if let Some(types) = pb.types() {
+        for i in 0..types.count() {
+            if types.objectAtIndex(i).isEqualToString(&remote_type) {
+                return true;
+            }
         }
-        let _ = child.wait();
     }
+    false
+}
+
+pub fn clear_clipboard() {
+    unsafe {
+        let pb = NSPasteboard::generalPasteboard();
+        let new_cc = pb.clearContents();
+        EXPECTED_PASTEBOARD_CHANGE_COUNT.store(new_cc, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+pub fn authorize_local_clipboard_copy() {
+    LOCAL_COPY_DEADLINE_MS.store(now_epoch_ms().saturating_add(1500), std::sync::atomic::Ordering::SeqCst);
+    unsafe {
+        let pb = NSPasteboard::generalPasteboard();
+        EXPECTED_PASTEBOARD_CHANGE_COUNT.store(pb.changeCount(), std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+pub fn start_clipboard_guard(app: tauri::AppHandle) {
+    use tauri::Emitter;
+    clear_clipboard();
+    CLIPBOARD_GUARD_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
+    if CLIPBOARD_GUARD_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let mut last_violation_ms: u64 = 0;
+        while !CLIPBOARD_GUARD_STOP.load(std::sync::atomic::Ordering::SeqCst) {
+            let (is_remote, changed_externally, current_cc) = unsafe {
+                let pb = NSPasteboard::generalPasteboard();
+                let cc = pb.changeCount();
+                let expected = EXPECTED_PASTEBOARD_CHANGE_COUNT.load(std::sync::atomic::Ordering::SeqCst);
+                let remote = pasteboard_has_remote_marker(&pb);
+                let now = now_epoch_ms();
+                let deadline = LOCAL_COPY_DEADLINE_MS.load(std::sync::atomic::Ordering::SeqCst);
+
+                if cc != expected && now <= deadline && !remote {
+                    // Authorized in-editor copy/cut completed; lock in the new changeCount.
+                    EXPECTED_PASTEBOARD_CHANGE_COUNT.store(cc, std::sync::atomic::Ordering::SeqCst);
+                    (false, false, cc)
+                } else {
+                    (remote, expected >= 0 && cc != expected, cc)
+                }
+            };
+
+            if is_remote || changed_externally {
+                clear_clipboard();
+                let now = now_epoch_ms();
+                let reason = if is_remote {
+                    "universal_clipboard_remote_marker"
+                } else {
+                    "external_pasteboard_change"
+                };
+                crate::flight_recorder::record_event(
+                    "WARN",
+                    "SECURITY",
+                    "SCENARIO_D_CLIPBOARD",
+                    "EXTERNAL_CLIPBOARD_DETECTED",
+                    "cleared",
+                    serde_json::json!({ "reason": reason, "changeCount": current_cc }),
+                );
+                if now.saturating_sub(last_violation_ms) >= 2000 {
+                    last_violation_ms = now;
+                    let _ = app.emit(
+                        "exam:environment-violation",
+                        crate::security::EnvironmentViolationEvent {
+                            violation_type: "EXTERNAL_CLIPBOARD_DETECTED".to_string(),
+                            message: "External or Universal Clipboard content detected and cleared.".to_string(),
+                            timestamp: now,
+                        },
+                    );
+                }
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        CLIPBOARD_GUARD_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+
+pub fn stop_clipboard_guard() {
+    CLIPBOARD_GUARD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
 }

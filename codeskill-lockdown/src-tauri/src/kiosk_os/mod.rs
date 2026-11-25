@@ -63,6 +63,7 @@ pub fn release_os_kiosk_system() {
 
     #[cfg(target_os = "macos")]
     {
+        macos_impl::stop_clipboard_guard();
         macos_impl::disable_macos_kiosk(None);
     }
 
@@ -243,6 +244,7 @@ pub fn enable_kiosk_mode(
         });
 
         // Try AAC first; fallback to Cocoa kiosk
+        macos_impl::start_clipboard_guard(app.clone());
         let allow_speech = att_state.allow_accessibility_speech.load(std::sync::atomic::Ordering::Relaxed);
         let aac_result = macos_impl::try_start_aac_session(allow_speech);
         let mode = if aac_result.is_ok() {
@@ -352,6 +354,14 @@ pub fn exit_lockdown_app(app: tauri::AppHandle) {
     }
     app.exit(0);
     std::process::exit(0);
+}
+
+#[tauri::command]
+pub fn authorize_local_clipboard_copy() {
+    #[cfg(target_os = "macos")]
+    {
+        macos_impl::authorize_local_clipboard_copy();
+    }
 }
 
 pub fn reassert_os_kiosk() {

@@ -59,6 +59,7 @@ window.__TAURI_ISOLATION_HOOK__ = function (payload) {
       'get_flight_recorder_context',
       'log_frontend_event',
       'export_diagnostic_log_bundle',
+      'authorize_local_clipboard_copy',
     ];
 
     var isAllowed =
