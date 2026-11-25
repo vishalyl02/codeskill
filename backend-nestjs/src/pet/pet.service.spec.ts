@@ -9,11 +9,13 @@ describe('PetService OpenRouter integration', () => {
   const previousKey = process.env.OPENROUTER_API_KEY;
   const previousModel = process.env.OPENROUTER_MODEL;
   const previousDeepSeekKey = process.env.DEEPSEEK_API_KEY;
+  const previousRequireZdr = process.env.OPENROUTER_REQUIRE_ZDR;
 
   beforeEach(() => {
     process.env.OPENROUTER_API_KEY = 'test-key';
     process.env.OPENROUTER_MODEL = 'paid-model';
     delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.OPENROUTER_REQUIRE_ZDR;
   });
 
   afterEach(() => {
@@ -24,6 +26,8 @@ describe('PetService OpenRouter integration', () => {
     else process.env.OPENROUTER_MODEL = previousModel;
     if (previousDeepSeekKey === undefined) delete process.env.DEEPSEEK_API_KEY;
     else process.env.DEEPSEEK_API_KEY = previousDeepSeekKey;
+    if (previousRequireZdr === undefined) delete process.env.OPENROUTER_REQUIRE_ZDR;
+    else process.env.OPENROUTER_REQUIRE_ZDR = previousRequireZdr;
   });
 
   it('sends the question through the free router and returns its answer', async () => {
@@ -106,10 +110,13 @@ describe('PetService OpenRouter integration', () => {
     expect(requestBody).toContain('const total = 0;');
     expect(requestBody).toContain('What are the inputs?');
     const payload = JSON.parse(requestBody) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      max_tokens: 1024,
+      reasoning: { effort: 'low', exclude: true },
+    });
     expect(payload.provider).toEqual({
       max_price: { prompt: 0, completion: 0, request: 0 },
       data_collection: 'deny',
-      zdr: true,
     });
     expect(requestBody).not.toContain('private-student-id');
     expect(requestBody).not.toContain('private-database-id');
@@ -123,17 +130,58 @@ describe('PetService OpenRouter integration', () => {
     );
   });
 
+  it('requires zero data retention when explicitly configured', async () => {
+    process.env.OPENROUTER_REQUIRE_ZDR = 'true';
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      Response.json({
+        choices: [
+          { message: { content: 'Check what the first input represents.' } },
+        ],
+      }),
+    );
+    const service = new PetService({} as ProblemsService);
+
+    await service.ask('test-user', { question: 'Where should I begin?' });
+
+    const requestBody = fetchMock.mock.calls[0]?.[1]?.body;
+    if (typeof requestBody !== 'string') throw new Error('Expected JSON body');
+    expect(JSON.parse(requestBody).provider).toEqual({
+      max_price: { prompt: 0, completion: 0, request: 0 },
+      data_collection: 'deny',
+      zdr: true,
+    });
+  });
+
+  it.each(['', 'Read both values, then print the'])(
+    'keeps the hint local when OpenRouter exhausts its completion budget',
+    async (content) => {
+      jest.spyOn(global, 'fetch').mockResolvedValue(
+        Response.json({
+          choices: [{ finish_reason: 'length', message: { content } }],
+        }),
+      );
+      const service = new PetService({} as ProblemsService);
+
+      expect(
+        await service.ask('test-user', { question: 'Where should I begin?' }),
+      ).toMatchObject({
+        source: 'local',
+        notice: expect.stringContaining('Showing a built-in hint'),
+      });
+    },
+  );
+
   it.each([
     ['quota exhaustion', new Response(null, { status: 429 }), 'usage limit'],
     [
       'provider outage',
       new Response(null, { status: 503 }),
-      'temporarily unavailable',
+      'Showing a built-in hint',
     ],
     [
       'provider timeout',
       new DOMException('Timed out', 'TimeoutError'),
-      'temporarily unavailable',
+      'Showing a built-in hint',
     ],
   ])(
     'keeps problem guidance available after %s',
@@ -222,7 +270,7 @@ describe('PetService OpenRouter integration', () => {
     const followUp = await ask('Can you explain the hint here?', sample.reply);
 
     expect(sample.source).toBe('local');
-    expect(sample.notice).toContain('temporarily unavailable');
+    expect(sample.notice).toContain('Showing a built-in hint');
     expect(sample.reply).toContain('first expected result “0”');
     expect(goal.reply).toContain('Count the pairs of positions i < j');
     expect(goal.reply).not.toContain('Hidden solution');

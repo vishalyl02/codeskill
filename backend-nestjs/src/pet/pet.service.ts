@@ -173,8 +173,9 @@ export class PetService {
       };
     }
 
-    const unavailable =
-      'AI is temporarily unavailable. Here is a hint from this problem.';
+    const requireZeroRetention = process.env.OPENROUTER_REQUIRE_ZDR === 'true';
+    const fallbackNotice =
+      'Showing a built-in hint. You can try again for an AI hint.';
     try {
       const response = await fetch(
         'https://openrouter.ai/api/v1/chat/completions',
@@ -190,11 +191,15 @@ export class PetService {
           body: JSON.stringify({
             model: freeModel,
             stream: false,
-            max_tokens: 250,
+            // Reasoning and the visible hint share the completion budget.
+            max_tokens: 1024,
+            ...(freeModel === FREE_MODEL && {
+              reasoning: { effort: 'low', exclude: true },
+            }),
             provider: {
               max_price: { prompt: 0, completion: 0, request: 0 },
               data_collection: 'deny',
-              zdr: true,
+              ...(requireZeroRetention && { zdr: true }),
             },
             messages: [
               {
@@ -221,7 +226,7 @@ export class PetService {
       }
       if (!response.ok) {
         this.logger.warn(`OpenRouter returned HTTP ${response.status}`);
-        return { ...fallback, notice: unavailable };
+        return { ...fallback, notice: fallbackNotice };
       }
       const result = (await response.json()) as {
         choices?: Array<{
@@ -232,8 +237,15 @@ export class PetService {
       const choice = result?.choices?.[0];
       const content = choice?.message?.content;
       const reply = typeof content === 'string' ? content.trim() : '';
-      if (!reply) throw new Error('Empty hint response');
-      if (choice?.finish_reason === 'length' || !isShortHint(reply)) {
+      if (choice?.finish_reason === 'length') {
+        this.logger.warn('OpenRouter exceeded the completion budget');
+        return { ...fallback, notice: fallbackNotice };
+      }
+      if (!reply) {
+        this.logger.warn('OpenRouter returned an empty hint');
+        return { ...fallback, notice: fallbackNotice };
+      }
+      if (!isShortHint(reply)) {
         return {
           ...fallback,
           notice: 'Byte gives one hint at a time, not full solutions.',
@@ -242,7 +254,7 @@ export class PetService {
       return { reply, source: 'openrouter' as const };
     } catch {
       this.logger.warn('OpenRouter did not return a usable response');
-      return { ...fallback, notice: unavailable };
+      return { ...fallback, notice: fallbackNotice };
     }
   }
 
