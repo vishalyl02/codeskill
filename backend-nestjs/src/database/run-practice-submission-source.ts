@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 
+import { applyPlacementsMigration } from './migrations/placements';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { databaseConfig } from '../config';
 import { applyPracticeSubmissionSourceMigration } from './migrations/practice-submission-source';
@@ -63,6 +64,7 @@ export async function runPracticeSubmissionSourceMigration(): Promise<void> {
           validateShardingState(parseSubmissionShardingConfig(), sharding);
         if (!sharding)
           await applyPracticeSubmissionSourceMigration(queryRunner);
+        await applyPlacementsMigration(queryRunner);
         await applyAuthTokensSchemaMigration(queryRunner);
         await applyDeclarativePartitioningMigration(queryRunner, {
           skipSubmissions: !!sharding,

@@ -77,6 +77,7 @@ const adminNavItems = [
   { name: "Results & Scores", href: "/admin/candidates", icon: BarChart3 },
   { name: "Contests", href: "/admin/contests", icon: Trophy },
   { name: "Contest Results", href: "/admin/contest-results", icon: Award },
+  { name: "Placements", href: "/admin/placements", icon: Building2 },
   { name: "Settings", href: "/admin/settings", icon: Settings },
 ];
 

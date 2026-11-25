@@ -18,6 +18,7 @@ import { Submission } from './entities/submission.entity';
 import { Contest } from './entities/contest.entity';
 import { ContestAttempt } from './entities/contest-attempt.entity';
 import { ContestReattemptGrant } from './entities/contest-reattempt-grant.entity';
+import { Placement } from '../placements/placement.entity';
 import { Company } from './entities/company.entity';
 import { CompanyUser } from './entities/company-user.entity';
 import { Job } from './entities/job.entity';
@@ -59,6 +60,7 @@ import {
 } from '../learning/entities';
 
 const entities = [
+  Placement,
   User,
   RefreshToken,
   BugReport,

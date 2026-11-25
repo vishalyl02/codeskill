@@ -916,3 +916,18 @@ export const contestsAPI = {
 };
 
 export default api;
+
+
+// Placement metadata is shared; PDF contents remain behind authenticated downloads.
+export const placementsAPI = {
+  list: (manage = false, signal?: AbortSignal) => api.get(manage ? '/placements/manage' : '/placements', { signal }),
+  create: (data: import('@/components/placements/types').PlacementInput) => api.post('/placements', data),
+  update: (id: string, data: import('@/components/placements/types').PlacementInput) => api.put(`/placements/${id}`, data),
+  upload: (id: string, category: string, files: File[]) => {
+    const data = new FormData();
+    files.forEach(file => data.append('files', file));
+    return api.post(`/placements/${id}/documents`, data, { params: { category }, headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  removeDocument: (id: string, documentId: string) => api.delete(`/placements/${id}/documents/${documentId}`),
+  download: (id: string, documentId: string) => api.get(`/placements/${id}/documents/${documentId}`, { responseType: 'blob' }),
+};
