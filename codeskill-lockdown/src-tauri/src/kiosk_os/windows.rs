@@ -4,7 +4,7 @@ use windows::Win32::UI::WindowsAndMessaging::HHOOK;
 
 static KEYBOARD_HOOK: Mutex<Option<isize>> = Mutex::new(None);
 
-use super::*;
+use super::{KIOSK_ACTIVE, log_diagnostic_entry};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx,
     KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
@@ -12,8 +12,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::Win32::Foundation::{HINSTANCE, HWND};
 use windows::Win32::System::StationsAndDesktops::{
     CreateDesktopW, SwitchDesktop, CloseDesktop, HDESK, OpenInputDesktop,
-    DESKTOP_CONTROL_FLAGS, DESKTOP_ACCESS_FLAGS,
-    DESKTOP_CREATEWINDOW, DESKTOP_SWITCHDESKTOP, DESKTOP_WRITEOBJECTS,
+    DESKTOP_CONTROL_FLAGS, DESKTOP_CREATEWINDOW, DESKTOP_SWITCHDESKTOP, DESKTOP_WRITEOBJECTS,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 

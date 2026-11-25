@@ -1,7 +1,5 @@
 use super::PermissionChecklistItem;
-use tauri::AppHandle;
-
-use super::*;
+use tauri::{AppHandle, Manager};
 use windows::Win32::System::Registry::{
     RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,
     KEY_READ,
