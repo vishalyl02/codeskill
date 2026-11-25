@@ -138,6 +138,7 @@ export interface StartupPermissionChecklistState {
   verifiedAtMs: number;
   clientVersion: string;
   pendingExamUrl?: string | null;
+  reinstallDetected?: boolean;
 }
 
 export interface PermissionsSetupPersistedState {

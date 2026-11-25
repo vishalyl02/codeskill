@@ -679,6 +679,7 @@ export default function LockdownUtilityDock({
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        data-lockdown-utility-dock="true"
         style={
           position
             ? { left: `${position.x}px`, top: `${position.y}px` }

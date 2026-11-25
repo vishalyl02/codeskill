@@ -17,6 +17,11 @@ export default function GlobalLockdownDock() {
     return null;
   }
 
+  // If the native Tauri integral frame controls bar is mounted, yield to it to avoid duplicate docks
+  if (typeof document !== "undefined" && document.getElementById("codeskill-lockdown-frame-controls")) {
+    return null;
+  }
+
   // The active assessment exam taking page (/assessments/[id]/take) renders
   // its own assessment-configured dock with calculator, scratchpad, timer, and autosave.
   const isAssessmentTakingPage = Boolean(

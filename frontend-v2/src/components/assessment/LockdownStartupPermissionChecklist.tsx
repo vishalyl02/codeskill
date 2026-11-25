@@ -308,6 +308,31 @@ export default function LockdownStartupPermissionChecklist({
           </div>
         </div>
 
+        {/* macOS Reinstall / Replace Duplicate Permission Helper */}
+        {effectiveChecklist.platform === "macos" && effectiveChecklist.reinstallDetected && !allGranted && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-2.5 mb-3 text-xs text-amber-200 relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-[11px] leading-relaxed">
+                <span className="font-semibold text-amber-300">Updated/Replaced App Detected: </span>
+                macOS may still list an older &ldquo;CodeSkill LockDown&rdquo; entry in System Settings. Select the older entry and click <strong>&minus;</strong> to remove it, or run{" "}
+                <code className="bg-slate-900/90 text-amber-300 px-1 py-0.5 rounded font-mono">
+                  tccutil reset All com.codeskill.lockdown
+                </code>{" "}
+                in Terminal, then toggle permissions ON for this version.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleCopyPayload("tcc-reset", "tccutil reset All com.codeskill.lockdown")}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-[11px] font-semibold inline-flex items-center gap-1 shrink-0 cursor-pointer"
+            >
+              {copiedPayloadId === "tcc-reset" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              {copiedPayloadId === "tcc-reset" ? "Copied" : "Copy Reset Cmd"}
+            </button>
+          </div>
+        )}
+
         {/* Permissions Checklist List */}
         <div className="space-y-2 mb-3 relative z-10 overflow-y-auto max-h-[46vh] pr-1 flex-1">
           {effectiveItems.length > 0 ? (
