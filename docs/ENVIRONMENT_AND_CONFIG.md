@@ -43,7 +43,7 @@ CodeSkill processes are governed by the `PROCESS_ROLE` environment variable (`ba
 
 ## 2. Complete Environment Variable Catalog
 
-Below is the exhaustive inventory of all 121 environment variable keys identified across the codebase:
+Below is the inventory of environment variable keys identified across the codebase:
 
 | Variable Name | Referenced Subsystem(s) | Data Type | Default Value | Required? | Behavior When Missing / Unset |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -84,8 +84,6 @@ Below is the exhaustive inventory of all 121 environment variable keys identifie
 | `DB_POOL_MIN` | `backend-nestjs/src/database/database.module.ts:124` | String | `5` | Optional | Runtime fallback or validation error. |
 | `DB_SSL` | `scripts/create_admin.js:31` | Boolean (`true`/`false`) | *None* | Optional | Runtime fallback or validation error. |
 | `DB_SYNCHRONIZE` | `backend-nestjs/src/database/database.module.ts:117` | Boolean (`true`/`false`) | *None* | Optional | Runtime fallback or validation error. |
-| `DEEPSEEK_API_KEY` | `backend-nestjs/src/pet/pet.service.spec.ts:11`<br>`backend-nestjs/src/pet/pet.service.spec.ts:16`<br>`backend-nestjs/src/pet/pet.service.spec.ts:25`<br>*(and 2 more)* | Secret string | *None* | Optional | Runtime fallback or validation error. |
-| `DEEPSEEK_MODEL` | `backend-nestjs/src/pet/pet.service.ts:141` | String | `deepseek-flash` | Optional | Runtime fallback or validation error. |
 | `DISABLE_AUTO_MIGRATION` | `backend-nestjs/src/database/database-auto-migration.service.ts:24` | String | *None* | Optional | Runtime fallback or validation error. |
 | `DOCKER_PATH` | `backend-nestjs/src/execution/execution.service.ts:901` | String | *None* | Optional | Runtime fallback or validation error. |
 | `ENABLE_EMBEDDED_JUDGE` | `backend-nestjs/src/execution/execution.module.ts:23` | Boolean (`true`/`false`) | *None* | Optional | Runtime fallback or validation error. |
@@ -130,8 +128,8 @@ Below is the exhaustive inventory of all 121 environment variable keys identifie
 | `NEXT_PUBLIC_SOCKET_URL` | `frontend-v2/src/__tests__/utils/seo.test.ts:21`<br>`frontend-v2/src/__tests__/utils/seo.test.ts:46`<br>`frontend-v2/src/__tests__/utils/seo.test.ts:94`<br>*(and 4 more)* | URL string | *None* | Optional | Runtime fallback or validation error. |
 | `NEXT_PUBLIC_WS_URL` | `frontend-v2/src/hooks/anti-cheat/useAntiCheatMaster.ts:40` | URL string | *None* | Optional | Runtime fallback or validation error. |
 | `NODE_ENV` | `backend-nestjs/src/auth/auth.service.ts:746`<br>`backend-nestjs/src/auth/password.util.ts:46`<br>`backend-nestjs/src/common/cors.util.ts:39`<br>*(and 27 more)* | String | `development`, `production` | Optional | Runtime fallback or validation error. |
-| `OPENROUTER_API_KEY` | `backend-nestjs/src/pet/pet.service.spec.ts:14`<br>`backend-nestjs/src/pet/pet.service.spec.ts:21`<br>`backend-nestjs/src/pet/pet.service.spec.ts:22`<br>*(and 2 more)* | Secret string | *None* | Optional | Runtime fallback or validation error. |
-| `OPENROUTER_MODEL` | `backend-nestjs/src/pet/pet.service.spec.ts:10`<br>`backend-nestjs/src/pet/pet.service.spec.ts:15`<br>`backend-nestjs/src/pet/pet.service.spec.ts:23`<br>*(and 2 more)* | String | *None* | Optional | Runtime fallback or validation error. |
+| `OPENROUTER_API_KEY` | `backend-nestjs/src/pet/pet.service.ts` | Secret string | *None* | Optional | Byte serves built-in hints. |
+| `OPENROUTER_MODEL` | `backend-nestjs/src/pet/pet.service.ts` | String | `openrouter/free` | Optional | Byte uses the Free Models Router. |
 | `OTP_PEPPER` | `backend-nestjs/src/redis/otp.service.ts:92` | String | *None* | Optional | Runtime fallback or validation error. |
 | `PATH` | `backend-nestjs/src/execution/execution.service.ts:1213` | String | *None* | Optional | Runtime fallback or validation error. |
 | `PISTON_API_KEY` | `backend-nestjs/src/execution/piston/piston.config.ts:63` | Secret string | *None* | Optional | Runtime fallback or validation error. |
@@ -274,6 +272,14 @@ The authentication subsystem enforces strict cryptographic invariants at boot (`
 ---
 
 ## 7. External Integrations & Webhooks (Alerting, S3, Email)
+
+### Byte practice hints
+
+An eligible team maintainer can enable model-generated hints in staging using the backend secret `OPENROUTER_API_KEY`. `OPENROUTER_MODEL` defaults to `openrouter/free` and accepts a specific `:free` model. Requests set a zero price ceiling and ask for no data collection and zero data retention. Review the team's provider privacy settings before enabling student traffic and leave the key unset to serve built-in hints only. [OpenRouter eligibility](https://openrouter.ai/terms#2-eligibility) · [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
+
+OpenRouter documents a shared free quota of 20 model requests per minute and 50 per day for an account with no purchased credits. Confirm the account's effective quota before enabling staging. Byte serves a built-in hint when the provider returns a rate limit, has no eligible endpoint, or times out. [OpenRouter rate limits](https://openrouter.ai/docs/api_reference/limits)
+
+For the staging smoke test, sign in as a test learner, open a synthetic practice problem, and ask Byte a question that calls for a hint. Verify the reply is a single actionable hint and that the `POST /api/pet/ask` response has `source: openrouter`. Test quota and outage fallback with the mocked responses in `pet.service.spec.ts`.
 
 ### AWS Storage & Email Delivery
 | Variable | Type | Description |

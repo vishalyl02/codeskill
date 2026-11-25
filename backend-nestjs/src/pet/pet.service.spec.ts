@@ -46,7 +46,22 @@ describe('PetService OpenRouter integration', () => {
       getProblemBySlug: jest.fn().mockResolvedValue({
         data: {
           title: 'Synthetic addition',
-          description: 'Add two numbers.',
+          id: 'private-database-id',
+          statement: {
+            description: 'Add two numbers.',
+            inputFormat: 'Two integers.',
+            samples: [
+              {
+                input: '2 3',
+                output: '5',
+                explanation: 'Solution explanation should stay out.',
+                internalField: 'Sample metadata should stay out.',
+              },
+            ],
+          },
+          testCases: {
+            cases: [{ input: 'Hidden test input', isHidden: true }],
+          },
           hints: ['Add the two inputs and print the result.'],
           editorial: 'Private full solution.',
         },
@@ -59,6 +74,7 @@ describe('PetService OpenRouter integration', () => {
       problemSlug: 'synthetic-addition',
       code: 'const total = 0;',
       language: 'javascript',
+      studentId: 'private-student-id',
       history: [
         { role: 'assistant', content: 'Old complete code should stay out.' },
         { role: 'user', content: 'What are the inputs?' },
@@ -76,6 +92,7 @@ describe('PetService OpenRouter integration', () => {
     expect(options?.headers).toMatchObject({
       Authorization: 'Bearer test-key',
     });
+    expect(options?.redirect).toBe('error');
     const requestBody = options?.body;
     expect(typeof requestBody).toBe('string');
     if (typeof requestBody !== 'string') throw new Error('Expected JSON body');
@@ -84,8 +101,21 @@ describe('PetService OpenRouter integration', () => {
     expect(requestBody).toContain('Never give a full solution');
     expect(requestBody).toContain('Synthetic addition');
     expect(requestBody).toContain('Add two numbers.');
+    expect(requestBody).toContain('Two integers.');
+    expect(requestBody).toContain('2 3');
     expect(requestBody).toContain('const total = 0;');
     expect(requestBody).toContain('What are the inputs?');
+    const payload = JSON.parse(requestBody) as Record<string, unknown>;
+    expect(payload.provider).toEqual({
+      max_price: { prompt: 0, completion: 0, request: 0 },
+      data_collection: 'deny',
+      zdr: true,
+    });
+    expect(requestBody).not.toContain('private-student-id');
+    expect(requestBody).not.toContain('private-database-id');
+    expect(requestBody).not.toContain('Hidden test input');
+    expect(requestBody).not.toContain('Solution explanation should stay out.');
+    expect(requestBody).not.toContain('Sample metadata should stay out.');
     expect(requestBody).not.toContain('Old complete code should stay out.');
     expect(requestBody).not.toContain('Private full solution.');
     expect(requestBody).not.toContain(
@@ -93,29 +123,107 @@ describe('PetService OpenRouter integration', () => {
     );
   });
 
-  it('keeps problem guidance available when the provider fails', async () => {
-    jest.spyOn(global, 'fetch').mockRejectedValue(new Error('offline'));
-    const service = new PetService({
-      getProblemBySlug: jest.fn().mockResolvedValue({
-        data: {
-          title: 'Synthetic addition',
-          inputFormat: 'Two integers.',
-          hints: ['Read both inputs and print their sum.'],
-        },
-      }),
-    } as unknown as ProblemsService);
+  it.each([
+    ['quota exhaustion', new Response(null, { status: 429 }), 'usage limit'],
+    [
+      'provider outage',
+      new Response(null, { status: 503 }),
+      'temporarily unavailable',
+    ],
+    [
+      'provider timeout',
+      new DOMException('Timed out', 'TimeoutError'),
+      'temporarily unavailable',
+    ],
+  ])(
+    'keeps problem guidance available after %s',
+    async (_case, failure, notice) => {
+      const fetchMock = jest.spyOn(global, 'fetch');
+      if (failure instanceof Response) fetchMock.mockResolvedValue(failure);
+      else fetchMock.mockRejectedValue(failure);
+      process.env.DEEPSEEK_API_KEY = 'legacy-key';
+      const service = new PetService({
+        getProblemBySlug: jest.fn().mockResolvedValue({
+          data: {
+            title: 'Synthetic addition',
+            statement: { inputFormat: 'Two integers.', samples: [] },
+            hints: ['Read both inputs and print their sum.'],
+          },
+        }),
+      } as unknown as ProblemsService);
+
+      const result = await service.ask('test-user', {
+        question: 'Hint please',
+        problemSlug: 'synthetic-addition',
+        history: [],
+      });
+
+      expect(result.source).toBe('local');
+      expect(result.reply).toBe(
+        'Start with the input format: Two integers. Which value should you read first?',
+      );
+      expect(result.notice).toContain(notice);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('uses a local hint without an OpenRouter key even if a legacy key is set', async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.DEEPSEEK_API_KEY = 'legacy-key';
+    const fetchMock = jest.spyOn(global, 'fetch');
+    const service = new PetService({} as ProblemsService);
 
     const result = await service.ask('test-user', {
-      question: 'Hint please',
-      problemSlug: 'synthetic-addition',
-      history: [],
+      question: 'Where should I begin?',
     });
 
     expect(result.source).toBe('local');
-    expect(result.reply).toBe(
-      'Start with the input format: Two integers. Which value should you read first?',
+    expect(result.notice).toContain('built-in hint');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { code: 'const apiKey = "fake-credential";' },
+    { question: 'My email is learner@example.test. How should I start?' },
+    {
+      history: [{ role: 'user', content: 'My email is learner@example.test.' }],
+    },
+  ])(
+    'keeps suspected personal information and credentials local',
+    async (fields) => {
+      const fetchMock = jest.spyOn(global, 'fetch');
+      const service = new PetService({} as ProblemsService);
+
+      const result = await service.ask('test-user', {
+        question: 'Where should I begin?',
+        ...fields,
+      });
+
+      expect(result.source).toBe('local');
+      expect(result.notice).toContain('personal information or a credential');
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('uses an explicitly configured free variant', async () => {
+    process.env.OPENROUTER_MODEL = 'example/test-model:free';
+    const response = Response.json({
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: { content: 'Start by checking what each input represents.' },
+        },
+      ],
+    });
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(response);
+    const service = new PetService({} as ProblemsService);
+
+    expect(
+      await service.ask('test-user', { question: 'Where should I begin?' }),
+    ).toMatchObject({ source: 'openrouter' });
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toContain(
+      '"model":"example/test-model:free"',
     );
-    expect(result.notice).toContain('temporarily unavailable');
   });
 
   it('answers a request for full code with a hint without calling the model', async () => {
@@ -124,7 +232,7 @@ describe('PetService OpenRouter integration', () => {
       getProblemBySlug: jest.fn().mockResolvedValue({
         data: {
           title: 'Synthetic addition',
-          examples: [{ input: '2 3', output: '5' }],
+          statement: { samples: [{ input: '2 3', output: '5' }] },
           hints: ['Add both numbers and print the result.'],
           editorial: 'Full code goes here.',
         },
@@ -155,7 +263,7 @@ describe('PetService OpenRouter integration', () => {
       getProblemBySlug: jest.fn().mockResolvedValue({
         data: {
           title: 'Synthetic addition',
-          examples: [{ input: '2 3', output: '5' }],
+          statement: { samples: [{ input: '2 3', output: '5' }] },
         },
       }),
     } as unknown as ProblemsService);
