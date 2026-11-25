@@ -182,6 +182,55 @@ describe('PetService OpenRouter integration', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('uses the requested part of the public problem when no free provider is available', async () => {
+    jest
+      .spyOn(global, 'fetch')
+      .mockImplementation(() =>
+        Promise.resolve(new Response(null, { status: 404 })),
+      );
+    const service = new PetService({
+      getProblemBySlug: jest.fn().mockResolvedValue({
+        data: {
+          title: 'Even Sum Pairs',
+          statement: {
+            description:
+              'Meera has a list of coins. Count the pairs of positions i < j whose sum is even.',
+            inputFormat: 'The first line contains the number of test cases.',
+            outputFormat: 'Print one pair count for each test case.',
+            samples: [{ input: '2\n1 2', output: '0' }],
+          },
+          editorial: 'Hidden solution',
+        },
+      }),
+    } as unknown as ProblemsService);
+    const ask = (question: string, previousReply?: string) =>
+      service.ask('test-user', {
+        problemSlug: 'even-sum-pairs',
+        question,
+        history: previousReply
+          ? [{ role: 'assistant', content: previousReply }]
+          : [],
+      });
+
+    const sample = await ask('Can you explain the hint here?');
+    const goal = await ask(
+      'Can you elaborate on the problem statment?',
+      sample.reply,
+    );
+    const input = await ask('Help me understand the input.');
+    const output = await ask('What should I output?');
+    const followUp = await ask('Can you explain the hint here?', sample.reply);
+
+    expect(sample.source).toBe('local');
+    expect(sample.notice).toContain('temporarily unavailable');
+    expect(sample.reply).toContain('first expected result “0”');
+    expect(goal.reply).toContain('Count the pairs of positions i < j');
+    expect(goal.reply).not.toContain('Hidden solution');
+    expect(input.reply).toContain('number of test cases');
+    expect(output.reply).toContain('one pair count for each test case');
+    expect(followUp.reply).not.toBe(sample.reply);
+  });
+
   it.each([
     { code: 'const apiKey = "fake-credential";' },
     { question: 'My email is learner@example.test. How should I start?' },
