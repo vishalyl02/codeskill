@@ -34,10 +34,12 @@
   },
   "plugins": {
     "deep-link": {
-      "schemes": [
-        "codeskill-exam",
-        "codeskill-lockdown"
-      ]
+      "desktop": {
+        "schemes": [
+          "codeskill-exam",
+          "codeskill-lockdown"
+        ]
+      }
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDExMjIzMzQ0NTU2NgpSV1FlY1Jva2Rvd25QdWJLZXlQcm9maWxlRWQyNTUxOVRhdXJpMkdhdGV3YXkAAAAAAA=="

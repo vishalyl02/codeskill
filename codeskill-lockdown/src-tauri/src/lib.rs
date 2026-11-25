@@ -612,6 +612,12 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
+                #[cfg(any(target_os = "windows", target_os = "linux"))]
+                {
+                    if let Err(e) = app.deep_link().register_all() {
+                        eprintln!("[LockDown] Warning: failed to register deep-link schemes at runtime: {e}");
+                    }
+                }
                 let app_handle = app.handle().clone();
                 let _ = app.deep_link().on_open_url(move |event| {
                     for url in event.urls() {
