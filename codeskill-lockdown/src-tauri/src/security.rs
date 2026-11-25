@@ -333,19 +333,6 @@ pub fn log_diagnostic_entry(level: &str, category: &str, message: &str) {
         message: message.to_string(),
     };
     eprintln!("[LockDown][{}][{}] {}", level, category, message);
-    let fr_level = match level {
-        "ERROR" => "ERROR",
-        "WARN" => "WARN",
-        _ => "INFO",
-    };
-    crate::flight_recorder::record_event(
-        fr_level,
-        "SECURITY",
-        "SECURITY_DIAGNOSTIC",
-        category,
-        "recorded",
-        serde_json::json!({ "message": message }),
-    );
     if let Ok(path_lock) = LOG_FILE_PATH.lock() {
         if let Some(ref log_path) = *path_lock {
             if let Ok(mut file) = std::fs::OpenOptions::new()
