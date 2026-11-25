@@ -74,19 +74,12 @@ jobs:
         run: npm install
         working-directory: codeskill-lockdown-windows
       - name: Build CodeSkill LockDown (Windows)
-        uses: tauri-apps/tauri-action@v0
+        working-directory: codeskill-lockdown-windows
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://codeskill.com' }}
-        with:
-          projectPath: codeskill-lockdown-windows
-          args: --bundles nsis
-          tagName: lockdown-v__VERSION__
-          releaseName: 'CodeSkill LockDown v__VERSION__'
-          releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
-          releaseDraft: false
-          prerelease: false
+        run: npx --no-install tauri build --bundles nsis
       - name: Standardize and Upload Windows NSIS Installer Asset
+        if: github.event_name != 'pull_request'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -102,6 +95,7 @@ jobs:
           if [ -n "$NSIS_FILE" ] && [ -f "$NSIS_FILE" ]; then
             VERSION=$(node -p "require('./codeskill-lockdown-windows/src-tauri/tauri.conf.json').version")
             TAG_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
+            if [[ "$TAG_NAME" != lockdown-v* ]]; then TAG_NAME="lockdown-v${VERSION}"; fi
             cp "$NSIS_FILE" dist-nsis/CodeSkill-LockDown-Setup.exe
             cp "$NSIS_FILE" dist-nsis/codeskill-lockdown-setup.exe
             cp "$NSIS_FILE" "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe"
@@ -109,7 +103,8 @@ jobs:
             EXE_HASH=$(sha256sum dist-nsis/CodeSkill-LockDown-Setup.exe | awk '{print $1}')
             node -e "const fs=require('fs');fs.writeFileSync('dist-nsis/release-manifest-windows.json',JSON.stringify({platform:'windows',version:'$VERSION',filename:'CodeSkill-LockDown-Setup.exe',sha256:'$EXE_HASH',generatedAt:new Date().toISOString()},null,2));"
             if command -v gh >/dev/null 2>&1; then
-              gh release upload "$TAG_NAME" dist-nsis/CodeSkill-LockDown-Setup.exe dist-nsis/codeskill-lockdown-setup.exe "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe" dist-nsis/SHA256SUMS-windows.txt dist-nsis/release-manifest-windows.json --clobber || echo "Notice: gh release upload skipped or release not created yet"
+              gh release create "$TAG_NAME" --title "CodeSkill LockDown v${VERSION}" --notes "Official secure examination browser release for CodeSkill assessments." || true
+              gh release upload "$TAG_NAME" dist-nsis/CodeSkill-LockDown-Setup.exe dist-nsis/codeskill-lockdown-setup.exe "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe" dist-nsis/SHA256SUMS-windows.txt dist-nsis/release-manifest-windows.json --clobber
             fi
           fi
 
@@ -132,18 +127,12 @@ jobs:
         run: npm install
         working-directory: codeskill-lockdown-macos
       - name: Build CodeSkill LockDown (macOS)
-        uses: tauri-apps/tauri-action@v0
+        working-directory: codeskill-lockdown-macos
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://codeskill.com' }}
-        with:
-          projectPath: codeskill-lockdown-macos
-          tagName: lockdown-v__VERSION__
-          releaseName: 'CodeSkill LockDown v__VERSION__'
-          releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
-          releaseDraft: false
-          prerelease: false
+        run: npx --no-install tauri build
       - name: Standardize and Upload macOS DMG Asset
+        if: github.event_name != 'pull_request'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -159,6 +148,7 @@ jobs:
           if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
             VERSION=$(node -p "require('./codeskill-lockdown-macos/src-tauri/tauri.conf.json').version")
             TAG_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
+            if [[ "$TAG_NAME" != lockdown-v* ]]; then TAG_NAME="lockdown-v${VERSION}"; fi
             cp "$DMG_FILE" dist-dmg/codeskill-lockdown.dmg
             cp "$DMG_FILE" dist-dmg/CodeSkill-LockDown.dmg
             cp "$DMG_FILE" "dist-dmg/CodeSkill-LockDown-${VERSION}.dmg"
@@ -166,7 +156,8 @@ jobs:
             DMG_HASH=$(shasum -a 256 dist-dmg/CodeSkill-LockDown.dmg | awk '{print $1}')
             node -e "const fs=require('fs');fs.writeFileSync('dist-dmg/release-manifest-macos.json',JSON.stringify({platform:'macos',version:'$VERSION',filename:'CodeSkill-LockDown.dmg',sha256:'$DMG_HASH',generatedAt:new Date().toISOString()},null,2));"
             if command -v gh >/dev/null 2>&1; then
-              gh release upload "$TAG_NAME" dist-dmg/codeskill-lockdown.dmg dist-dmg/CodeSkill-LockDown.dmg "dist-dmg/CodeSkill-LockDown-${VERSION}.dmg" dist-dmg/SHA256SUMS-macos.txt dist-dmg/release-manifest-macos.json --clobber || echo "Notice: gh release upload skipped or release not created yet"
+              gh release create "$TAG_NAME" --title "CodeSkill LockDown v${VERSION}" --notes "Official secure examination browser release for CodeSkill assessments." || true
+              gh release upload "$TAG_NAME" dist-dmg/codeskill-lockdown.dmg dist-dmg/CodeSkill-LockDown.dmg "dist-dmg/CodeSkill-LockDown-${VERSION}.dmg" dist-dmg/SHA256SUMS-macos.txt dist-dmg/release-manifest-macos.json --clobber
             fi
           fi
 
@@ -191,18 +182,12 @@ jobs:
         run: npm install
         working-directory: codeskill-lockdown-linux
       - name: Build CodeSkill LockDown (Linux)
-        uses: tauri-apps/tauri-action@v0
+        working-directory: codeskill-lockdown-linux
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://codeskill.com' }}
-        with:
-          projectPath: codeskill-lockdown-linux
-          tagName: lockdown-v__VERSION__
-          releaseName: 'CodeSkill LockDown v__VERSION__'
-          releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
-          releaseDraft: false
-          prerelease: false
+        run: npx --no-install tauri build
       - name: Standardize and Upload Linux Package Assets
+        if: github.event_name != 'pull_request'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -224,6 +209,7 @@ jobs:
           done
           VERSION=$(node -p "require('./codeskill-lockdown-linux/src-tauri/tauri.conf.json').version")
           TAG_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
+          if [[ "$TAG_NAME" != lockdown-v* ]]; then TAG_NAME="lockdown-v${VERSION}"; fi
           UPLOAD_FILES=()
           if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
             cp "$DEB_FILE" dist-linux/codeskill-lockdown.deb
@@ -242,6 +228,7 @@ jobs:
             node -e "const fs=require('fs');fs.writeFileSync('dist-linux/release-manifest-linux.json',JSON.stringify({platform:'linux',version:'$VERSION',files:'${UPLOAD_FILES[*]}'.split(' '),generatedAt:new Date().toISOString()},null,2));"
             UPLOAD_FILES+=(dist-linux/SHA256SUMS-linux.txt dist-linux/release-manifest-linux.json)
             if command -v gh >/dev/null 2>&1; then
-              gh release upload "$TAG_NAME" "${UPLOAD_FILES[@]}" --clobber || echo "Notice: gh release upload skipped or release not created yet"
+              gh release create "$TAG_NAME" --title "CodeSkill LockDown v${VERSION}" --notes "Official secure examination browser release for CodeSkill assessments." || true
+              gh release upload "$TAG_NAME" "${UPLOAD_FILES[@]}" --clobber
             fi
           fi

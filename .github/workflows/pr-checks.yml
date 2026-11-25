@@ -101,6 +101,8 @@ jobs:
           cache-dependency-path: frontend-v2/package-lock.json
       - name: Install Frontend Dependencies
         working-directory: frontend-v2
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: npm ci --legacy-peer-deps
       - name: TypeScript Verification
         working-directory: frontend-v2
