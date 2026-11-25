@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-lockdown-diagnostic-logs"
+description = "Enables the get_lockdown_diagnostic_logs command without any pre-configured scope."
+commands.allow = ["get_lockdown_diagnostic_logs"]
+
+[[permission]]
+identifier = "deny-get-lockdown-diagnostic-logs"
+description = "Denies the get_lockdown_diagnostic_logs command without any pre-configured scope."
+commands.deny = ["get_lockdown_diagnostic_logs"]

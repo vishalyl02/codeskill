@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-release-os-kiosk"
+description = "Enables the release_os_kiosk command without any pre-configured scope."
+commands.allow = ["release_os_kiosk"]
+
+[[permission]]
+identifier = "deny-release-os-kiosk"
+description = "Denies the release_os_kiosk command without any pre-configured scope."
+commands.deny = ["release_os_kiosk"]

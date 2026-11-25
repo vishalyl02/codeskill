@@ -76,6 +76,15 @@ backend-nestjs/build/
 codeskill-lockdown/src-tauri/target/
 codeskill-lockdown/src-tauri/gen/
 codeskill-lockdown/node_modules/
+codeskill-lockdown-macos/src-tauri/target/
+codeskill-lockdown-macos/src-tauri/gen/
+codeskill-lockdown-macos/node_modules/
+codeskill-lockdown-windows/src-tauri/target/
+codeskill-lockdown-windows/src-tauri/gen/
+codeskill-lockdown-windows/node_modules/
+codeskill-lockdown-linux/src-tauri/target/
+codeskill-lockdown-linux/src-tauri/gen/
+codeskill-lockdown-linux/node_modules/
 
 # Coverage directory used by tools like istanbul
 coverage/

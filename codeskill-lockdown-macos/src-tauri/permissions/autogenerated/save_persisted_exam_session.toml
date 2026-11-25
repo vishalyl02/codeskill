@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-persisted-exam-session"
+description = "Enables the save_persisted_exam_session command without any pre-configured scope."
+commands.allow = ["save_persisted_exam_session"]
+
+[[permission]]
+identifier = "deny-save-persisted-exam-session"
+description = "Denies the save_persisted_exam_session command without any pre-configured scope."
+commands.deny = ["save_persisted_exam_session"]

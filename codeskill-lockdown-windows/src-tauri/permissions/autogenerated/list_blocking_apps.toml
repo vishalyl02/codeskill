@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-blocking-apps"
+description = "Enables the list_blocking_apps command without any pre-configured scope."
+commands.allow = ["list_blocking_apps"]
+
+[[permission]]
+identifier = "deny-list-blocking-apps"
+description = "Denies the list_blocking_apps command without any pre-configured scope."
+commands.deny = ["list_blocking_apps"]

@@ -1,0 +1,184 @@
+name: CodeSkill PR Quality & Contract Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.set.outputs.backend }}
+      frontend: ${{ steps.set.outputs.frontend }}
+      macos: ${{ steps.set.outputs.macos }}
+      windows: ${{ steps.set.outputs.windows }}
+      linux: ${{ steps.set.outputs.linux }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name != 'workflow_dispatch'
+        with:
+          filters: |
+            backend:
+              - 'backend-nestjs/**'
+              - 'scripts/**'
+              - '.github/workflows/pr-checks.yml'
+            frontend:
+              - 'frontend-v2/**'
+              - '.github/workflows/pr-checks.yml'
+            macos:
+              - 'codeskill-lockdown-macos/**'
+              - '.github/workflows/pr-checks.yml'
+            windows:
+              - 'codeskill-lockdown-windows/**'
+              - '.github/workflows/pr-checks.yml'
+            linux:
+              - 'codeskill-lockdown-linux/**'
+              - '.github/workflows/pr-checks.yml'
+      - id: set
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+            echo "windows=true" >> "$GITHUB_OUTPUT"
+            echo "linux=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
+            echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
+            echo "macos=${{ steps.filter.outputs.macos }}" >> "$GITHUB_OUTPUT"
+            echo "windows=${{ steps.filter.outputs.windows }}" >> "$GITHUB_OUTPUT"
+            echo "linux=${{ steps.filter.outputs.linux }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  backend-checks:
+    name: Backend Typecheck, Tests & Sharding Invariant
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend-nestjs/package-lock.json
+      - name: Install Backend Dependencies
+        working-directory: backend-nestjs
+        run: npm ci --legacy-peer-deps
+      - name: TypeScript Verification
+        working-directory: backend-nestjs
+        run: npx --no-install tsc -p tsconfig.build.json --noEmit --incremental false
+      - name: Verify SubmissionStore Sharding Invariant
+        run: |
+          if grep -rn "getRepository(Submission" backend-nestjs/src/ | grep -v "submission-store"; then
+            echo "ERROR: Direct Submission repository access detected outside SubmissionStore!"
+            exit 1
+          fi
+      - name: Run Backend Unit Tests
+        working-directory: backend-nestjs
+        run: npm test -- --runInBand
+      - name: Verify Operational Scripts Syntax
+        run: node --check scripts/load-test/exam-surge-chaos.mjs
+
+  frontend-checks:
+    name: Frontend Typecheck, Tests & Production Build
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend-v2/package-lock.json
+      - name: Install Frontend Dependencies
+        working-directory: frontend-v2
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: npm ci --legacy-peer-deps
+      - name: TypeScript Verification
+        working-directory: frontend-v2
+        run: npx --no-install tsc --noEmit --incremental false
+      - name: Run Frontend Unit Tests
+        working-directory: frontend-v2
+        run: npm test -- --runInBand
+      - name: Verify Next.js Production Build
+        working-directory: frontend-v2
+        env:
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:5001/api
+        run: npm run build
+
+  lockdown-macos-checks:
+    name: LockDown Checks (macOS)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.macos == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: codeskill-lockdown-macos/src-tauri -> target
+      - run: node --check codeskill-lockdown-macos/dist-isolation/index.js
+      - run: cargo fmt --manifest-path codeskill-lockdown-macos/src-tauri/Cargo.toml --check || true
+      - run: cargo clippy --manifest-path codeskill-lockdown-macos/src-tauri/Cargo.toml -- -D warnings || true
+      - run: cargo test --manifest-path codeskill-lockdown-macos/src-tauri/Cargo.toml
+
+  lockdown-windows-checks:
+    name: LockDown Checks (Windows)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.windows == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: codeskill-lockdown-windows/src-tauri -> target
+      - run: node --check codeskill-lockdown-windows/dist-isolation/index.js
+      - run: cargo fmt --manifest-path codeskill-lockdown-windows/src-tauri/Cargo.toml --check || true
+      - run: cargo clippy --manifest-path codeskill-lockdown-windows/src-tauri/Cargo.toml -- -D warnings || true
+      - run: cargo test --manifest-path codeskill-lockdown-windows/src-tauri/Cargo.toml
+
+  lockdown-linux-checks:
+    name: LockDown Checks (Linux)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.linux == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: codeskill-lockdown-linux/src-tauri -> target
+      - name: Install Linux System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libx11-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: node --check codeskill-lockdown-linux/dist-isolation/index.js
+      - run: cargo fmt --manifest-path codeskill-lockdown-linux/src-tauri/Cargo.toml --check || true
+      - run: cargo clippy --manifest-path codeskill-lockdown-linux/src-tauri/Cargo.toml -- -D warnings || true
+      - run: cargo test --manifest-path codeskill-lockdown-linux/src-tauri/Cargo.toml
