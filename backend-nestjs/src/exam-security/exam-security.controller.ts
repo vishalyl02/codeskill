@@ -182,6 +182,41 @@ export class ExamSecurityController {
     );
   }
 
+  @Post('client-diagnostics')
+  @UseGuards(ExamBackpressureGuard)
+  @HttpCode(202)
+  async ingestClientDiagnostics(
+    @CurrentUser('id') userId: string,
+    @Body()
+    body: {
+      assessmentId?: string;
+      sessionId?: string;
+      bootId?: string;
+      platform?: string;
+      clientVersion?: string;
+      summary?: Record<string, unknown>;
+      breadcrumbs?: Array<Record<string, unknown>>;
+    },
+  ) {
+    const metadata = {
+      bootId: body.bootId || null,
+      sessionId: body.sessionId || null,
+      platform: body.platform || null,
+      clientVersion: body.clientVersion || null,
+      summary: body.summary || {},
+      breadcrumbs: Array.isArray(body.breadcrumbs)
+        ? body.breadcrumbs.slice(-25)
+        : [],
+      ingestedAt: new Date().toISOString(),
+    };
+    return this.examSecurityService.reportDirectViolation(
+      userId,
+      body.assessmentId,
+      'CLIENT_DIAGNOSTIC_SNAPSHOT',
+      metadata,
+    );
+  }
+
   @Get('operational-health')
   @UseGuards(AdminGuard)
   @HttpCode(200)

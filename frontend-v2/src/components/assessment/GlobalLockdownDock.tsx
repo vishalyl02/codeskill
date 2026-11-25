@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { isLockdownClient } from "@/lib/lockdown-bridge";
+import { lockdownLogger } from "@/lib/lockdown-logger";
 import LockdownUtilityDock from "./LockdownUtilityDock";
 
 export default function GlobalLockdownDock() {
@@ -10,10 +11,19 @@ export default function GlobalLockdownDock() {
   const [isClient, setIsClient] = useState<boolean>(false);
 
   useEffect(() => {
-    setIsClient(isLockdownClient());
+    const client = isLockdownClient();
+    setIsClient(client);
+    if (client) {
+      lockdownLogger.initGlobalListeners();
+    }
   }, []);
 
   if (!isClient) {
+    return null;
+  }
+
+  // If the native Tauri integral frame controls bar is mounted, yield to it to avoid duplicate docks
+  if (typeof document !== "undefined" && document.getElementById("codeskill-lockdown-frame-controls")) {
     return null;
   }
 

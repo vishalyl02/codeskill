@@ -44,6 +44,14 @@ pub fn clear_os_clipboard() {
 }
 
 pub fn release_os_kiosk_system() {
+    crate::flight_recorder::record_event(
+        "INFO",
+        "KIOSK",
+        "SCENARIO_D_KIOSK",
+        "release_os_kiosk_system",
+        "started",
+        serde_json::json!({ "wasActive": KIOSK_ACTIVE.load(Ordering::SeqCst) }),
+    );
     KIOSK_ACTIVE.store(false, Ordering::SeqCst);
 
     #[cfg(target_os = "windows")]

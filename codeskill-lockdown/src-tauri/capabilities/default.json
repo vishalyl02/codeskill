@@ -65,6 +65,9 @@
     "allow-get-startup-permission-checklist",
     "allow-request-os-permission",
     "allow-complete-permission-onboarding",
-    "allow-consume-pending-launch-url"
+    "allow-consume-pending-launch-url",
+    "allow-get-flight-recorder-context",
+    "allow-log-frontend-event",
+    "allow-export-diagnostic-log-bundle"
   ]
 }

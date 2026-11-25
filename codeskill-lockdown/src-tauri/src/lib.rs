@@ -1,4 +1,5 @@
 pub mod attestation;
+pub mod flight_recorder;
 pub mod kiosk_os;
 pub mod offline_vault;
 pub mod permissions_onboarding;
@@ -57,6 +58,11 @@ fn consume_pending_launch_url(app: AppHandle) -> Option<String> {
         None
     };
     if url.is_some() && permissions_onboarding::is_onboarding_needed(&app) {
+        security::log_diagnostic_entry(
+            "INFO",
+            "DEEP_LINK",
+            "consume_pending_launch_url: onboarding needed, routing to /lockdown-startup-permissions",
+        );
         // Put the exam URL back so onboarding can consume it after permissions are granted,
         // and send the webview to the onboarding screen.
         if let Ok(mut pending) = startup_state.pending_launch_url.lock() {
@@ -68,11 +74,19 @@ fn consume_pending_launch_url(app: AppHandle) -> Option<String> {
             frontend_origin.trim_end_matches('/')
         ));
     }
+    if let Some(ref resolved) = url {
+        security::log_diagnostic_entry(
+            "INFO",
+            "DEEP_LINK",
+            &format!("consume_pending_launch_url: delivering {}", resolved),
+        );
+    }
     url
 }
 
 fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
     let clean_url = url_str.trim().trim_matches('"').trim_matches('\'');
+    security::log_diagnostic_entry("INFO", "DEEP_LINK", &format!("Received deep-link URL: {}", clean_url));
     // Expected format: codeskill-exam://start?examId={id}&token={token}&origin={origin} or codeskill-lockdown://system-check?origin={origin}
     if let Ok(parsed) = url::Url::parse(clean_url) {
         // Extract origin from query parameters if present
@@ -169,6 +183,22 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
                         ),
                     );
                 }
+
+                // Set flight recorder correlation context
+                flight_recorder::set_correlation_context(Some(id.clone()), None, None);
+                flight_recorder::record_event(
+                    "INFO",
+                    "DEEP_LINK",
+                    "SCENARIO_A_DEEP_LINK",
+                    "handle_deep_link_url",
+                    "parsed",
+                    serde_json::json!({
+                        "assessmentId": id,
+                        "useCamera": use_camera,
+                        "useMic": use_mic,
+                        "hasToken": token.is_some(),
+                    }),
+                );
 
                 // Check if one-time permissions onboarding is needed
                 if permissions_onboarding::is_onboarding_needed(app) {
@@ -424,6 +454,193 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             }
         }, true);
     });
+
+    // 6. Integral LockDown Frame Controls (Shadow-DOM floating control bar on every page)
+    function mountIntegralFrameControls() {
+        try {
+            if (!document.documentElement) return;
+            if (document.getElementById('codeskill-lockdown-frame-controls')) return;
+
+            var invoker = (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function')
+                ? function(cmd, args) { return window.__TAURI_INTERNALS__.invoke(cmd, args || {}); }
+                : (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function')
+                    ? function(cmd, args) { return window.__TAURI__.core.invoke(cmd, args || {}); }
+                    : null;
+            if (!invoker) return;
+
+            var host = document.createElement('div');
+            host.id = 'codeskill-lockdown-frame-controls';
+            host.setAttribute('data-lockdown-frame-controls', 'true');
+            host.style.cssText = 'position:fixed;bottom:14px;right:16px;z-index:2147483647;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;user-select:none;';
+
+            var shadow = host.attachShadow({ mode: 'open' });
+            shadow.innerHTML = '\
+<style>\
+  .bar{display:flex;align-items:center;gap:8px;background:rgba(15,23,42,0.94);backdrop-filter:blur(10px);border:1px solid rgba(51,65,85,0.85);border-radius:9999px;padding:6px 12px;color:#e2e8f0;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,0.45);cursor:grab;}\
+  .bar:active{cursor:grabbing;}\
+  .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:9999px;background:rgba(30,41,59,0.9);border:1px solid rgba(71,85,105,0.6);color:#cbd5e1;font-size:11px;font-weight:500;white-space:nowrap;}\
+  .dot{width:7px;height:7px;border-radius:9999px;background:#10b981;box-shadow:0 0 6px #10b981;}\
+  .btn{display:inline-flex;align-items:center;gap:4px;background:rgba(30,41,59,0.9);border:1px solid rgba(71,85,105,0.7);color:#e2e8f0;padding:4px 9px;border-radius:9999px;font-size:11px;font-weight:600;cursor:pointer;transition:background .15s;}\
+  .btn:hover{background:rgba(51,65,85,0.95);}\
+  .exit{background:rgba(220,38,38,0.18);border-color:rgba(239,68,68,0.45);color:#fca5a5;}\
+  .exit:hover{background:rgba(220,38,38,0.35);color:#fff;}\
+  .panel{position:absolute;bottom:48px;right:0;width:250px;background:rgba(15,23,42,0.98);border:1px solid rgba(71,85,105,0.85);border-radius:12px;padding:12px;color:#e2e8f0;box-shadow:0 16px 40px rgba(0,0,0,0.6);display:none;}\
+  .panel.open{display:block;}\
+  .modal-bg{position:fixed;inset:0;background:rgba(2,6,23,0.75);display:none;align-items:center;justify-content:center;z-index:2147483647;}\
+  .modal-bg.open{display:flex;}\
+  .modal{background:#0f172a;border:1px solid #334155;border-radius:14px;padding:18px 20px;max-width:340px;width:90%;color:#f1f5f9;box-shadow:0 20px 50px rgba(0,0,0,0.65);}\
+  .row{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:11px;color:#94a3b8;}\
+  .wifi-item{display:flex;justify-content:space-between;align-items:center;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:11px;}\
+  .wifi-item:hover{background:rgba(51,65,85,0.5);}\
+</style>\
+<div class="bar" id="bar">\
+  <span class="pill" title="CodeSkill LockDown Active"><span class="dot"></span>LockDown</span>\
+  <span class="pill" id="clock">--:--</span>\
+  <span class="pill" id="bat">--%</span>\
+  <button class="btn" id="volBtn" type="button" title="Volume">Vol</button>\
+  <button class="btn" id="wifiBtn" type="button" title="Wi-Fi">Wi-Fi</button>\
+  <button class="btn exit" id="exitBtn" type="button" title="Exit CodeSkill LockDown">Exit</button>\
+</div>\
+<div class="panel" id="volPanel">\
+  <div style="font-weight:600;font-size:12px;margin-bottom:8px;">System Audio</div>\
+  <input id="volRange" type="range" min="0" max="100" value="50" style="width:100%;cursor:pointer;" />\
+  <div class="row"><span>Level</span><span id="volVal">50%</span></div>\
+</div>\
+<div class="panel" id="wifiPanel">\
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">\
+    <span style="font-weight:600;font-size:12px;">Wi-Fi Networks</span>\
+    <button class="btn" id="wifiScanBtn" type="button" style="padding:2px 7px;font-size:10px;">Scan</button>\
+  </div>\
+  <div id="wifiList" style="max-height:140px;overflow-y:auto;font-size:11px;color:#94a3b8;">Click Scan to list networks</div>\
+</div>\
+<div class="modal-bg" id="exitModal">\
+  <div class="modal">\
+    <div style="font-weight:700;font-size:14px;margin-bottom:6px;">Exit CodeSkill LockDown?</div>\
+    <div style="font-size:12px;color:#94a3b8;line-height:1.45;margin-bottom:14px;">This will release kiosk mode and close the CodeSkill LockDown browser.</div>\
+    <div style="display:flex;justify-content:flex-end;gap:8px;">\
+      <button class="btn" id="cancelExit" type="button">Cancel</button>\
+      <button class="btn exit" id="confirmExit" type="button" style="background:#dc2626;color:#fff;border-color:#dc2626;">Exit LockDown</button>\
+    </div>\
+  </div>\
+</div>';
+
+            document.documentElement.appendChild(host);
+
+            // Auto-hide only when the full assessment exam dock is mounted on /take
+            function syncVisibility() {
+                var examDock = document.querySelector('[data-lockdown-utility-dock="true"]');
+                host.style.display = examDock ? 'none' : 'block';
+            }
+            syncVisibility();
+            var obs = new MutationObserver(syncVisibility);
+            obs.observe(document.documentElement, { childList: true, subtree: true });
+
+            var bar = shadow.getElementById('bar');
+            var clockEl = shadow.getElementById('clock');
+            var batEl = shadow.getElementById('bat');
+            var volBtn = shadow.getElementById('volBtn');
+            var volPanel = shadow.getElementById('volPanel');
+            var volRange = shadow.getElementById('volRange');
+            var volVal = shadow.getElementById('volVal');
+            var wifiBtn = shadow.getElementById('wifiBtn');
+            var wifiPanel = shadow.getElementById('wifiPanel');
+            var wifiScanBtn = shadow.getElementById('wifiScanBtn');
+            var wifiList = shadow.getElementById('wifiList');
+            var exitBtn = shadow.getElementById('exitBtn');
+            var exitModal = shadow.getElementById('exitModal');
+            var cancelExit = shadow.getElementById('cancelExit');
+            var confirmExit = shadow.getElementById('confirmExit');
+
+            // Drag support
+            var dragging = false, sx = 0, sy = 0, startRight = 16, startBottom = 14;
+            bar.addEventListener('mousedown', function(e) {
+                if (e.target && e.target.tagName === 'BUTTON') return;
+                dragging = true; sx = e.clientX; sy = e.clientY;
+                startRight = parseInt(host.style.right || '16', 10);
+                startBottom = parseInt(host.style.bottom || '14', 10);
+            });
+            window.addEventListener('mousemove', function(e) {
+                if (!dragging) return;
+                var nr = Math.max(8, startRight - (e.clientX - sx));
+                var nb = Math.max(8, startBottom - (e.clientY - sy));
+                host.style.right = nr + 'px';
+                host.style.bottom = nb + 'px';
+            });
+            window.addEventListener('mouseup', function() { dragging = false; });
+
+            function refreshClock() {
+                invoker('get_synced_timestamp_ms').then(function(ms) {
+                    var d = new Date(ms || Date.now());
+                    clockEl.textContent = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+                }).catch(function() {
+                    var d = new Date();
+                    clockEl.textContent = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+                });
+            }
+            function refreshBat() {
+                invoker('get_battery_status').then(function(b) {
+                    if (b && typeof b.percentage === 'number') {
+                        batEl.textContent = b.percentage + '%' + (b.is_charging ? ' +' : '');
+                    }
+                }).catch(function() {});
+            }
+            refreshClock(); refreshBat();
+            setInterval(refreshClock, 15000);
+            setInterval(refreshBat, 30000);
+
+            volBtn.addEventListener('click', function() {
+                wifiPanel.classList.remove('open');
+                volPanel.classList.toggle('open');
+                invoker('get_system_volume').then(function(v) {
+                    if (typeof v === 'number') { volRange.value = v; volVal.textContent = v + '%'; }
+                }).catch(function() {});
+            });
+            volRange.addEventListener('input', function() {
+                var lvl = parseInt(volRange.value, 10);
+                volVal.textContent = lvl + '%';
+                invoker('set_system_volume', { level: lvl }).catch(function() {});
+            });
+
+            function scanWifi() {
+                wifiList.textContent = 'Scanning...';
+                invoker('scan_wifi_networks').then(function(nets) {
+                    wifiList.innerHTML = '';
+                    if (!nets || !nets.length) { wifiList.textContent = 'No networks found'; return; }
+                    nets.slice(0, 6).forEach(function(n) {
+                        var row = document.createElement('div');
+                        row.className = 'wifi-item';
+                        row.textContent = (n.is_connected ? '* ' : '') + n.ssid + ' (' + n.signal_strength + '%)';
+                        row.addEventListener('click', function() {
+                            invoker('connect_wifi_network', { ssid: n.ssid, password: null }).catch(function() {});
+                        });
+                        wifiList.appendChild(row);
+                    });
+                }).catch(function() { wifiList.textContent = 'Scan unavailable'; });
+            }
+            wifiBtn.addEventListener('click', function() {
+                volPanel.classList.remove('open');
+                wifiPanel.classList.toggle('open');
+                if (wifiPanel.classList.contains('open')) scanWifi();
+            });
+            wifiScanBtn.addEventListener('click', scanWifi);
+
+            exitBtn.addEventListener('click', function() {
+                volPanel.classList.remove('open');
+                wifiPanel.classList.remove('open');
+                exitModal.classList.add('open');
+            });
+            cancelExit.addEventListener('click', function() { exitModal.classList.remove('open'); });
+            confirmExit.addEventListener('click', function() {
+                invoker('exit_lockdown_app').catch(function() {});
+            });
+        } catch (_) {}
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', mountIntegralFrameControls);
+    } else {
+        mountIntegralFrameControls();
+    }
 })();
 "#;
 
@@ -604,6 +821,8 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 }
 
 pub fn run() {
+    flight_recorder::init_flight_recorder();
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("exam-kiosk") {
@@ -635,8 +854,14 @@ pub fn run() {
                 orig_hook(info);
             }));
 
+            // Initialize persistent diagnostic log file (Windows, macOS, Linux)
+            security::init_diagnostic_log_file(app.handle());
+
             // Startup crash-recovery cleaner: recover dirty kiosk state if abnormal power loss/crash occurred
             kiosk_os::recover_dirty_kiosk_state(app.handle());
+
+            // Detect app binary replacement (e.g. macOS Finder "Replace") before hydrating session state
+            permissions_onboarding::handle_binary_replacement_if_needed(app.handle());
 
             // Initialize offline vault from local app data dir
             app.state::<OfflineVaultState>().init_from_app(app.handle());
@@ -723,6 +948,9 @@ pub fn run() {
             permissions_onboarding::request_os_permission,
             permissions_onboarding::complete_permission_onboarding,
             consume_pending_launch_url,
+            flight_recorder::get_flight_recorder_context,
+            flight_recorder::log_frontend_event,
+            flight_recorder::export_diagnostic_log_bundle,
             kiosk_os::exit_lockdown_app,
         ])
         .build(tauri::generate_context!())

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-flight-recorder-context"
+description = "Enables the get_flight_recorder_context command without any pre-configured scope."
+commands.allow = ["get_flight_recorder_context"]
+
+[[permission]]
+identifier = "deny-get-flight-recorder-context"
+description = "Denies the get_flight_recorder_context command without any pre-configured scope."
+commands.deny = ["get_flight_recorder_context"]

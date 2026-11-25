@@ -90,6 +90,8 @@ pub struct StartupPermissionChecklistState {
     pub client_version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_exam_url: Option<String>,
+    #[serde(default)]
+    pub reinstall_detected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -101,7 +103,78 @@ pub struct PermissionsSetupPersistedState {
     pub platform: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub portal_restore_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_fingerprint: Option<String>,
     pub permissions: HashMap<String, String>,
+}
+
+pub fn get_current_binary_fingerprint() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let meta = fs::metadata(&exe).ok()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Some(format!("{}:{}", meta.len(), modified))
+}
+
+/// Detects if the application binary on disk was replaced (e.g. Finder "Replace" on macOS)
+/// since the last completed onboarding. When a replacement is detected, clears stale exam
+/// session locks and refreshes LaunchServices registration so deep-links route to the new bundle.
+pub fn handle_binary_replacement_if_needed(app: &AppHandle) -> bool {
+    let current_fp = get_current_binary_fingerprint();
+    let Some(mut persisted) = load_persisted_permissions_state(app) else {
+        return false;
+    };
+
+    let fingerprint_changed = match (&persisted.binary_fingerprint, &current_fp) {
+        (Some(prev), Some(curr)) => prev != curr,
+        (None, Some(_)) if persisted.onboarding_completed => true,
+        _ => false,
+    };
+
+    if !fingerprint_changed {
+        return false;
+    }
+
+    log_diagnostic_entry(
+        "WARN",
+        "PERMISSIONS_ONBOARDING",
+        "Application binary replacement detected (e.g. macOS Replace install). Clearing stale exam session and refreshing URL scheme registration.",
+    );
+
+    // 1. Clear stale persisted exam session from previous binary so it cannot block new launches
+    let _ = crate::state_persistence::clear_persisted_exam_session(app.clone());
+
+    // 2. On macOS, force LaunchServices to re-register the current .app bundle for codeskill-exam://
+    #[cfg(target_os = "macos")]
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(app_bundle) = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+            if app_bundle.extension().and_then(|e| e.to_str()) == Some("app") {
+                let _ = std::process::Command::new(
+                    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                )
+                .args(["-f", &app_bundle.to_string_lossy()])
+                .spawn();
+            }
+        }
+    }
+
+    // 3. Reset onboarding_completed if live permissions are not all granted under the new signature
+    let items = inspect_live_permissions(app);
+    let all_granted = items.iter().filter(|i| i.required).all(|i| i.status == "granted");
+    if !all_granted {
+        persisted.onboarding_completed = false;
+        let _ = save_persisted_permissions_state(app, &persisted);
+        return true;
+    }
+
+    // All permissions carried over (e.g. Developer ID signed build) — just update fingerprint
+    persisted.binary_fingerprint = current_fp;
+    let _ = save_persisted_permissions_state(app, &persisted);
+    false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -214,7 +287,20 @@ pub fn inspect_live_permissions(app: &AppHandle) -> Vec<PermissionChecklistItem>
         ),
     );
 
-    os_impl::inspect_live_permissions(app, require_camera, require_microphone)
+    let items = os_impl::inspect_live_permissions(app, require_camera, require_microphone);
+    let summary: Vec<serde_json::Value> = items
+        .iter()
+        .map(|i| serde_json::json!({ "id": i.id, "status": i.status, "required": i.required }))
+        .collect();
+    crate::flight_recorder::record_event(
+        "INFO",
+        "PERMISSIONS",
+        "SCENARIO_B_PERMISSIONS",
+        "inspect_live_permissions",
+        "completed",
+        serde_json::json!({ "items": summary }),
+    );
+    items
 }
 
 pub fn request_permission_by_id(app: &AppHandle, permission_id: &str) -> PermissionChecklistItem {
@@ -293,6 +379,15 @@ pub fn get_startup_permission_checklist(
         .all(|i| i.status == "granted");
 
     let persisted = load_persisted_permissions_state(&app);
+    let current_fp = get_current_binary_fingerprint();
+    let reinstall_detected = match (&persisted, &current_fp) {
+        (Some(ref p), Some(ref curr)) => {
+            !all_required_granted
+                && (p.binary_fingerprint.as_ref() != Some(curr)
+                    || !p.permissions.is_empty())
+        }
+        _ => false,
+    };
     let onboarding_completed = match persisted {
         Some(ref p) => p.onboarding_completed && all_required_granted,
         None => false,
@@ -317,6 +412,7 @@ pub fn get_startup_permission_checklist(
         verified_at_ms: now_ms,
         client_version: "1.0.0".to_string(),
         pending_exam_url,
+        reinstall_detected,
     })
 }
 
@@ -354,6 +450,7 @@ pub fn complete_permission_onboarding(
         client_version: "1.0.0".to_string(),
         platform: current_platform().to_string(),
         portal_restore_token: existing_portal_token,
+        binary_fingerprint: get_current_binary_fingerprint(),
         permissions: map,
     };
 
@@ -446,6 +543,7 @@ mod tests {
             client_version: "1.0.0".to_string(),
             platform: "macos".to_string(),
             portal_restore_token: Some("sample-wayland-portal-token".to_string()),
+            binary_fingerprint: Some("12345:1732089600".to_string()),
             permissions: map,
         };
 
@@ -493,6 +591,7 @@ mod tests {
             verified_at_ms: 1732089600000,
             client_version: "1.0.0".to_string(),
             pending_exam_url: Some("http://localhost:3000/assessments/test-123/take".to_string()),
+            reinstall_detected: false,
         };
 
         let json = serde_json::to_string(&state).expect("serialize checklist state");
@@ -520,6 +619,7 @@ mod tests {
             client_version: "1.0.0".to_string(),
             platform: "windows".to_string(),
             portal_restore_token: None,
+            binary_fingerprint: None,
             permissions: map,
         };
 
@@ -604,6 +704,7 @@ mod tests {
             client_version: "1.0.0".to_string(),
             platform: "linux".to_string(),
             portal_restore_token: Some("xdg-desktop-portal-token-9988".to_string()),
+            binary_fingerprint: None,
             permissions: map,
         };
 

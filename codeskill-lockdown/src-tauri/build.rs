@@ -54,6 +54,9 @@ fn main() {
             "request_os_permission",
             "complete_permission_onboarding",
             "consume_pending_launch_url",
+            "get_flight_recorder_context",
+            "log_frontend_event",
+            "export_diagnostic_log_bundle",
         ]),
     );
     tauri_build::try_build(attributes).expect("failed to run tauri-build");

@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Inject,
   Optional,
+  Logger,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
@@ -13,6 +14,7 @@ import { ExamSecurityService } from './exam-security.service';
 
 @Injectable()
 export class LockdownSignatureGuard implements CanActivate {
+  private readonly logger = new Logger(LockdownSignatureGuard.name);
   // In-memory fallback nonce cache for environments without a connected Redis instance
   private readonly inMemoryNonces = new Map<string, number>();
   // Short-lived in-memory cache for assessment requireLockdown flag (60s TTL)
@@ -187,8 +189,40 @@ export class LockdownSignatureGuard implements CanActivate {
         },
       );
 
+      this.logger.warn(
+        JSON.stringify({
+          event: 'LOCKDOWN_SIGNATURE_REJECTED',
+          sessionId,
+          assessmentId,
+          candidateId: userId,
+          clientPlatform: headers['x-lockdown-platform'] || headers['user-agent'] || 'unknown',
+          clientVersion: headers['x-lockdown-version'] || 'unknown',
+          bootId: headers['x-lockdown-boot-id'] || null,
+          endpoint: reqPath,
+          statusCode: 403,
+          rejectReason: 'INVALID_REQUEST_SIGNATURE',
+          latencyMs: Date.now() - now,
+        }),
+      );
+
       throw new ForbiddenException('Invalid LockDown request signature.');
     }
+
+    this.logger.debug(
+      JSON.stringify({
+        event: 'LOCKDOWN_SIGNATURE_VERIFIED',
+        sessionId,
+        assessmentId:
+          req.params?.id || req.params?.assessmentId || req.body?.assessmentId || null,
+        candidateId: req.user?.id || req.user?.sub || attestationRecord.userId || null,
+        clientPlatform: headers['x-lockdown-platform'] || 'unknown',
+        clientVersion: headers['x-lockdown-version'] || 'unknown',
+        bootId: headers['x-lockdown-boot-id'] || null,
+        endpoint: reqPath,
+        statusCode: 200,
+        latencyMs: Date.now() - now,
+      }),
+    );
 
     return true;
   }

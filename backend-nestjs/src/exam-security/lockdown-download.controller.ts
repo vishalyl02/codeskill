@@ -6,6 +6,7 @@ import {
   Res,
   Req,
   HttpCode,
+  Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 
@@ -93,6 +94,8 @@ export function getPlatformCandidates(
 
 @Controller(['exam-security/lockdown', 'lockdown'])
 export class LockdownDownloadController {
+  private readonly logger = new Logger(LockdownDownloadController.name);
+
   private detectPlatform(platform?: string, userAgent = ''): string {
     if (platform) {
       const p = platform.toLowerCase();
@@ -183,6 +186,7 @@ export class LockdownDownloadController {
     }
 
     if (cdnBase) {
+      this.logger.log(`Download redirect via CDN for ${platform} (${tag}) -> ${directUrl}`);
       return res.redirect(302, directUrl);
     }
 
@@ -226,14 +230,21 @@ export class LockdownDownloadController {
 
             const signedS3Url = assetRes.headers.get('location');
             if (signedS3Url) {
+              this.logger.log(`Download resolved via signed S3 for ${platform} (${tag}, asset=${matchedAsset.name})`);
               res.set('X-CodeSkill-Asset-Source', 'github-signed-s3');
               return res.redirect(302, signedS3Url);
             }
+          } else {
+            this.logger.warn(`No matching release asset found in ${tag} for ${platform} (candidates=${candidates.join(',')})`);
           }
+        } else {
+          this.logger.warn(`GitHub release lookup failed for ${tag}: HTTP ${releaseRes.status}`);
         }
       } catch (proxyErr) {
-        // Fall through to canonical redirect
+        this.logger.warn(`GitHub release proxy error for ${tag}: ${String(proxyErr)}`);
       }
+    } else {
+      this.logger.warn(`LOCKDOWN_GITHUB_TOKEN not set; falling back to direct GitHub redirect for ${platform} (${tag})`);
     }
 
     return res.redirect(302, directUrl);
