@@ -468,8 +468,12 @@ describe('Assessment Integrity & Server-Side Scoring (AUD-002, NEW-001, NEW-002,
       status: 'in_progress', startedAt: new Date(), questionOrder: [], responses: [], resumeCount: 0,
     };
     mockAttemptRepo.findOne.mockImplementation(async () => activeAttempt);
-    mockAttemptRepo.update.mockImplementation(async () => {
-      activeAttempt.resumeCount += 1;
+    mockAttemptRepo.update.mockImplementation(async (_criteria, changes) => {
+      if (typeof changes.resumeCount === 'function') {
+        activeAttempt.resumeCount += 1;
+      } else if (changes.currentQuestionStartedAt) {
+        activeAttempt.currentQuestionStartedAt = changes.currentQuestionStartedAt;
+      }
       return { affected: 1 };
     });
     mockQuestionRepo.find.mockResolvedValue([]);
@@ -481,7 +485,9 @@ describe('Assessment Integrity & Server-Side Scoring (AUD-002, NEW-001, NEW-002,
     }
     await expect(service.startStudentAttempt(assessmentId, studentUser))
       .rejects.toThrow('All 3 resume opportunities have been used');
-    expect(mockAttemptRepo.update).toHaveBeenCalledTimes(3);
+    expect(mockAttemptRepo.update.mock.calls.filter(
+      ([, changes]) => typeof changes.resumeCount === 'function',
+    )).toHaveLength(3);
   });
 
   it('does not resume an attempt after its original timer expires', async () => {
