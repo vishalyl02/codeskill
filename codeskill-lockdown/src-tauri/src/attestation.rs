@@ -193,6 +193,15 @@ pub fn set_attested_session_id(
         .lock()
         .map_err(|_| "Failed to acquire lock on session_id".to_string())?;
     *lock = Some(session_id.clone());
+    crate::flight_recorder::set_correlation_context(None, None, Some(session_id.clone()));
+    crate::flight_recorder::record_event(
+        "INFO",
+        "ATTESTATION",
+        "SCENARIO_E_SIGNING",
+        "set_attested_session_id",
+        "bound",
+        serde_json::json!({ "hasExplicitHmacKey": session_hmac_key.is_some() }),
+    );
 
     if let Some(key_hex) = session_hmac_key {
         if let Ok(bytes) = hex::decode(key_hex.trim()) {
@@ -291,6 +300,20 @@ pub fn sign_api_request(
     let synced_timestamp_ms = local_now_ms + offset;
     let timestamp = synced_timestamp_ms.to_string();
 
+    crate::flight_recorder::record_event(
+        "INFO",
+        "ATTESTATION",
+        "SCENARIO_E_SIGNING",
+        "sign_api_request",
+        "signed",
+        serde_json::json!({
+            "method": method,
+            "path": path,
+            "clockOffsetMs": offset,
+            "bodyBytes": body.len(),
+        }),
+    );
+
     let nonce = uuid::Uuid::new_v4().to_string();
 
     // Compute SHA256 of the body
@@ -344,6 +367,20 @@ pub fn sign_exam_request(
     let offset = state.clock_offset_ms.load(Ordering::SeqCst);
     let synced_timestamp_ms = local_now_ms + offset;
     let timestamp = synced_timestamp_ms.to_string();
+
+    crate::flight_recorder::record_event(
+        "INFO",
+        "ATTESTATION",
+        "SCENARIO_E_SIGNING",
+        "sign_exam_request",
+        "signed",
+        serde_json::json!({
+            "method": method,
+            "path": path,
+            "clockOffsetMs": offset,
+            "bodySha256Len": body_sha256.len(),
+        }),
+    );
 
     let nonce = uuid::Uuid::new_v4().to_string();
 

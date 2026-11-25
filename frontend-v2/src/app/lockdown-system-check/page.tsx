@@ -30,6 +30,7 @@ import {
   isLockdownClient,
   logoutAndExitLockdown,
   exitLockdownApp,
+  exportDiagnosticLogBundle,
   BlockingAppInfo,
 } from "@/lib/lockdown-bridge";
 
@@ -38,6 +39,8 @@ export default function LockdownSystemCheckPage() {
   const [diagnostic, setDiagnostic] = useState<SystemDiagnosticResult | null>(null);
   const [closingPid, setClosingPid] = useState<number | null>(null);
   const [closingAll, setClosingAll] = useState<boolean>(false);
+  const [exportingLogs, setExportingLogs] = useState<boolean>(false);
+  const [exportSuccessPath, setExportSuccessPath] = useState<string | null>(null);
   const [isClient, setIsClient] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<"all" | "os" | "display" | "media" | "apps" | "network">("all");
 
@@ -707,7 +710,7 @@ export default function LockdownSystemCheckPage() {
 
         {/* Background Applications & Utilities Card */}
         <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <div>
               <h3 className="font-semibold text-sm text-white flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-400" />
@@ -718,17 +721,49 @@ export default function LockdownSystemCheckPage() {
               </p>
             </div>
 
-            {diagnostic && diagnostic.backgroundApps && diagnostic.backgroundApps.length > 0 && (
-              <button
-                onClick={handleCloseAllApps}
-                disabled={closingAll}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-xs font-semibold text-rose-300 transition-colors cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                {closingAll ? "Closing All Apps..." : "Close All Detected Apps"}
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {isClient && (
+                <button
+                  type="button"
+                  disabled={exportingLogs}
+                  onClick={async () => {
+                    setExportingLogs(true);
+                    setExportSuccessPath(null);
+                    try {
+                      const res = await exportDiagnosticLogBundle();
+                      setExportSuccessPath(res.bundlePath);
+                    } catch (err) {
+                      console.warn("Failed to export diagnostic log bundle:", err);
+                    } finally {
+                      setExportingLogs(false);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 transition-colors cursor-pointer disabled:opacity-60"
+                >
+                  <Download className="w-3.5 h-3.5 text-sky-400" />
+                  {exportingLogs ? "Exporting Bundle..." : "Save Diagnostic Log Bundle (.zip)"}
+                </button>
+              )}
+
+              {diagnostic && diagnostic.backgroundApps && diagnostic.backgroundApps.length > 0 && (
+                <button
+                  onClick={handleCloseAllApps}
+                  disabled={closingAll}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-xs font-semibold text-rose-300 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {closingAll ? "Closing All Apps..." : "Close All Detected Apps"}
+                </button>
+              )}
+            </div>
           </div>
+
+          {exportSuccessPath && (
+            <div className="mb-4 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>Diagnostic log bundle saved to: <code className="font-mono text-emerald-200">{exportSuccessPath}</code></span>
+            </div>
+          )}
 
           {diagnostic?.backgroundApps && diagnostic.backgroundApps.length > 0 ? (
             <div className="overflow-x-auto">

@@ -1,4 +1,5 @@
 pub mod attestation;
+pub mod flight_recorder;
 pub mod kiosk_os;
 pub mod offline_vault;
 pub mod permissions_onboarding;
@@ -182,6 +183,22 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
                         ),
                     );
                 }
+
+                // Set flight recorder correlation context
+                flight_recorder::set_correlation_context(Some(id.clone()), None, None);
+                flight_recorder::record_event(
+                    "INFO",
+                    "DEEP_LINK",
+                    "SCENARIO_A_DEEP_LINK",
+                    "handle_deep_link_url",
+                    "parsed",
+                    serde_json::json!({
+                        "assessmentId": id,
+                        "useCamera": use_camera,
+                        "useMic": use_mic,
+                        "hasToken": token.is_some(),
+                    }),
+                );
 
                 // Check if one-time permissions onboarding is needed
                 if permissions_onboarding::is_onboarding_needed(app) {
@@ -804,6 +821,8 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 }
 
 pub fn run() {
+    flight_recorder::init_flight_recorder();
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("exam-kiosk") {
@@ -929,6 +948,9 @@ pub fn run() {
             permissions_onboarding::request_os_permission,
             permissions_onboarding::complete_permission_onboarding,
             consume_pending_launch_url,
+            flight_recorder::get_flight_recorder_context,
+            flight_recorder::log_frontend_event,
+            flight_recorder::export_diagnostic_log_bundle,
             kiosk_os::exit_lockdown_app,
         ])
         .build(tauri::generate_context!())

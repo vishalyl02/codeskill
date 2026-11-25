@@ -287,7 +287,20 @@ pub fn inspect_live_permissions(app: &AppHandle) -> Vec<PermissionChecklistItem>
         ),
     );
 
-    os_impl::inspect_live_permissions(app, require_camera, require_microphone)
+    let items = os_impl::inspect_live_permissions(app, require_camera, require_microphone);
+    let summary: Vec<serde_json::Value> = items
+        .iter()
+        .map(|i| serde_json::json!({ "id": i.id, "status": i.status, "required": i.required }))
+        .collect();
+    crate::flight_recorder::record_event(
+        "INFO",
+        "PERMISSIONS",
+        "SCENARIO_B_PERMISSIONS",
+        "inspect_live_permissions",
+        "completed",
+        serde_json::json!({ "items": summary }),
+    );
+    items
 }
 
 pub fn request_permission_by_id(app: &AppHandle, permission_id: &str) -> PermissionChecklistItem {

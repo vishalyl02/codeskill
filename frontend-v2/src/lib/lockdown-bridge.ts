@@ -1500,3 +1500,63 @@ export async function completePermissionOnboarding(): Promise<CompleteOnboarding
     return { success: true, targetUrl: null };
   }
 }
+
+export interface FlightRecorderContext {
+  bootId: string;
+  platform: string;
+  osVersion: string;
+  arch: string;
+  logDir: string;
+  clientVersion: string;
+}
+
+export interface DiagnosticBundleResult {
+  success: boolean;
+  bundlePath: string;
+  fileCount: number;
+  totalBytes: number;
+  bootId: string;
+}
+
+/**
+ * Returns the native Rust flight-recorder correlation context (`bootId`, platform, log directory).
+ */
+export async function getFlightRecorderContext(): Promise<FlightRecorderContext | null> {
+  if (!isLockdownClient()) return null;
+  try {
+    return await tauriInvokeWithTimeout<FlightRecorderContext>('get_flight_recorder_context', {}, 1500);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Bridges a structured frontend WebView event into the Rust JSONL flight recorder.
+ */
+export async function logFrontendEvent(
+  level: string,
+  category: string,
+  event: string,
+  context: Record<string, unknown> = {},
+): Promise<void> {
+  if (!isLockdownClient()) return;
+  try {
+    await tauriInvokeWithTimeout<void>(
+      'log_frontend_event',
+      { level, category, event, context },
+      1500,
+    );
+  } catch {
+    // Non-fatal
+  }
+}
+
+/**
+ * Exports a sanitized `.zip` bundle of the last 48h of native JSONL logs, panic logs, and system summary.
+ */
+export async function exportDiagnosticLogBundle(): Promise<DiagnosticBundleResult> {
+  if (!isLockdownClient()) {
+    throw new Error('Diagnostic log bundle export is only available inside CodeSkill LockDown.');
+  }
+  return await tauriInvokeWithTimeout<DiagnosticBundleResult>('export_diagnostic_log_bundle', {}, 8000);
+}
