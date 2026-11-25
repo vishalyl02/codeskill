@@ -241,14 +241,36 @@ jobs:
           path: release-assets
           merge-multiple: true
       - name: Publish Assets to GitHub Release
-        uses: softprops/action-gh-release@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ needs.detect-changes.outputs.tag_name }}
-          name: CodeSkill LockDown v${{ needs.detect-changes.outputs.version }}
-          body: Official secure examination browser release for CodeSkill assessments.
-          draft: false
-          prerelease: false
-          overwrite_files: true
-          files: release-assets/**/*
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ needs.detect-changes.outputs.tag_name }}"
+          VERSION="${{ needs.detect-changes.outputs.version }}"
+
+          if ! gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release create "$TAG_NAME" \
+              --title "CodeSkill LockDown v${VERSION}" \
+              --notes "Official secure examination browser release for CodeSkill assessments."
+            sleep 3
+          fi
+
+          EXISTING_ASSETS=$(gh release view "$TAG_NAME" --json assets --jq '.assets[].name' 2>/dev/null || true)
+
+          for f in release-assets/*; do
+            [ -f "$f" ] || continue
+            BASENAME=$(basename "$f")
+            LOWER_BASE=$(echo "$BASENAME" | tr '[:upper:]' '[:lower:]')
+
+            # Delete any existing asset matching case-insensitively with different casing
+            while IFS= read -r existing; do
+              [ -n "$existing" ] || continue
+              LOWER_EXISTING=$(echo "$existing" | tr '[:upper:]' '[:lower:]')
+              if [ "$LOWER_EXISTING" = "$LOWER_BASE" ] && [ "$existing" != "$BASENAME" ]; then
+                echo "Removing case-conflicting asset: $existing"
+                gh release delete-asset "$TAG_NAME" "$existing" -y || true
+              fi
+            done <<< "$EXISTING_ASSETS"
+
+            echo "Uploading $BASENAME..."
+            gh release upload "$TAG_NAME" "$f" --clobber
+          done
