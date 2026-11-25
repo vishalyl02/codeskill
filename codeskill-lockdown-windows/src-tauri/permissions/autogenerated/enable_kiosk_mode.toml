@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-enable-kiosk-mode"
+description = "Enables the enable_kiosk_mode command without any pre-configured scope."
+commands.allow = ["enable_kiosk_mode"]
+
+[[permission]]
+identifier = "deny-enable-kiosk-mode"
+description = "Denies the enable_kiosk_mode command without any pre-configured scope."
+commands.deny = ["enable_kiosk_mode"]

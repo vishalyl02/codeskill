@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-inspect-media-hardware"
+description = "Enables the inspect_media_hardware command without any pre-configured scope."
+commands.allow = ["inspect_media_hardware"]
+
+[[permission]]
+identifier = "deny-inspect-media-hardware"
+description = "Denies the inspect_media_hardware command without any pre-configured scope."
+commands.deny = ["inspect_media_hardware"]

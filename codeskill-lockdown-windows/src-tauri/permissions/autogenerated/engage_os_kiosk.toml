@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-engage-os-kiosk"
+description = "Enables the engage_os_kiosk command without any pre-configured scope."
+commands.allow = ["engage_os_kiosk"]
+
+[[permission]]
+identifier = "deny-engage-os-kiosk"
+description = "Denies the engage_os_kiosk command without any pre-configured scope."
+commands.deny = ["engage_os_kiosk"]

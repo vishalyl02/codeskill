@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vault-read-all-autosaves"
+description = "Enables the vault_read_all_autosaves command without any pre-configured scope."
+commands.allow = ["vault_read_all_autosaves"]
+
+[[permission]]
+identifier = "deny-vault-read-all-autosaves"
+description = "Denies the vault_read_all_autosaves command without any pre-configured scope."
+commands.deny = ["vault_read_all_autosaves"]

@@ -3,13 +3,17 @@ name: CodeSkill LockDown Release
 on:
   push:
     paths:
-      - 'codeskill-lockdown/**'
+      - 'codeskill-lockdown-macos/**'
+      - 'codeskill-lockdown-windows/**'
+      - 'codeskill-lockdown-linux/**'
       - '.github/workflows/lockdown-release.yml'
     tags:
       - 'lockdown-v*'
   pull_request:
     paths:
-      - 'codeskill-lockdown/**'
+      - 'codeskill-lockdown-macos/**'
+      - 'codeskill-lockdown-windows/**'
+      - 'codeskill-lockdown-linux/**'
       - '.github/workflows/lockdown-release.yml'
   workflow_dispatch:
 
@@ -17,121 +21,188 @@ permissions:
   contents: write
 
 jobs:
-  build-tauri:
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [windows-latest, macos-latest, ubuntu-22.04]
-
-    runs-on: ${{ matrix.platform }}
-
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      macos: ${{ steps.set.outputs.macos }}
+      windows: ${{ steps.set.outputs.windows }}
+      linux: ${{ steps.set.outputs.linux }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')
+        with:
+          filters: |
+            macos:
+              - 'codeskill-lockdown-macos/**'
+              - '.github/workflows/lockdown-release.yml'
+            windows:
+              - 'codeskill-lockdown-windows/**'
+              - '.github/workflows/lockdown-release.yml'
+            linux:
+              - 'codeskill-lockdown-linux/**'
+              - '.github/workflows/lockdown-release.yml'
+      - id: set
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+            echo "windows=true" >> "$GITHUB_OUTPUT"
+            echo "linux=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "macos=${{ steps.filter.outputs.macos }}" >> "$GITHUB_OUTPUT"
+            echo "windows=${{ steps.filter.outputs.windows }}" >> "$GITHUB_OUTPUT"
+            echo "linux=${{ steps.filter.outputs.linux }}" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+  build-windows:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.windows == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
-
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: codeskill-lockdown/src-tauri -> target
-
-      - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libx11-dev libayatana-appindicator3-dev librsvg2-dev
-
+          workspaces: codeskill-lockdown-windows/src-tauri -> target
       - name: Install LockDown Node dependencies
         run: npm install
-        working-directory: codeskill-lockdown
-
-      - name: Build CodeSkill LockDown Desktop Application
+        working-directory: codeskill-lockdown-windows
+      - name: Build CodeSkill LockDown (Windows)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://codeskill.com' }}
         with:
-          projectPath: codeskill-lockdown
-          args: ${{ matrix.platform == 'windows-latest' && '--bundles nsis' || '' }}
+          projectPath: codeskill-lockdown-windows
+          args: --bundles nsis
           tagName: lockdown-v__VERSION__
           releaseName: 'CodeSkill LockDown v__VERSION__'
           releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
           releaseDraft: false
           prerelease: false
-
       - name: Standardize and Upload Windows NSIS Installer Asset
-        if: matrix.platform == 'windows-latest'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p dist-nsis
           NSIS_FILE=""
-          for f in codeskill-lockdown/src-tauri/target/release/bundle/nsis/*.exe codeskill-lockdown/src-tauri/target/release/*.exe; do
+          for f in codeskill-lockdown-windows/src-tauri/target/release/bundle/nsis/*.exe codeskill-lockdown-windows/src-tauri/target/release/*.exe; do
             if [ -f "$f" ] && [[ ! "$f" =~ uninst ]]; then
               NSIS_FILE="$f"
               break
             fi
           done
-
           if [ -n "$NSIS_FILE" ] && [ -f "$NSIS_FILE" ]; then
-            echo "Found NSIS installer: $NSIS_FILE"
-            VERSION=$(node -p "require('./codeskill-lockdown/src-tauri/tauri.conf.json').version")
-            REF_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
-            TAG_NAME="${REF_NAME}"
+            VERSION=$(node -p "require('./codeskill-lockdown-windows/src-tauri/tauri.conf.json').version")
+            TAG_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
             cp "$NSIS_FILE" dist-nsis/CodeSkill-LockDown-Setup.exe
             cp "$NSIS_FILE" dist-nsis/codeskill-lockdown-setup.exe
             cp "$NSIS_FILE" "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe"
-            echo "Publishing standardized Windows assets to $TAG_NAME"
+            sha256sum dist-nsis/*.exe > dist-nsis/SHA256SUMS-windows.txt
+            EXE_HASH=$(sha256sum dist-nsis/CodeSkill-LockDown-Setup.exe | awk '{print $1}')
+            node -e "const fs=require('fs');fs.writeFileSync('dist-nsis/release-manifest-windows.json',JSON.stringify({platform:'windows',version:'$VERSION',filename:'CodeSkill-LockDown-Setup.exe',sha256:'$EXE_HASH',generatedAt:new Date().toISOString()},null,2));"
             if command -v gh >/dev/null 2>&1; then
-              gh release upload "$TAG_NAME" dist-nsis/CodeSkill-LockDown-Setup.exe dist-nsis/codeskill-lockdown-setup.exe "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe" --clobber || echo "Notice: gh release upload skipped or release not created yet"
+              gh release upload "$TAG_NAME" dist-nsis/CodeSkill-LockDown-Setup.exe dist-nsis/codeskill-lockdown-setup.exe "dist-nsis/CodeSkill-LockDown-${VERSION}-Setup.exe" dist-nsis/SHA256SUMS-windows.txt dist-nsis/release-manifest-windows.json --clobber || echo "Notice: gh release upload skipped or release not created yet"
             fi
-          else
-            echo "Notice: No NSIS installer binary found to standardize."
           fi
 
+  build-macos:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.macos == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: codeskill-lockdown-macos/src-tauri -> target
+      - name: Install LockDown Node dependencies
+        run: npm install
+        working-directory: codeskill-lockdown-macos
+      - name: Build CodeSkill LockDown (macOS)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://codeskill.com' }}
+        with:
+          projectPath: codeskill-lockdown-macos
+          tagName: lockdown-v__VERSION__
+          releaseName: 'CodeSkill LockDown v__VERSION__'
+          releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
+          releaseDraft: false
+          prerelease: false
       - name: Standardize and Upload macOS DMG Asset
-        if: matrix.platform == 'macos-latest'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p dist-dmg
           DMG_FILE=""
-          for f in codeskill-lockdown/src-tauri/target/release/bundle/dmg/*.dmg codeskill-lockdown/src-tauri/target/*/release/bundle/dmg/*.dmg; do
+          for f in codeskill-lockdown-macos/src-tauri/target/release/bundle/dmg/*.dmg codeskill-lockdown-macos/src-tauri/target/*/release/bundle/dmg/*.dmg; do
             if [ -f "$f" ]; then
               DMG_FILE="$f"
               break
             fi
           done
-
           if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
-            echo "Found macOS DMG installer: $DMG_FILE"
-            VERSION=$(node -p "require('./codeskill-lockdown/src-tauri/tauri.conf.json').version")
-            REF_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
-            TAG_NAME="${REF_NAME}"
+            VERSION=$(node -p "require('./codeskill-lockdown-macos/src-tauri/tauri.conf.json').version")
+            TAG_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
             cp "$DMG_FILE" dist-dmg/codeskill-lockdown.dmg
             cp "$DMG_FILE" dist-dmg/CodeSkill-LockDown.dmg
             cp "$DMG_FILE" "dist-dmg/CodeSkill-LockDown-${VERSION}.dmg"
-            echo "Publishing standardized macOS assets to $TAG_NAME"
+            shasum -a 256 dist-dmg/*.dmg > dist-dmg/SHA256SUMS-macos.txt
+            DMG_HASH=$(shasum -a 256 dist-dmg/CodeSkill-LockDown.dmg | awk '{print $1}')
+            node -e "const fs=require('fs');fs.writeFileSync('dist-dmg/release-manifest-macos.json',JSON.stringify({platform:'macos',version:'$VERSION',filename:'CodeSkill-LockDown.dmg',sha256:'$DMG_HASH',generatedAt:new Date().toISOString()},null,2));"
             if command -v gh >/dev/null 2>&1; then
-              gh release upload "$TAG_NAME" dist-dmg/codeskill-lockdown.dmg dist-dmg/CodeSkill-LockDown.dmg "dist-dmg/CodeSkill-LockDown-${VERSION}.dmg" --clobber || echo "Notice: gh release upload skipped or release not created yet"
+              gh release upload "$TAG_NAME" dist-dmg/codeskill-lockdown.dmg dist-dmg/CodeSkill-LockDown.dmg "dist-dmg/CodeSkill-LockDown-${VERSION}.dmg" dist-dmg/SHA256SUMS-macos.txt dist-dmg/release-manifest-macos.json --clobber || echo "Notice: gh release upload skipped or release not created yet"
             fi
-          else
-            echo "Notice: No macOS DMG installer binary found to standardize."
           fi
 
+  build-linux:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.linux == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: codeskill-lockdown-linux/src-tauri -> target
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libx11-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Install LockDown Node dependencies
+        run: npm install
+        working-directory: codeskill-lockdown-linux
+      - name: Build CodeSkill LockDown (Linux)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN || 'https://codeskill.com' }}
+        with:
+          projectPath: codeskill-lockdown-linux
+          tagName: lockdown-v__VERSION__
+          releaseName: 'CodeSkill LockDown v__VERSION__'
+          releaseBody: 'Official secure examination browser release for CodeSkill assessments.'
+          releaseDraft: false
+          prerelease: false
       - name: Standardize and Upload Linux Package Assets
-        if: matrix.platform == 'ubuntu-22.04'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -139,45 +210,38 @@ jobs:
           mkdir -p dist-linux
           DEB_FILE=""
           APPIMAGE_FILE=""
-          for f in codeskill-lockdown/src-tauri/target/release/bundle/deb/*.deb; do
+          for f in codeskill-lockdown-linux/src-tauri/target/release/bundle/deb/*.deb; do
             if [ -f "$f" ]; then
               DEB_FILE="$f"
               break
             fi
           done
-          for f in codeskill-lockdown/src-tauri/target/release/bundle/appimage/*.AppImage; do
+          for f in codeskill-lockdown-linux/src-tauri/target/release/bundle/appimage/*.AppImage; do
             if [ -f "$f" ]; then
               APPIMAGE_FILE="$f"
               break
             fi
           done
-
-          VERSION=$(node -p "require('./codeskill-lockdown/src-tauri/tauri.conf.json').version")
-          REF_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
-          TAG_NAME="${REF_NAME}"
-
+          VERSION=$(node -p "require('./codeskill-lockdown-linux/src-tauri/tauri.conf.json').version")
+          TAG_NAME="${GITHUB_REF_NAME:-lockdown-v${VERSION}}"
           UPLOAD_FILES=()
           if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
-            echo "Found Linux DEB package: $DEB_FILE"
             cp "$DEB_FILE" dist-linux/codeskill-lockdown.deb
             cp "$DEB_FILE" dist-linux/CodeSkill-LockDown.deb
             cp "$DEB_FILE" "dist-linux/CodeSkill-LockDown-${VERSION}.deb"
             UPLOAD_FILES+=(dist-linux/codeskill-lockdown.deb dist-linux/CodeSkill-LockDown.deb "dist-linux/CodeSkill-LockDown-${VERSION}.deb")
           fi
-
           if [ -n "$APPIMAGE_FILE" ] && [ -f "$APPIMAGE_FILE" ]; then
-            echo "Found Linux AppImage package: $APPIMAGE_FILE"
             cp "$APPIMAGE_FILE" dist-linux/codeskill-lockdown.AppImage
             cp "$APPIMAGE_FILE" dist-linux/CodeSkill-LockDown.AppImage
             cp "$APPIMAGE_FILE" "dist-linux/CodeSkill-LockDown-${VERSION}.AppImage"
             UPLOAD_FILES+=(dist-linux/codeskill-lockdown.AppImage dist-linux/CodeSkill-LockDown.AppImage "dist-linux/CodeSkill-LockDown-${VERSION}.AppImage")
           fi
-
           if [ ${#UPLOAD_FILES[@]} -gt 0 ]; then
-            echo "Publishing standardized Linux assets to $TAG_NAME: ${UPLOAD_FILES[*]}"
+            sha256sum "${UPLOAD_FILES[@]}" > dist-linux/SHA256SUMS-linux.txt
+            node -e "const fs=require('fs');fs.writeFileSync('dist-linux/release-manifest-linux.json',JSON.stringify({platform:'linux',version:'$VERSION',files:'${UPLOAD_FILES[*]}'.split(' '),generatedAt:new Date().toISOString()},null,2));"
+            UPLOAD_FILES+=(dist-linux/SHA256SUMS-linux.txt dist-linux/release-manifest-linux.json)
             if command -v gh >/dev/null 2>&1; then
               gh release upload "$TAG_NAME" "${UPLOAD_FILES[@]}" --clobber || echo "Notice: gh release upload skipped or release not created yet"
             fi
-          else
-            echo "Notice: No Linux installer binaries found to standardize."
           fi

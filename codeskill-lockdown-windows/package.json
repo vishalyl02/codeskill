@@ -1,0 +1,21 @@
+{
+  "name": "codeskill-lockdown",
+  "version": "1.0.0",
+  "description": "CodeSkill LockDown secure desktop examination browser",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "build": "tauri build",
+    "build:windows": "tauri build --bundles nsis",
+    "build:mac": "tauri build --bundles dmg,app",
+    "build:linux": "tauri build --bundles deb,appimage",
+    "postbuild": "node scripts/postbuild.js"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/plugin-deep-link": "^2.0.0"
+  }
+}
