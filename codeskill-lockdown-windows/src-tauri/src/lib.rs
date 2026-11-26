@@ -534,12 +534,24 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             document.documentElement.appendChild(host);
 
             // Auto-hide only when the full assessment exam dock is mounted on /take
+            var lastDockVisible = null;
+            var syncRafPending = false;
             function syncVisibility() {
+                syncRafPending = false;
                 var examDock = document.querySelector('[data-lockdown-utility-dock="true"]');
-                host.style.display = examDock ? 'none' : 'block';
+                var nextDisplay = examDock ? 'none' : 'block';
+                if (lastDockVisible !== nextDisplay) {
+                    lastDockVisible = nextDisplay;
+                    host.style.display = nextDisplay;
+                }
+            }
+            function scheduleSyncVisibility() {
+                if (syncRafPending) return;
+                syncRafPending = true;
+                window.requestAnimationFrame(syncVisibility);
             }
             syncVisibility();
-            var obs = new MutationObserver(syncVisibility);
+            var obs = new MutationObserver(scheduleSyncVisibility);
             obs.observe(document.documentElement, { childList: true, subtree: true });
 
             var bar = shadow.getElementById('bar');

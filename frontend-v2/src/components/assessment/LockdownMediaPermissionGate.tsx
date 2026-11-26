@@ -90,12 +90,15 @@ export default function LockdownMediaPermissionGate({
   cameraSelectionPolicy = "student_select",
   onReady,
 }: LockdownMediaPermissionGateProps) {
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+
   // If neither camera nor microphone is required by this assessment, bypass immediately!
   useEffect(() => {
     if (!requireCamera && !requireMic) {
-      onReady();
+      onReadyRef.current();
     }
-  }, [requireCamera, requireMic, onReady]);
+  }, [requireCamera, requireMic]);
 
   const [osName, setOsName] = useState<"macos" | "windows" | "linux" | "other">("other");
   const [osStatus, setOsStatus] = useState<MediaPermissionStatus | null>(null);
@@ -321,7 +324,7 @@ export default function LockdownMediaPermissionGate({
   const isWin = osName === "windows";
 
   return (
-    <div className="fixed inset-0 z-[190] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4 text-center overflow-y-auto">
+    <div className="fixed inset-0 z-[190] flex items-center justify-center bg-slate-950/95 p-4 text-center overflow-y-auto">
       <div className="max-w-2xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl text-left space-y-6 my-auto">
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
