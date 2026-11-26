@@ -1,6 +1,9 @@
-"""Check the exact placement WAF exception and application upload bounds (no AWS)."""
+"""Check placement upload limits and production WAF deployment (no AWS)."""
+import os
 from pathlib import Path
 import re
+import subprocess
+from tempfile import TemporaryDirectory
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,6 +71,52 @@ class PlacementUploadGatewayTests(unittest.TestCase):
             source = (ROOT / relative).read_text()
             limit = int(re.search(r'client_max_body_size\s+(\d+)M;', source).group(1))
             self.assertGreater(limit * 1024 * 1024, 10 * 1024 * 1024 + 65536)
+
+
+class ProductionWafDeploymentTests(unittest.TestCase):
+    def run_deploy(self, account, state):
+        with TemporaryDirectory() as directory:
+            bin_dir = Path(directory)
+            trace = bin_dir / 'terraform.log'
+            aws = bin_dir / 'aws'
+            aws.write_text('#!/bin/bash\nprintf "%s\\n" "$TEST_ACCOUNT"\n')
+            terraform = bin_dir / 'terraform'
+            terraform.write_text(
+                '#!/bin/bash\nprintf "%s %s\\n" "$PWD" "$*" >> "$TEST_TRACE"\n'
+                'if [[ "$*" == "state list" ]]; then printf "%s\\n" "$TEST_STATE"; fi\n'
+            )
+            for tool in (aws, terraform):
+                tool.chmod(0o700)
+            result = subprocess.run(
+                ['bash', str(ROOT / 'terraform/scripts/deploy.sh')],
+                cwd=directory,
+                env={**os.environ, 'PATH': f'{bin_dir}:{os.environ["PATH"]}',
+                     'TEST_ACCOUNT': account, 'TEST_STATE': state, 'TEST_TRACE': str(trace)},
+                input='NO\n', text=True, capture_output=True, check=False,
+            )
+            return result, trace.read_text().splitlines() if trace.exists() else []
+
+    def test_plan_uses_production_root_and_existing_state(self):
+        result, calls = self.run_deploy('239939507154',
+                                        'module.alb.aws_lb.main\nmodule.waf.aws_wafv2_web_acl.main')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        production = ROOT / 'terraform/environments/production'
+        self.assertEqual(calls, [f'{production} {args}' for args in (
+            'state list', 'fmt -check -recursive', 'init -backend=false', 'validate',
+            'plan -out=production.tfplan',
+        )])
+
+    def test_plan_stops_for_wrong_account_or_missing_acl_state(self):
+        result, calls = self.run_deploy('000000000000', '')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Expected CodeSkill production AWS account', result.stderr)
+        self.assertEqual(calls, [])
+
+        result, calls = self.run_deploy('239939507154', 'module.alb.aws_lb.main')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('does not contain the production ALB and Web ACL', result.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0].endswith(' state list'))
 
 
 if __name__ == '__main__':

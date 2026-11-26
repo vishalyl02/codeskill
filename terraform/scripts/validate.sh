@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TERRAFORM_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TERRAFORM_DIR="$(cd "${1:-${SCRIPT_DIR}/..}" && pwd)"
 
 echo "=========================================================="
 echo " Running CodeSkill Terraform Infrastructure Validation    "

@@ -48,4 +48,6 @@ Document category values: `job-description`, `company-profile`, `learning-resour
 
 The WAF size-label rule exempts only `POST /api/placements/<UUID>/documents` (plus the pre-existing import exceptions). Other placement methods and routes keep the original body-size protection, and all other managed rules remain enabled. NestJS still requires JWT authentication and an admin role, validates the PDF signature, and limits each PDF to 10 MiB.
 
-**Deploy the Terraform WAF module change as well as the application.** The application image rollout workflow does not run Terraform. Merging/redeploying only the API/frontend will not remove an already-active WAF 403. The AWS infrastructure operator must plan/apply the production environment using its existing remote state, review that the Web ACL size-label exception is the intended change, then retry the upload. Do not create a new Terraform state or disable the Web ACL.
+The application rollout and Web ACL deployment run separately. Use `terraform/environments/production` with the existing production state. From the repository root, `./terraform/scripts/deploy.sh` selects that directory and checks the state before planning. Review the proposed change to `module.waf.aws_wafv2_web_acl.main` alongside any production drift before applying, then retry the PDF upload.
+
+If an upload still returns 403, find the rejected `POST /api/placements/<UUID>/documents` in the `codeskill-prod-waf` sampled requests or logs in `ap-south-1`. Capture the terminating rule name before changing any firewall rules.
