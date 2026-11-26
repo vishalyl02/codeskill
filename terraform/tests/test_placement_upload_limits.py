@@ -62,7 +62,7 @@ class PlacementUploadGatewayTests(unittest.TestCase):
         self.assertIn('PDF_LIMIT = 10 * 1024 * 1024', service)
         self.assertRegex(controller, r"@Post\(':id/documents'\)\s*@UseGuards\(AdminGuard\)")
         self.assertIn('@UseGuards(JwtAuthGuard)', controller)
-        self.assertIn('fileSize: PDF_LIMIT', controller)
+        self.assertIn('fileSize: PDF_LIMIT + 1', controller)
         # The production proxy also needs room for multipart headers.
         for relative in ['terraform/userdata/app.sh.tftpl', 'terraform/modules/asg/main.tf']:
             source = (ROOT / relative).read_text()

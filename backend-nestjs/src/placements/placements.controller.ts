@@ -53,7 +53,8 @@ export class PlacementsController {
   @UseInterceptors(
     FilesInterceptor('files', 10, {
       storage: memoryStorage(),
-      limits: { fileSize: PDF_LIMIT, files: 10 },
+      // Busboy reports a limit event at equality. Allow exactly PDF_LIMIT bytes.
+      limits: { fileSize: PDF_LIMIT + 1, files: 10 },
       fileFilter: (_req, file, done) => {
         if (file.mimetype !== 'application/pdf')
           return done(
