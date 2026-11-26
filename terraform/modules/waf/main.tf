@@ -30,7 +30,7 @@ resource "aws_wafv2_web_acl" "main" {
         name        = "AWSManagedRulesCommonRuleSet"
         vendor_name = "AWS"
 
-        # The ALB WAF inspects only 8 KiB of a body. Spreadsheet uploads and
+        # The ALB WAF inspects only 8 KiB of a body. Authenticated file uploads and
         # validated import batches legitimately exceed that size; retain every
         # other managed rule and handle this size label below by request path.
         rule_action_override {
@@ -50,7 +50,7 @@ resource "aws_wafv2_web_acl" "main" {
   }
 
   # Keep the managed body-size restriction for all routes except the bounded,
-  # authenticated bulk-import endpoints. Their file/JSON limits are enforced
+  # authenticated bulk imports and the exact placement PDF POST route. Limits are enforced
   # by the application after the ALB forwards the request.
   rule {
     name     = "BlockOversizeBodyOutsideBulkImport"
@@ -82,6 +82,42 @@ resource "aws_wafv2_web_acl" "main" {
                 text_transformation {
                   priority = 0
                   type     = "NONE"
+                }
+              }
+            }
+          }
+        }
+
+        # Exclude only the exact PDF upload route and method from this size
+        # label block. All other managed rules and NestJS validation still run.
+        statement {
+          not_statement {
+            statement {
+              and_statement {
+                statement {
+                  regex_match_statement {
+                    regex_string = "^/api/placements/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/documents/?$"
+                    field_to_match {
+                      uri_path {}
+                    }
+                    text_transformation {
+                      priority = 0
+                      type     = "NONE"
+                    }
+                  }
+                }
+                statement {
+                  byte_match_statement {
+                    positional_constraint = "EXACTLY"
+                    search_string         = "POST"
+                    field_to_match {
+                      method {}
+                    }
+                    text_transformation {
+                      priority = 0
+                      type     = "NONE"
+                    }
+                  }
                 }
               }
             }

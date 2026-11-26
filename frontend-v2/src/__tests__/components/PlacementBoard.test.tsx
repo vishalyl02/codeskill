@@ -440,3 +440,32 @@ it("keeps failed PDF uploads visible beside Save and retries only unfinished fil
   );
   await screen.findByText("Placement published. Students can now see it.");
 });
+
+it("accepts a 10 MiB selected PDF and rejects files above the displayed limit", async () => {
+  (useAuth as jest.Mock).mockReturnValue({
+    user: { id: "admin", isAdmin: true },
+    loading: false,
+  });
+  render(<PlacementBoard manage />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  const maximum = new File(["%PDF-1.4"], "Maximum.pdf", {
+    type: "application/pdf",
+  });
+  Object.defineProperty(maximum, "size", { value: 10 * 1024 * 1024 });
+  fireEvent.change(screen.getByLabelText("Job descriptions"), {
+    target: { files: [maximum] },
+  });
+  const editor = screen.getByRole("region", { name: "Placement editor" });
+  expect(within(editor).getByText("Maximum.pdf")).toBeInTheDocument();
+  const oversized = new File(["%PDF-1.4"], "Too-large.pdf", {
+    type: "application/pdf",
+  });
+  Object.defineProperty(oversized, "size", { value: 10 * 1024 * 1024 + 1 });
+  fireEvent.change(screen.getByLabelText("Job descriptions"), {
+    target: { files: [oversized] },
+  });
+  expect(within(editor).getByRole("alert")).toHaveTextContent(
+    "10 MB or smaller",
+  );
+  expect(within(editor).queryByText("Too-large.pdf")).not.toBeInTheDocument();
+});

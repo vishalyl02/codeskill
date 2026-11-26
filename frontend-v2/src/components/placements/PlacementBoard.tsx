@@ -210,9 +210,11 @@ export function PlacementBoard({ manage = false }: { manage?: boolean }) {
     const list = Array.from(chosen || []);
     if (
       list.length > 10 ||
-      list.some((f) => f.type !== "application/pdf" || f.size > 8 * 1024 * 1024)
+      list.some(
+        (f) => f.type !== "application/pdf" || f.size > 10 * 1024 * 1024,
+      )
     ) {
-      setError("Choose up to 10 PDFs per group, each 8 MB or smaller.");
+      setError("Choose up to 10 PDFs per group, each 10 MB or smaller.");
       setFiles((prev) => ({ ...prev, [category]: [] }));
       setFileReset((v) => v + 1);
       return;
@@ -676,7 +678,7 @@ export function PlacementBoard({ manage = false }: { manage?: boolean }) {
                     <label className={styles.uploadPicker}>
                       <FileText size={18} />
                       <strong>{group.label}</strong>
-                      <span>Add PDFs · up to 8 MB each</span>
+                      <span>Add PDFs · up to 10 MB each</span>
                       <input
                         key={fileReset}
                         type="file"

@@ -20,7 +20,7 @@ export interface PlacementActor {
   role?: string;
   isAdmin?: boolean;
 }
-export const PDF_LIMIT = 8 * 1024 * 1024;
+export const PDF_LIMIT = 10 * 1024 * 1024;
 export function validatePlacementPdfs(files: Express.Multer.File[]) {
   if (!files.length || files.length > 10)
     throw new BadRequestException('Choose between 1 and 10 PDF files.');
@@ -32,7 +32,7 @@ export function validatePlacementPdfs(files: Express.Multer.File[]) {
       throw new BadRequestException('Only valid PDF files are accepted.');
     }
     if (file.buffer.length > PDF_LIMIT)
-      throw new BadRequestException('Each PDF must be 8 MB or smaller.');
+      throw new BadRequestException('Each PDF must be 10 MB or smaller.');
   }
 }
 export function validatePlacementLogo(value: string | null | undefined) {
