@@ -63,6 +63,7 @@ import {
 } from "@/lib/assessment-face-verification";
 import { formatAssessmentDateTime, getAssessmentScheduleState } from "@/lib/assessment-schedule";
 import LockdownLaunchGate from "@/components/assessment/LockdownLaunchGate";
+import { requiresAssessmentLockdown } from "@/lib/assessment-cards";
 import LockdownAppBlockerGate from "@/components/assessment/LockdownAppBlockerGate";
 import { isLockdownClient, initializeLockdownAttestation, openSystemPrivacySettings } from "@/lib/lockdown-bridge";
 import { requestAssessmentMedia, resolveAssessmentMediaRequirements, type AssessmentCameraSelectionPolicy } from "@/lib/assessment-media-policy";
@@ -345,14 +346,7 @@ export default function AssessmentBriefingPage({
     );
   }
 
-  const securityPolicy = assessment?.securityPolicy || {};
-  const requiresLockdown = Boolean(
-    assessment?.requireLockdown ||
-    securityPolicy.requireSEB ||
-    securityPolicy.requireLockdown ||
-    securityPolicy.secureExamMode === "STRICT" ||
-    securityPolicy.secureExamMode === "STANDARD"
-  );
+  const requiresLockdown = requiresAssessmentLockdown(assessment);
 
   if (requiresLockdown && !isLockdownClient()) {
     return (

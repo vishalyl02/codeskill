@@ -13,6 +13,8 @@ describe('LockDown Download & Manifest API Routes', () => {
     process.env = { ...originalEnv };
     delete process.env.NEXT_PUBLIC_LOCKDOWN_CDN_URL;
     delete process.env.LOCKDOWN_CDN_URL;
+    delete process.env.LOCKDOWN_GITHUB_TOKEN;
+    delete process.env.GITHUB_TOKEN;
   });
 
   afterAll(() => {
@@ -96,20 +98,28 @@ describe('LockDown Download & Manifest API Routes', () => {
       expect(location).toContain('lockdown-v1.0.0');
     });
 
-    it('resolves macOS candidate DMG without CDN', async () => {
-      const req = new NextRequest('http://localhost:3000/api/lockdown/download?platform=macos&version=1.0.0');
+    it.each([
+      ['platform=macos', 'codeskill-lockdown.dmg', 'dmg'],
+      ['platform=linux&format=deb', 'codeskill-lockdown.deb', 'deb'],
+      ['platform=linux&format=appimage', 'codeskill-lockdown.AppImage', 'appimage'],
+    ])('uses the tagged public release file for %s without deployment credentials', async (query, filename, format) => {
+      const req = new NextRequest(`http://localhost:3000/api/lockdown/download?version=1.0.0&${query}`);
       const response = await getDownload(req);
 
-      // If local compiled binary exists, it serves 200 directly; otherwise 302 redirects to release
-      expect([200, 302]).toContain(response.status);
-      if (response.status === 200) {
-        expect(response.headers.get('content-type')).toBe('application/x-apple-diskimage');
-        expect(response.headers.get('content-disposition')).toContain('dmg');
-      } else {
-        const location = response.headers.get('location');
-        expect(location).toContain('dmg');
-        expect(location).toContain('lockdown-v1.0.0');
-      }
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe(
+        `https://github.com/sazamansari/codeskill/releases/download/lockdown-v1.0.0/${filename}`,
+      );
+      expect(response.headers.get('x-codeskill-installer-format')).toBe(format);
+    });
+
+    it('selects the AppImage on the CDN when requested', async () => {
+      process.env.LOCKDOWN_CDN_URL = 'https://cdn.codeskill.com/lockdown';
+      const req = new NextRequest('http://localhost:3000/api/lockdown/download?platform=linux&format=appimage');
+      const response = await getDownload(req);
+
+      expect(response.headers.get('location')).toBe('https://cdn.codeskill.com/lockdown/codeskill-lockdown.AppImage');
+      expect(response.headers.get('x-codeskill-installer-format')).toBe('appimage');
     });
   });
 

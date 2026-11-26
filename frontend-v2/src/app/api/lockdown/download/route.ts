@@ -6,30 +6,28 @@ import {
   CANONICAL_RELEASES_PAGE,
   CANONICAL_LATEST_RELEASE,
   DEFAULT_VERSION,
-  PLATFORM_CONFIG,
+  getPlatformAssetConfig,
   getPlatformCandidates,
   detectPlatform,
 } from '@/lib/lockdown-download-config';
 
 export const dynamic = 'force-dynamic';
 
-function isRealBinary(buffer: Buffer, platform: string): boolean {
-  if (!buffer || buffer.length < 10000) {
-    return false;
+function isRealBinary(buffer: Buffer, format: string): boolean {
+  if (buffer.length < 10000) return false;
+
+  switch (format) {
+    case 'exe':
+      return buffer.subarray(0, 2).toString('ascii') === 'MZ';
+    case 'dmg':
+      return buffer.subarray(-512, -508).toString('ascii') === 'koly';
+    case 'deb':
+      return buffer.subarray(0, 8).toString('ascii') === '!<arch>\n';
+    case 'appimage':
+      return buffer.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+    default:
+      return false;
   }
-  if (platform === 'windows') {
-    return buffer[0] === 0x4d && buffer[1] === 0x5a;
-  }
-  if (platform === 'macos') {
-    return buffer.length > 500000;
-  }
-  if (platform === 'linux') {
-    return (
-      (buffer[0] === 0x21 && buffer[1] === 0x3c) ||
-      (buffer[0] === 0x7f && buffer[1] === 0x45 && buffer[2] === 0x4c && buffer[3] === 0x46)
-    );
-  }
-  return true;
 }
 
 export async function GET(req: NextRequest) {
@@ -42,15 +40,14 @@ export async function GET(req: NextRequest) {
   const tagParam = searchParams.get('tag') || `lockdown-v${cleanVersion}`;
 
   const platform = detectPlatform(req, requestedPlatform);
-  const assetConfig = PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.windows;
+  const assetConfig = getPlatformAssetConfig(platform, format);
   const candidates = getPlatformCandidates(platform, cleanVersion, format);
-  const preferredFilename = candidates[0] || assetConfig.canonicalFilename;
-
+  const filename = assetConfig.canonicalFilename;
+  // Release CI publishes this stable filename for each supported package type.
+  const releaseUrl = `https://github.com/${CANONICAL_REPO}/releases/download/${tagParam}/${filename}`;
   const cdnBase = process.env.NEXT_PUBLIC_LOCKDOWN_CDN_URL || process.env.LOCKDOWN_CDN_URL;
   const githubToken = process.env.LOCKDOWN_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
-  const directUrl = cdnBase
-    ? `${cdnBase.replace(/\/+$/, '')}/${assetConfig.canonicalFilename}`
-    : `https://github.com/${CANONICAL_REPO}/releases/download/${tagParam}/${preferredFilename}`;
+  const cdnUrl = cdnBase ? `${cdnBase.replace(/\/+$/, '')}/${filename}` : null;
 
   // Optional JSON metadata query
   const acceptsJson = req.headers.get('accept')?.includes('application/json');
@@ -60,22 +57,20 @@ export async function GET(req: NextRequest) {
       platform,
       version: cleanVersion,
       tag: tagParam,
-      filename: preferredFilename,
+      filename,
       canonicalFilename: assetConfig.canonicalFilename,
       format: assetConfig.format,
       installerType: assetConfig.installerType,
       configured: Boolean(cdnBase || githubToken),
-      url: directUrl,
+      url: cdnUrl || releaseUrl,
       candidates,
-      fallbackUrl: `${CANONICAL_LATEST_RELEASE}/download/${preferredFilename}`,
+      fallbackUrl: `${CANONICAL_LATEST_RELEASE}/download/${filename}`,
       releasesPage: CANONICAL_RELEASES_PAGE,
     });
   }
 
   // 1. Check if CDN base is configured
-  if (cdnBase && !direct) {
-    const cleanCdn = cdnBase.replace(/\/+$/, '');
-    const cdnUrl = `${cleanCdn}/${assetConfig.canonicalFilename}`;
+  if (cdnUrl && !direct) {
     return NextResponse.redirect(cdnUrl, {
       status: 302,
       headers: {
@@ -90,29 +85,21 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // 2. Check local static file in public/downloads (only serve if real compiled binary)
-  const publicDownloads = path.join(process.cwd(), 'public', 'downloads');
-  let candidatePath: string | null = null;
-  let resolvedFilename = assetConfig.canonicalFilename;
+  // Local binaries are for explicit direct downloads. Normal downloads use the tagged release.
+  if (direct) {
+    const publicDownloads = path.join(process.cwd(), 'public', 'downloads');
+    for (const candidate of candidates) {
+      const candidatePath = path.join(publicDownloads, candidate);
+      if (!fs.existsSync(candidatePath)) continue;
+      try {
+        const fileBuffer = fs.readFileSync(candidatePath);
+        if (!isRealBinary(fileBuffer, assetConfig.format)) continue;
 
-  for (const candidate of candidates) {
-    const p = path.join(publicDownloads, candidate);
-    if (fs.existsSync(p)) {
-      candidatePath = p;
-      resolvedFilename = candidate;
-      break;
-    }
-  }
-
-  if (candidatePath && fs.existsSync(candidatePath)) {
-    try {
-      const fileBuffer = fs.readFileSync(candidatePath);
-      if (isRealBinary(fileBuffer, platform)) {
         return new NextResponse(fileBuffer, {
           status: 200,
           headers: {
             'Content-Type': assetConfig.contentType,
-            'Content-Disposition': `attachment; filename="${resolvedFilename}"`,
+            'Content-Disposition': `attachment; filename="${candidate}"`,
             'Content-Length': fileBuffer.byteLength.toString(),
             'Cache-Control': 'public, max-age=300, s-maxage=3600',
             'X-CodeSkill-Installer-Version': cleanVersion,
@@ -121,9 +108,9 @@ export async function GET(req: NextRequest) {
             'X-CodeSkill-Installer-Type': assetConfig.installerType,
           },
         });
+      } catch {
+        // Try the next local candidate before falling back to the release.
       }
-    } catch {
-      // Fall through to GitHub Releases
     }
   }
 
@@ -188,12 +175,11 @@ export async function GET(req: NextRequest) {
   }
 
   // 4. Fallback to canonical GitHub Releases asset for this version tag
-  const githubReleaseUrl = `https://github.com/${CANONICAL_REPO}/releases/download/${tagParam}/${preferredFilename}`;
-  return NextResponse.redirect(githubReleaseUrl, {
+  return NextResponse.redirect(releaseUrl, {
     status: 302,
     headers: {
       'Content-Type': assetConfig.contentType,
-      'Content-Disposition': `attachment; filename="${preferredFilename}"`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
       'X-CodeSkill-Installer-Version': cleanVersion,
       'X-CodeSkill-Installer-Tag': tagParam,
       'X-CodeSkill-Installer-Format': assetConfig.format,

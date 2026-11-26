@@ -1,6 +1,6 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import LockdownLaunchGate from "./LockdownLaunchGate";
 import * as bridge from "@/lib/lockdown-bridge";
 
@@ -32,97 +32,105 @@ describe("LockdownLaunchGate", () => {
       render(<LockdownLaunchGate examId="exam-123" examTitle="Computer Systems Midterm" />);
     });
 
-    expect(screen.getByText("CodeSkill LockDown Required")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "CodeSkill LockDown required" })).toBeInTheDocument();
     expect(screen.getByText("Assessment: Computer Systems Midterm")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByText("v1.0.0 (Latest Release)")).toBeInTheDocument();
+      expect(screen.getByText("v1.0.0")).toBeInTheDocument();
     });
   });
 
-  it("renders download buttons for Windows, macOS, and Linux with format labels", async () => {
+  it("shows first-time install steps for each operating system", async () => {
     await act(async () => {
       render(<LockdownLaunchGate examId="exam-123" />);
     });
 
-    expect(screen.getByText("Windows")).toBeInTheDocument();
-    expect(screen.getByText(".exe Installer (NSIS)")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "First-time setup: How to open without security certificate warnings" })).toBeInTheDocument();
+    expect(screen.getByText(/Drag CodeSkill LockDown into Applications/)).toBeInTheDocument();
+    const macSteps = within(screen.getByRole("list", { name: /If macOS Gatekeeper shows/ })).getAllByRole("listitem");
+    expect(macSteps[1]).toHaveTextContent('xattr -cr /Applications/"CodeSkill LockDown.app"');
+    expect(macSteps[2]).toHaveTextContent("Finder");
 
-    expect(screen.getByText("macOS")).toBeInTheDocument();
-    expect(screen.getByText(".dmg (Apple Silicon & Intel)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Windows" }));
+    expect(screen.getByRole("button", { name: "Windows" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Open the downloaded .exe file/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download for Windows" })).toBeInTheDocument();
+    const windowsSteps = within(screen.getByRole("list", { name: /If Microsoft Defender SmartScreen displays/ })).getAllByRole("listitem");
+    expect(windowsSteps[1]).toHaveTextContent("Run anyway");
+    expect(windowsSteps[2]).toHaveTextContent(String.raw`Unblock-File -Path .\CodeSkill-LockDown-Setup.exe`);
+    expect(windowsSteps[2]).toHaveTextContent(String.raw`.\CodeSkill-LockDown-Setup.exe`);
+    expect(screen.queryByText(/xattr -cr/)).not.toBeInTheDocument();
 
-    expect(screen.getByText("Linux")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Linux" }));
+    expect(screen.getByText(/Open the .deb file/)).toBeInTheDocument();
+    expect(screen.getByText(/choose an X11 session/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download for Linux" })).toBeInTheDocument();
+    const linuxSteps = within(screen.getByRole("list", { name: "Install and grant permissions on Ubuntu / Debian:" })).getAllByRole("listitem");
+    expect(linuxSteps[0]).toHaveTextContent("sudo dpkg -i codeskill-lockdown.deb || sudo apt-get install -f -y");
+    expect(linuxSteps[1]).toHaveTextContent("chmod +x codeskill-lockdown.AppImage && ./codeskill-lockdown.AppImage");
   });
 
-  it("triggers in-app background download when macOS button is clicked", async () => {
-    await act(async () => {
-      render(<LockdownLaunchGate examId="exam-123" />);
-    });
+  it("requests the selected installers and gives download feedback", async () => {
+    const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      await act(async () => {
+        render(<LockdownLaunchGate examId="exam-123" />);
+      });
 
-    const macButton = screen.getByText("macOS").closest("button");
-    expect(macButton).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Download for macOS" }));
+      expect(screen.getByRole("status")).toHaveTextContent("Requesting the macOS download");
+      expect(anchorClick.mock.contexts[0]).toHaveAttribute("href", "/api/lockdown/download?platform=macos&version=1.0.0");
 
-    await act(async () => {
-      fireEvent.click(macButton!);
-    });
+      await waitFor(() => {
+        expect(screen.getByRole("status")).toHaveTextContent("Check your browser’s downloads");
+      }, { timeout: 3000 });
 
-    // Should display in-app feedback banner
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Initiating v1.0.0 download for macos|Download started for MACOS/i)
-      ).toBeInTheDocument();
-    });
+      fireEvent.click(screen.getByRole("button", { name: "Linux" }));
+      fireEvent.click(screen.getByRole("button", { name: ".AppImage (Portable)" }));
+      expect(screen.getByText(/Find the downloaded .AppImage file/)).toBeInTheDocument();
+      expect(screen.getByText("chmod +x codeskill-lockdown.AppImage && ./codeskill-lockdown.AppImage")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Download for Linux" }));
+      expect(anchorClick.mock.contexts[1]).toHaveAttribute("href", "/api/lockdown/download?platform=linux&version=1.0.0&format=appimage");
+
+      await waitFor(() => {
+        expect(screen.getByRole("status")).toHaveTextContent("Linux installer");
+      }, { timeout: 3000 });
+    } finally {
+      anchorClick.mockRestore();
+    }
   });
 
-  it("allows toggling Linux format between .deb and .AppImage", async () => {
-    await act(async () => {
-      render(<LockdownLaunchGate examId="exam-123" />);
-    });
+  it("copies the complete command block to the clipboard", async () => {
+    const previousClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    try {
+      await act(async () => {
+        render(<LockdownLaunchGate examId="exam-123" />);
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Copy command for step 2" }));
 
-    const appImageButton = screen.getByText(".AppImage (Portable)");
-    await act(async () => {
-      fireEvent.click(appImageButton);
-    });
-
-    expect(screen.getByText(".appimage (Ubuntu / Fedora)")).toBeInTheDocument();
-
-    const debButton = screen.getByText(".deb (Debian/Ubuntu)");
-    await act(async () => {
-      fireEvent.click(debButton);
-    });
-
-    expect(screen.getByText(".deb (Ubuntu / Fedora)")).toBeInTheDocument();
+      expect(await screen.findByText("Copied to clipboard.")).toBeInTheDocument();
+      expect(writeText).toHaveBeenCalledWith('xattr -cr /Applications/"CodeSkill LockDown.app"');
+    } finally {
+      if (previousClipboard) Object.defineProperty(navigator, "clipboard", previousClipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
-  it("toggles first-time setup instructions and platform tabs", async () => {
+  it("detects the LockDown client automatically and offers system diagnostics", async () => {
+    const onClientDetected = jest.fn();
+    (bridge.isLockdownClient as jest.Mock).mockReturnValue(true);
     await act(async () => {
-      render(<LockdownLaunchGate examId="exam-123" />);
+      render(<LockdownLaunchGate examId="exam-123" onClientDetected={onClientDetected} />);
     });
 
-    const toggleButton = screen.getByText(/First-time setup: How to open without security certificate warnings/i);
-    await act(async () => {
-      fireEvent.click(toggleButton);
-    });
-
-    expect(screen.getByText(/If macOS Gatekeeper shows/i)).toBeInTheDocument();
-
-    // Switch to Windows tab
-    const tabs = screen.getAllByRole("button");
-    const winTab = tabs.find((b) => b.textContent?.trim() === "Windows" && b.className.includes("rounded"));
-    expect(winTab).toBeDefined();
-
-    await act(async () => {
-      fireEvent.click(winTab!);
-    });
-    expect(screen.getByText(/Microsoft Defender SmartScreen displays/i)).toBeInTheDocument();
-
-    // Switch to Linux tab
-    const linuxTab = tabs.find((b) => b.textContent?.trim() === "Linux" && b.className.includes("rounded"));
-    expect(linuxTab).toBeDefined();
-
-    await act(async () => {
-      fireEvent.click(linuxTab!);
-    });
-    expect(screen.getByText(/Install and grant permissions on Ubuntu \/ Debian/i)).toBeInTheDocument();
+    expect(onClientDetected).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("link", { name: "Run system check" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^codeskill-lockdown:\/\/system-check/),
+    );
+    expect(screen.queryByRole("button", { name: "Check LockDown status" })).not.toBeInTheDocument();
   });
 });
