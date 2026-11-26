@@ -413,6 +413,11 @@ export default function LockdownUtilityDock({
   }, []);
 
   // Heartbeat polling to check session vitality and proctor remote force-quit (jittered 24s-36s)
+  const onTimerSyncRef = useRef(onTimerSync);
+  onTimerSyncRef.current = onTimerSync;
+  const onProctorTerminatedRef = useRef(onProctorTerminated);
+  onProctorTerminatedRef.current = onProctorTerminated;
+
   useEffect(() => {
     if (!sessionId || isSubmitted) return;
     let timer: NodeJS.Timeout | null = null;
@@ -421,14 +426,14 @@ export default function LockdownUtilityDock({
     const sendHeartbeat = async () => {
       try {
         const res = await api.post(`/exam-security/session/${sessionId}/heartbeat`);
-        if (res.data?.serverEndsAtEpochMs && onTimerSync) {
-          onTimerSync(res.data.serverEndsAtEpochMs, res.data.serverNowMs);
+        if (res.data?.serverEndsAtEpochMs && onTimerSyncRef.current) {
+          onTimerSyncRef.current(res.data.serverEndsAtEpochMs, res.data.serverNowMs);
         }
         if (res.data?.forceQuitReason || res.data?.status === "TERMINATED") {
           const reason = res.data?.forceQuitReason || "Proctor remotely terminated this exam session.";
           setProctorTerminatedReason(reason);
-          if (onProctorTerminated) {
-            onProctorTerminated(reason);
+          if (onProctorTerminatedRef.current) {
+            onProctorTerminatedRef.current(reason);
           }
         }
       } catch (err: any) {
@@ -455,7 +460,7 @@ export default function LockdownUtilityDock({
       isCancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [sessionId, isSubmitted, onProctorTerminated]);
+  }, [sessionId, isSubmitted]);
 
   // Proctor Termination Countdown (3 seconds -> logoutAndExitLockdown)
   useEffect(() => {

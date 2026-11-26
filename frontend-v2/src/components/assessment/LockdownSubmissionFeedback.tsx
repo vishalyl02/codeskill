@@ -128,7 +128,7 @@ export default function LockdownSubmissionFeedback({
   });
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4 text-center">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/95 p-4 text-center">
       <div className="max-w-lg w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 text-left">
         {/* Header confirmation badge */}
         <div className="flex items-center gap-4">

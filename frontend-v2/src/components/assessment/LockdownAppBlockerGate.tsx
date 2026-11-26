@@ -29,12 +29,14 @@ export default function LockdownAppBlockerGate({
   const [closingPid, setClosingPid] = useState<number | null>(null);
   const hasInitializedRef = useRef<boolean>(false);
   const lastLoggedAppsKeyRef = useRef<string>("");
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   const fetchApps = useCallback(async () => {
     if (!isLockdownClient() || !requireCloseOtherApps) {
       setBlockingApps([]);
       setIsPolling(false);
-      onReady();
+      onReadyRef.current();
       return;
     }
 
@@ -46,7 +48,7 @@ export default function LockdownAppBlockerGate({
           lastLoggedAppsKeyRef.current = "";
           lockdownLogger.info("PREFLIGHT", "blocking_apps_cleared", {});
         }
-        onReady();
+        onReadyRef.current();
       } else {
         const key = apps.map((a) => `${a.name}:${a.category}`).sort().join(",");
         if (key !== lastLoggedAppsKeyRef.current) {
@@ -68,7 +70,7 @@ export default function LockdownAppBlockerGate({
     } finally {
       setIsPolling(false);
     }
-  }, [requireCloseOtherApps, onReady]);
+  }, [requireCloseOtherApps]);
 
   useEffect(() => {
     void fetchApps();
@@ -95,7 +97,7 @@ export default function LockdownAppBlockerGate({
       const remaining = await killAllBlockingApps(true);
       setBlockingApps(remaining);
       if (remaining.length === 0) {
-        onReady();
+        onReadyRef.current();
       }
     } finally {
       setIsClosingAll(false);
@@ -110,7 +112,7 @@ export default function LockdownAppBlockerGate({
   const nonEssentialCount = blockingApps.filter((a) => a.category === "non_essential").length;
 
   return (
-    <div className="fixed inset-0 z-[195] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4 text-center">
+    <div className="fixed inset-0 z-[195] flex items-center justify-center bg-slate-950/95 p-4 text-center">
       <div className="max-w-2xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl text-left space-y-6">
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">

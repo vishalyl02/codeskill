@@ -1047,6 +1047,21 @@ pub fn run_preflight_checks(window: tauri::Window) -> PreflightResult {
 
 pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
     std::thread::spawn(move || {
+        const VIOLATION_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(20);
+        let mut last_emitted: std::collections::HashMap<&'static str, std::time::Instant> =
+            std::collections::HashMap::new();
+        let should_emit = |map: &mut std::collections::HashMap<&'static str, std::time::Instant>,
+                           key: &'static str| -> bool {
+            let now = std::time::Instant::now();
+            match map.get(key) {
+                Some(&prev) if now.duration_since(prev) < VIOLATION_COOLDOWN => false,
+                _ => {
+                    map.insert(key, now);
+                    true
+                }
+            }
+        };
+
         loop {
             std::thread::sleep(std::time::Duration::from_secs(2));
 
@@ -1056,34 +1071,38 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
                     if monitors.len() > 1 {
                         let state = app_handle.state::<crate::attestation::AttestationState>();
                         if state.allow_secondary_display.load(std::sync::atomic::Ordering::Relaxed) {
-                            log_diagnostic_entry(
-                                "INFO",
-                                "ACCOMMODATED_SECONDARY_DISPLAY_ACTIVE",
-                                &format!("Candidate has approved accommodation for secondary display ({} monitors active).", monitors.len()),
-                            );
+                            if should_emit(&mut last_emitted, "ACCOMMODATED_SECONDARY_DISPLAY_ACTIVE") {
+                                log_diagnostic_entry(
+                                    "INFO",
+                                    "ACCOMMODATED_SECONDARY_DISPLAY_ACTIVE",
+                                    &format!("Candidate has approved accommodation for secondary display ({} monitors active).", monitors.len()),
+                                );
+                            }
                         } else {
-                            let now = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_millis() as u64;
+                            if should_emit(&mut last_emitted, "SECONDARY_DISPLAY_CONNECTED") {
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64;
 
-                            log_diagnostic_entry(
-                                "WARN",
-                                "SECONDARY_DISPLAY_CONNECTED",
-                                &format!("Secondary display connected mid-exam: {} monitors active.", monitors.len()),
-                            );
+                                log_diagnostic_entry(
+                                    "WARN",
+                                    "SECONDARY_DISPLAY_CONNECTED",
+                                    &format!("Secondary display connected mid-exam: {} monitors active.", monitors.len()),
+                                );
 
-                            let _ = app_handle.emit(
-                                "exam:environment-violation",
-                                EnvironmentViolationEvent {
-                                    violation_type: "SECONDARY_DISPLAY_CONNECTED".to_string(),
-                                    message: format!(
-                                        "Secondary display connected mid-exam: {} monitors active.",
-                                        monitors.len()
-                                    ),
-                                    timestamp: now,
-                                },
-                            );
+                                let _ = app_handle.emit(
+                                    "exam:environment-violation",
+                                    EnvironmentViolationEvent {
+                                        violation_type: "SECONDARY_DISPLAY_CONNECTED".to_string(),
+                                        message: format!(
+                                            "Secondary display connected mid-exam: {} monitors active.",
+                                            monitors.len()
+                                        ),
+                                        timestamp: now,
+                                    },
+                                );
+                            }
                             crate::kiosk_os::spawn_secondary_monitor_shields(&app_handle);
                         }
                     } else {
@@ -1094,7 +1113,7 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
 
             // Check stealth overlay windows
             let overlays = check_stealth_overlay_windows();
-            if !overlays.is_empty() {
+            if !overlays.is_empty() && should_emit(&mut last_emitted, "OVERLAY_WINDOW_DETECTED") {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -1122,33 +1141,35 @@ pub fn start_security_watchdog(app_handle: tauri::AppHandle) {
             // Check processes via zero-allocation persistent system
             let forbidden_list = check_forbidden_processes();
             if let Some(forbidden) = forbidden_list.first() {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                let msg = format!("Forbidden process detected: {}", forbidden);
-                crate::flight_recorder::record_event(
-                    "WARN",
-                    "SECURITY_WATCHDOG",
-                    "SCENARIO_D_WATCHDOG",
-                    "FORBIDDEN_PROCESS_SPAWNED",
-                    "violation",
-                    serde_json::json!({ "process": forbidden, "forbiddenList": forbidden_list }),
-                );
+                if should_emit(&mut last_emitted, "FORBIDDEN_PROCESS_SPAWNED") {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let msg = format!("Forbidden process detected: {}", forbidden);
+                    crate::flight_recorder::record_event(
+                        "WARN",
+                        "SECURITY_WATCHDOG",
+                        "SCENARIO_D_WATCHDOG",
+                        "FORBIDDEN_PROCESS_SPAWNED",
+                        "violation",
+                        serde_json::json!({ "process": forbidden, "forbiddenList": forbidden_list }),
+                    );
 
-                let _ = app_handle.emit(
-                    "exam:environment-violation",
-                    EnvironmentViolationEvent {
-                        violation_type: "FORBIDDEN_PROCESS_SPAWNED".to_string(),
-                        message: msg,
-                        timestamp: now,
-                    },
-                );
+                    let _ = app_handle.emit(
+                        "exam:environment-violation",
+                        EnvironmentViolationEvent {
+                            violation_type: "FORBIDDEN_PROCESS_SPAWNED".to_string(),
+                            message: msg,
+                            timestamp: now,
+                        },
+                    );
+                }
             }
 
             // Check runtime integrity (anti-debug & injection)
             let integrity = check_runtime_integrity();
-            if !integrity.passed {
+            if !integrity.passed && should_emit(&mut last_emitted, "RUNTIME_TAMPER_DETECTED") {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -1684,29 +1705,43 @@ pub fn open_system_privacy_settings(target: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn list_blocking_apps() -> Result<Vec<BlockingAppInfo>, String> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+
     let mut apps = Vec::new();
     let current_pid = std::process::id();
 
-    // 1. Check for forbidden background processes first
-    let mut sys = System::new_all();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    // 1. Check for forbidden background processes first using persistent WATCHDOG_SYSTEM
+    {
+        let mut lock = WATCHDOG_SYSTEM.lock().unwrap_or_else(|e| e.into_inner());
+        let refresh_kind = ProcessRefreshKind::new().with_exe(UpdateKind::OnlyIfNotSet);
 
-    for (pid, process) in sys.processes() {
-        let p_id = pid.as_u32();
-        if p_id == current_pid || p_id == 0 {
-            continue;
+        if lock.is_none() {
+            let mut sys = System::new();
+            sys.refresh_processes_specifics(ProcessesToUpdate::All, refresh_kind);
+            *lock = Some(sys);
+        } else if let Some(sys) = lock.as_mut() {
+            sys.refresh_processes_specifics(ProcessesToUpdate::All, refresh_kind);
         }
-        let name = process.name().to_string_lossy().to_string();
-        let exe = process.exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
 
-        if let Some(forbidden_name) = is_forbidden_process(&name, Some(&exe)) {
-            apps.push(BlockingAppInfo {
-                pid: p_id,
-                name: format!("{} ({})", name, forbidden_name),
-                category: "forbidden".to_string(),
-                bundle_or_path: exe,
-                can_force_kill: true,
-            });
+        if let Some(sys) = lock.as_ref() {
+            for (pid, process) in sys.processes() {
+                let p_id = pid.as_u32();
+                if p_id == current_pid || p_id == 0 {
+                    continue;
+                }
+                let name = process.name().to_string_lossy().to_string();
+                let exe = process.exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+
+                if let Some(forbidden_name) = is_forbidden_process(&name, Some(&exe)) {
+                    apps.push(BlockingAppInfo {
+                        pid: p_id,
+                        name: format!("{} ({})", name, forbidden_name),
+                        category: "forbidden".to_string(),
+                        bundle_or_path: exe,
+                        can_force_kill: true,
+                    });
+                }
+            }
         }
     }
 

@@ -2386,7 +2386,7 @@ export default function TakeAssessmentPage({
   const renderCloseAppsGateModal = () => (
     <AnimatePresence>
       {isCloseAppsGateOpen && runningAppsList.length > 0 && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 p-4">
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -3452,7 +3452,7 @@ export default function TakeAssessmentPage({
           role="dialog"
           aria-modal="true"
           aria-label={`Submit & Lock Section ${activeSection.title}`}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
         >
           <div className="bg-card border border-border rounded-3xl p-6 max-w-md w-full space-y-5 animate-in fade-in zoom-in-95 shadow-2xl">
             <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400">
@@ -3517,7 +3517,7 @@ export default function TakeAssessmentPage({
           role="dialog"
           aria-modal="true"
           aria-label="Submit Assessment"
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
         >
           <div className="bg-card border border-border rounded-3xl p-6 max-w-md w-full space-y-5 animate-in fade-in zoom-in-95 shadow-2xl">
             <div className="flex items-center gap-3 text-primary">

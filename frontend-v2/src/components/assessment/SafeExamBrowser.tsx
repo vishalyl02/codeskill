@@ -704,7 +704,7 @@ export default function SafeExamBrowser({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-[9999] bg-background/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center"
+            className="absolute inset-0 z-[9999] bg-background/95 flex flex-col items-center justify-center p-6 text-center"
           >
             <ShieldAlert className="w-20 h-20 text-red-500 mb-6" />
             <h1 className="text-3xl font-bold text-foreground mb-4">Secure Exam Environment</h1>
@@ -737,7 +737,7 @@ export default function SafeExamBrowser({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[10000] bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none"
+            className="fixed inset-0 z-[10000] bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center select-none"
           >
             <div className="max-w-md w-full bg-slate-900 border border-red-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl text-center space-y-6">
               <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 flex items-center justify-center mx-auto">
