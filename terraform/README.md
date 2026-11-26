@@ -184,21 +184,15 @@ AWS Budgets is configured in `modules/cost-controls/` with automated notificatio
 
 ### Step-by-Step Deployment
 
+The live application uses `terraform/environments/production`. Initialize that directory with the existing production backend configuration and select its workspace before planning.
+
 ```bash
-# 1. Navigate to terraform directory
-cd terraform
-
-# 2. Configure variables
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars if needed (e.g., set alert_email, profile)
-
-# 3. Validate configuration and shell templates
-./scripts/validate.sh
-
-# 4. Preview changes with safe plan generation
-./scripts/deploy.sh
-# Type 'YES' only when you are ready to apply changes.
+# From the repository root
+./terraform/scripts/validate.sh terraform/environments/production
+./terraform/scripts/deploy.sh
 ```
+
+The deployment helper checks the AWS account and confirms that the selected state contains the production ALB and Web ACL. It saves `production.tfplan` in `terraform/environments/production`. Review the plan before typing `YES` to apply it.
 
 ---
 
