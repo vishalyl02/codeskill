@@ -64,8 +64,23 @@ function inputOf(p: Placement): PlacementInput {
   };
 }
 function message(error: unknown) {
-  const e = error as { response?: { data?: { message?: string | string[] } } };
-  const m = e.response?.data?.message;
+  const response = (
+    error as {
+      response?: {
+        status?: number;
+        data?: { message?: string | string[] } | string;
+      };
+    } | null
+  )?.response;
+  if (
+    response?.status === 403 &&
+    typeof response.data === "string" &&
+    /^\s*</.test(response.data)
+  ) {
+    return "The site gateway blocked this request (403). Ask the infrastructure team to check the AWS WAF rule for the request.";
+  }
+  const m =
+    typeof response?.data === "object" ? response.data?.message : undefined;
   return Array.isArray(m)
     ? m.join(" ")
     : typeof m === "string"
@@ -229,6 +244,7 @@ export function PlacementBoard({ manage = false }: { manage?: boolean }) {
     setError("");
     setNotice("");
     let savedId = editing;
+    let draftSaved = false;
     try {
       const resources = links
         .split("\n")
@@ -254,6 +270,7 @@ export function PlacementBoard({ manage = false }: { manage?: boolean }) {
         : await placementsAPI.create(payload);
       let item: Placement = response.data.placement;
       savedId = item.id;
+      draftSaved = true;
       setEditing(savedId);
       replace(item);
       for (const group of categories) {
@@ -291,7 +308,7 @@ export function PlacementBoard({ manage = false }: { manage?: boolean }) {
       );
     } catch (e) {
       setError(
-        `${message(e)}${savedId ? " Your entry is saved as a draft; retry to finish." : ""}`,
+        `${message(e)}${draftSaved ? " Your entry is saved as a draft; retry to finish." : ""}`,
       );
     } finally {
       setBusy(false);
