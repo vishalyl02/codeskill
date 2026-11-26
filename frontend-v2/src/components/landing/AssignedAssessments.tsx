@@ -50,3 +50,4 @@ export function AssignedAssessments() {
               })}</div>}
   </div>;
 }
+export default AssignedAssessments;

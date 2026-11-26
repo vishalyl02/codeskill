@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -72,9 +76,14 @@ module "alb" {
 #   alb_arn     = module.alb.alb_arn
 # }
 
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
 module "s3" {
   source      = "../../modules/s3"
   name_prefix = local.name_prefix
+  bucket_name = "${local.name_prefix}-files-reports-${random_id.bucket_suffix.hex}"
 }
 
 module "iam" {
@@ -98,6 +107,7 @@ module "asg" {
   target_group_arn             = module.alb.target_group_arn
   additional_target_group_arns = [module.alb.backend_target_group_arn]
   app_security_group_id        = module.ec2.app_security_group_id
+  s3_bucket_name               = module.s3.bucket_name
   instance_type                = "t3.micro"
   min_size                     = 1
   max_size                     = 2
@@ -112,17 +122,19 @@ module "asg" {
 }
 
 module "rds" {
-  source                = "../../modules/rds"
-  name_prefix           = local.name_prefix
-  vpc_id                = module.vpc.vpc_id
-  private_db_subnet_ids = module.vpc.private_db_subnet_ids
-  app_security_group_id = module.ec2.app_security_group_id
-  db_name               = var.db_name
-  db_username           = var.db_username
-  db_password           = var.db_password
-  instance_class        = "db.t3.micro"
-  allocated_storage     = 20
-  multi_az              = false
+  source                       = "../../modules/rds"
+  name_prefix                  = local.name_prefix
+  vpc_id                       = module.vpc.vpc_id
+  private_db_subnet_ids        = module.vpc.private_db_subnet_ids
+  app_security_group_id        = module.ec2.app_security_group_id
+  create_legacy_security_group = true
+  db_name                      = var.db_name
+  db_username                  = var.db_username
+  db_password                  = var.db_password
+  instance_class               = "db.t3.micro"
+  performance_insights_enabled = false
+  allocated_storage            = 20
+  multi_az                     = false
 }
 
 module "redis" {
@@ -142,10 +154,11 @@ module "redis" {
 # }
 
 module "monitoring" {
-  source           = "../../modules/monitoring"
-  name_prefix      = local.name_prefix
-  asg_name         = module.asg.asg_name
-  db_identifier    = module.rds.db_identifier
-  redis_cluster_id = module.redis.redis_cluster_id
-  aws_region       = var.aws_region
+  source             = "../../modules/monitoring"
+  name_prefix        = local.name_prefix
+  asg_name           = module.asg.asg_name
+  db_identifier      = module.rds.db_identifier
+  redis_cluster_id   = module.redis.redis_cluster_id
+  enable_redis_alarms = true
+  aws_region         = var.aws_region
 }

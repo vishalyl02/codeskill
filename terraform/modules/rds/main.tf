@@ -26,7 +26,7 @@ resource "aws_db_subnet_group" "main" {
 
 # Optional legacy security group if security_group_ids not supplied directly
 resource "aws_security_group" "rds" {
-  count       = length(var.security_group_ids) == 0 && var.app_security_group_id != "" ? 1 : 0
+  count       = var.create_legacy_security_group ? 1 : 0
   name        = "${var.name_prefix}-rds-sg"
   description = "Allow PostgreSQL inbound traffic from app"
   vpc_id      = var.vpc_id
@@ -146,7 +146,7 @@ resource "aws_db_instance" "main" {
   maintenance_window           = "Sun:20:30-Sun:21:30"
   auto_minor_version_upgrade   = true
   copy_tags_to_snapshot        = true
-  performance_insights_enabled = var.performance_insights_enabled
+  performance_insights_enabled = can(regex("^db\\.(t2|t3|t4g)\\.micro$", var.instance_class)) ? false : var.performance_insights_enabled
 
   deletion_protection       = var.deletion_protection
   skip_final_snapshot       = var.skip_final_snapshot

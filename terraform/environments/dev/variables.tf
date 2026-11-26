@@ -35,6 +35,13 @@ variable "db_username" {
   default = "postgres"
 }
 variable "db_password" {
-  type      = string
-  sensitive = true
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Master password for PostgreSQL RDS. Must be at least 8 characters. If left empty, a secure random password will be auto-generated and stored in Secrets Manager."
+
+  validation {
+    condition     = var.db_password == "" || length(var.db_password) >= 8
+    error_message = "The db_password value must be at least 8 characters long to satisfy AWS RDS password requirements, or left empty to auto-generate."
+  }
 }

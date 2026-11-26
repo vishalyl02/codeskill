@@ -46,7 +46,7 @@ mkdir -p $APP_DIR
 cd $APP_DIR
 
 # Download latest build from S3 using the IAM Instance Profile attached to this EC2 instance
-aws s3 cp s3://${var.name_prefix}-files-reports/releases/latest.zip .
+aws s3 cp s3://${var.s3_bucket_name != "" ? var.s3_bucket_name : "${var.name_prefix}-files-reports"}/releases/latest.zip .
 
 # Unzip and set permissions
 unzip latest.zip
