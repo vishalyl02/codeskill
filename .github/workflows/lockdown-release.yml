@@ -9,6 +9,7 @@ on:
       - 'codeskill-lockdown-windows/**'
       - 'codeskill-lockdown-linux/**'
       - '.github/workflows/lockdown-release.yml'
+      - '!**/*.md'
     tags:
       - 'lockdown-v*'
   pull_request:
@@ -17,6 +18,7 @@ on:
       - 'codeskill-lockdown-windows/**'
       - 'codeskill-lockdown-linux/**'
       - '.github/workflows/lockdown-release.yml'
+      - '!**/*.md'
   workflow_dispatch:
 
 permissions:
@@ -42,12 +44,15 @@ jobs:
           filters: |
             macos:
               - 'codeskill-lockdown-macos/**'
+              - '!codeskill-lockdown-macos/**/*.md'
               - '.github/workflows/lockdown-release.yml'
             windows:
               - 'codeskill-lockdown-windows/**'
+              - '!codeskill-lockdown-windows/**/*.md'
               - '.github/workflows/lockdown-release.yml'
             linux:
               - 'codeskill-lockdown-linux/**'
+              - '!codeskill-lockdown-linux/**/*.md'
               - '.github/workflows/lockdown-release.yml'
       - id: set
         run: |
