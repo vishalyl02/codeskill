@@ -1,7 +1,7 @@
 name: Piston integration validation
 on:
   pull_request:
-    paths: ['backend-nestjs/**', 'frontend-v2/**', 'deployment/piston/**', 'scripts/piston/**', 'terraform/modules/piston-execution/**', 'terraform/modules/waf/**', 'terraform/tests/**', '.github/scripts/**', '.github/workflows/deploy.yml', '.github/workflows/piston-validation.yml']
+    paths: ['backend-nestjs/**', 'frontend-v2/**', 'deployment/piston/**', 'scripts/piston/**', 'terraform/modules/piston-execution/**', 'terraform/modules/waf/**', 'terraform/tests/**', '.github/scripts/**', '.github/workflows/deploy.yml', '.github/workflows/piston-validation.yml', '!**/*.md']
   workflow_dispatch:
 permissions:
   contents: read

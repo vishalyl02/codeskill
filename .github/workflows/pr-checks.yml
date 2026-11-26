@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
   workflow_dispatch:
 
 permissions:
@@ -27,19 +29,24 @@ jobs:
           filters: |
             backend:
               - 'backend-nestjs/**'
+              - '!backend-nestjs/**/*.md'
               - 'scripts/**'
               - '.github/workflows/pr-checks.yml'
             frontend:
               - 'frontend-v2/**'
+              - '!frontend-v2/**/*.md'
               - '.github/workflows/pr-checks.yml'
             macos:
               - 'codeskill-lockdown-macos/**'
+              - '!codeskill-lockdown-macos/**/*.md'
               - '.github/workflows/pr-checks.yml'
             windows:
               - 'codeskill-lockdown-windows/**'
+              - '!codeskill-lockdown-windows/**/*.md'
               - '.github/workflows/pr-checks.yml'
             linux:
               - 'codeskill-lockdown-linux/**'
+              - '!codeskill-lockdown-linux/**/*.md'
               - '.github/workflows/pr-checks.yml'
       - id: set
         run: |

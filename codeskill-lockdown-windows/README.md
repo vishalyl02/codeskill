@@ -1,84 +1,64 @@
-# CodeSkill LockDown
+# CodeSkill LockDown — Windows
 
-> **Official Cross-Platform Secure Examination Browser for CodeSkill**  
-> Built with Tauri v2, Rust, WebKit/WebView2, and cross-platform native OS security layers.
-
----
-
-## 1. Supported Operating Systems & Security Capabilities
-
-| Platform | Kiosk Enforcement | Keyboard Interception | Hardware Probing | Anti-Cheat & Runtime Integrity |
-| :--- | :--- | :--- | :--- | :--- |
-| **macOS** | `NSApplicationPresentationOptions` (kioskMode, hideDock, disableProcessSwitching) | `CGEventTap` keyboard interceptor + `IOHIDManager` | AVFoundation camera & microphone, `CGDisplay` topology | Anti-debugging (`sysctl` `P_TRACED`), VM detection, ad-hoc bundle re-signing |
-| **Windows** | `CreateDesktopW` + `SwitchDesktop` isolated desktop | `SetWindowsHookExW(WH_KEYBOARD_LL)` blocking Win keys, Alt+Tab, Alt+Esc, PrintScreen | Registry `CapabilityAccessManager\ConsentStore` for webcam/mic | `DisableTaskMgr` registry locks, `explorer.exe` shell suppression, DLL injection detection |
-| **Linux** | Wayland `cage` kiosk compositor + cgroup v2 containment | `XGrabKeyboard` with `GrabModeAsync` | `/dev/video*` V4L2 device inspection, `/dev/snd` + PipeWire/PulseAudio | `systemd-inhibit` sleep/lid lock, `LD_PRELOAD` detection, `TracerPid` inspection |
+> **Official Windows Secure Examination Browser for CodeSkill**  
+> Built with Tauri v2, Rust, Microsoft Edge WebView2, and native Win32 security layers (`codeskill-lockdown-windows/`).
 
 ---
 
-## 2. Running Without Developer Certificates (Testing & Local Dev)
+## 1. Windows Security & Kiosk Architecture
 
-In development and staging environments prior to purchasing Apple Developer ID and Microsoft Authenticode/EV certificates, operating systems display security warnings for unsigned or ad-hoc signed executables. Use the following commands to run without warnings:
+- **Kiosk Containment (`src-tauri/src/kiosk_os/windows.rs`):**
+  - Isolated desktop (`CreateDesktopW` + `SwitchDesktop`) and shell suppression (`DisableTaskMgr` registry policies, `explorer.exe` lock handling).
+  - Low-level keyboard hook (`SetWindowsHookExW(WH_KEYBOARD_LL)`) blocking Windows keys, `Alt+Tab`, `Alt+Esc`, `Alt+F4`, and `PrintScreen`.
+  - Continuous clipboard guard (`start_clipboard_guard` polling every 500 ms with `OpenClipboard` / `EmptyClipboard`) during active kiosk mode.
+  - Display sleep prevention (`SetThreadExecutionState`).
+- **Permissions & Hardware (`src-tauri/src/permissions_onboarding/windows.rs`):**
+  - Inspects Windows `CapabilityAccessManager\ConsentStore` registry keys for webcam and microphone permissions and provides deep links to `ms-settings:privacy-webcam` / `ms-settings:privacy-microphone`.
+- **Preflight & Watchdog (`src-tauri/src/security.rs`):**
+  - Checks `GetWindowDisplayAffinity` (`WDA_EXCLUDEFROMCAPTURE` screen-capture cloaking detection), multi-monitor topology, visible windows via `EnumWindows`, forbidden background processes, stealth overlay windows, VM/hypervisor indicators, proxy/MITM settings, and runtime integrity.
+- **Native Shell & Crypto (`src-tauri/src/lib.rs`, `attestation.rs`, `offline_vault.rs`):**
+  - Deep-link scheme registration (`codeskill-exam://`, `codeskill-lockdown://`), Shadow-DOM frame controls (`#codeskill-lockdown-frame-controls`), Ed25519 + HMAC-SHA256 request signing, and AES-256-GCM encrypted offline autosave vault.
 
-### macOS
-Gatekeeper attaches `com.apple.quarantine` to binaries downloaded from a web browser, reporting *"CodeSkill LockDown is damaged and can't be opened"*.
-- **Strip Quarantine via Terminal:**
-  ```bash
-  xattr -cr /Applications/"CodeSkill LockDown.app"
-  # Or if downloaded to ~/Downloads:
-  xattr -d com.apple.quarantine ~/Downloads/codeskill-lockdown.dmg
-  ```
-- **Finder Bypass:** Right-click `CodeSkill LockDown.app` $\rightarrow$ Hold `Option` and click **Open** $\rightarrow$ Click **Open**.
-- **Developer Local Run:**
-  ```bash
-  npm run tauri:dev
-  ```
+---
 
-### Windows
-Microsoft Defender SmartScreen flags unsigned executables with *"Windows protected your PC"*.
-- **SmartScreen Bypass:** Click **"More info"** on the blue dialog $\rightarrow$ Click **"Run anyway"**.
-- **PowerShell Unblock Command:**
+## 2. Flight-Recorder Logs & Diagnostics
+
+- **Structured JSONL Logs:** `%LOCALAPPDATA%\com.codeskill.lockdown\logs\flight-recorder.jsonl.YYYY-MM-DD` (14-day retention, 25 MB size rotation)
+- **Crash / Panic Log:** `%LOCALAPPDATA%\com.codeskill.lockdown\logs\panic-crash.jsonl`
+- **Legacy Plain-Text Log:** `%APPDATA%\com.codeskill.lockdown\lockdown.log`
+- **Diagnostic Export:** Click **Save Diagnostic Log Bundle (.zip)** on `/lockdown-system-check`.
+
+---
+
+## 3. Running Locally & Unsigned Builds
+
+If Windows Defender SmartScreen prompts *"Windows protected your PC"* on an unsigned installer, click **More info → Run anyway**, or unblock via PowerShell:
+```powershell
+Unblock-File -Path .\CodeSkill-LockDown-Setup.exe
+.\CodeSkill-LockDown-Setup.exe
+```
+
+**Local Development & Verification (on Windows):**
+```powershell
+cd codeskill-lockdown-windows
+npm install
+npm run tauri:dev
+```
+```powershell
+cargo check --manifest-path codeskill-lockdown-windows/src-tauri/Cargo.toml
+cargo test --manifest-path codeskill-lockdown-windows/src-tauri/Cargo.toml
+node --check codeskill-lockdown-windows/dist-isolation/index.js
+```
+
+---
+
+## 4. Packaging & CI/CD Release
+
+- **Local Windows NSIS Build:**
   ```powershell
-  # For NSIS Setup Installer (.exe):
-  Unblock-File -Path .\CodeSkill-LockDown-Setup.exe
-  .\CodeSkill-LockDown-Setup.exe
-  # Or for standalone executable:
-  Unblock-File -Path .\codeskill-lockdown.exe
-  .\codeskill-lockdown.exe
-  ```
-- **Developer Local Run (on Windows):**
-  ```powershell
+  cd codeskill-lockdown-windows
   npm install
   npm run build:windows
-  npm run tauri:dev
   ```
-
-### Linux
-Linux does not require paid certificates; standard Unix executable permissions apply:
-- **Debian / Ubuntu Package:**
-  ```bash
-  sudo dpkg -i codeskill-lockdown.deb || sudo apt-get install -f -y
-  codeskill-lockdown
-  ```
-- **Portable AppImage:**
-  ```bash
-  chmod +x codeskill-lockdown.AppImage
-  ./codeskill-lockdown.AppImage
-  ```
-- **Wayland Cage Kiosk Launcher:**
-  ```bash
-  ./codeskill-lockdown-cage.sh
-  ```
-
----
-
-## 3. Production Compilation & Packaging
-
-Cross-platform packaging of native desktop installers requires running on the respective operating system or in CI:
-
-| Target | Generated Asset | Build Requirement |
-| :--- | :--- | :--- |
-| **macOS** | `codeskill-lockdown.dmg` (~11 MB) | Built on macOS via `npm run tauri:build` |
-| **Windows** | `CodeSkill-LockDown-Setup.exe` (~15 MB) | Built on Windows or GitHub Actions (`windows-latest`) via NSIS (`npm run build:windows`) |
-| **Linux** | `codeskill-lockdown.deb` (~12 MB) / `.AppImage` | Built on Ubuntu 22.04 or GitHub Actions (`ubuntu-22.04`) via `dpkg` |
-
-The automated release workflow in [`.github/workflows/lockdown-release.yml`](../.github/workflows/lockdown-release.yml) runs across all three platforms concurrently upon pushing any tag matching `lockdown-v*`.
+  Outputs the NSIS installer (`.exe`) under `codeskill-lockdown-windows\src-tauri\target\release\bundle\nsis\`.
+- **Automated CI:** [`.github/workflows/lockdown-release.yml`](../.github/workflows/lockdown-release.yml) builds `build-windows` (`windows-latest`, `--bundles nsis`) only when `codeskill-lockdown-windows/**` (excluding `*.md`) changes, and publishes `CodeSkill-LockDown-Setup.exe`, `CodeSkill-LockDown-<version>-Setup.exe`, `SHA256SUMS-windows.txt`, and `release-manifest-windows.json` on merges to `main` or `lockdown-v*` tags.

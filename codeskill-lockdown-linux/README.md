@@ -1,60 +1,40 @@
-# CodeSkill LockDown
+# CodeSkill LockDown — Linux
 
-> **Official Cross-Platform Secure Examination Browser for CodeSkill**  
-> Built with Tauri v2, Rust, WebKit/WebView2, and cross-platform native OS security layers.
-
----
-
-## 1. Supported Operating Systems & Security Capabilities
-
-| Platform | Kiosk Enforcement | Keyboard Interception | Hardware Probing | Anti-Cheat & Runtime Integrity |
-| :--- | :--- | :--- | :--- | :--- |
-| **macOS** | `NSApplicationPresentationOptions` (kioskMode, hideDock, disableProcessSwitching) | `CGEventTap` keyboard interceptor + `IOHIDManager` | AVFoundation camera & microphone, `CGDisplay` topology | Anti-debugging (`sysctl` `P_TRACED`), VM detection, ad-hoc bundle re-signing |
-| **Windows** | `CreateDesktopW` + `SwitchDesktop` isolated desktop | `SetWindowsHookExW(WH_KEYBOARD_LL)` blocking Win keys, Alt+Tab, Alt+Esc, PrintScreen | Registry `CapabilityAccessManager\ConsentStore` for webcam/mic | `DisableTaskMgr` registry locks, `explorer.exe` shell suppression, DLL injection detection |
-| **Linux** | Wayland `cage` kiosk compositor + cgroup v2 containment | `XGrabKeyboard` with `GrabModeAsync` | `/dev/video*` V4L2 device inspection, `/dev/snd` + PipeWire/PulseAudio | `systemd-inhibit` sleep/lid lock, `LD_PRELOAD` detection, `TracerPid` inspection |
+> **Official Linux Secure Examination Browser for CodeSkill**  
+> Built with Tauri v2, Rust, WebKitGTK 4.1, and Linux Wayland/X11 security layers (`codeskill-lockdown-linux/`).
 
 ---
 
-## 2. Running Without Developer Certificates (Testing & Local Dev)
+## 1. Linux Security & Kiosk Architecture
 
-In development and staging environments prior to purchasing Apple Developer ID and Microsoft Authenticode/EV certificates, operating systems display security warnings for unsigned or ad-hoc signed executables. Use the following commands to run without warnings:
+- **Kiosk Containment (`src-tauri/src/kiosk_os/linux.rs`, `codeskill-lockdown-cage.sh`):**
+  - Supports hardened Wayland `cage` kiosk compositor containment via `./codeskill-lockdown-cage.sh`.
+  - `XGrabKeyboard` grab/ungrab on X11, `systemd-inhibit` sleep/lid-switch lock during active exams, and clipboard clearing via `xclip` / `xsel`.
+- **Permissions & Hardware (`src-tauri/src/permissions_onboarding/linux.rs`):**
+  - Inspects V4L2 camera devices (`/dev/video*`), audio stack (`/dev/snd`, PipeWire/PulseAudio), Wayland/Cage compositor status, and XDG portal session state.
+- **Preflight & Watchdog (`src-tauri/src/security.rs`):**
+  - Enforces hardened Wayland/Cage session check (`LINUX_X11_UNENFORCED_SESSION` when `XDG_SESSION_TYPE=x11` and `WAYLAND_DISPLAY` is empty).
+  - Checks multi-monitor topology, open windows via `wmctrl -lp`, forbidden background processes, stealth overlays, VM/hypervisor indicators, proxy/MITM settings, `LD_PRELOAD` injection, and `/proc/self/status` `TracerPid` anti-debugging.
+- **Native Shell & Crypto (`src-tauri/src/lib.rs`, `attestation.rs`, `offline_vault.rs`):**
+  - Deep-link scheme registration (`codeskill-exam://`, `codeskill-lockdown://`), Shadow-DOM frame controls (`#codeskill-lockdown-frame-controls`), Ed25519 + HMAC-SHA256 request signing, and AES-256-GCM encrypted offline autosave vault.
 
-### macOS
-Gatekeeper attaches `com.apple.quarantine` to binaries downloaded from a web browser, reporting *"CodeSkill LockDown is damaged and can't be opened"*.
-- **Strip Quarantine via Terminal:**
+---
+
+## 2. Flight-Recorder Logs & Diagnostics
+
+- **Structured JSONL Logs:** `~/.local/share/com.codeskill.lockdown/logs/flight-recorder.jsonl.YYYY-MM-DD` (or `$XDG_DATA_HOME/com.codeskill.lockdown/logs/`, 14-day retention, 25 MB size rotation)
+- **Crash / Panic Log:** `~/.local/share/com.codeskill.lockdown/logs/panic-crash.jsonl`
+- **Legacy Plain-Text Log:** `~/.local/share/com.codeskill.lockdown/lockdown.log`
+- **Diagnostic Export:** Click **Save Diagnostic Log Bundle (.zip)** on `/lockdown-system-check`, or inspect locally:
   ```bash
-  xattr -cr /Applications/"CodeSkill LockDown.app"
-  # Or if downloaded to ~/Downloads:
-  xattr -d com.apple.quarantine ~/Downloads/codeskill-lockdown.dmg
-  ```
-- **Finder Bypass:** Right-click `CodeSkill LockDown.app` $\rightarrow$ Hold `Option` and click **Open** $\rightarrow$ Click **Open**.
-- **Developer Local Run:**
-  ```bash
-  npm run tauri:dev
+  tail -f "${XDG_DATA_HOME:-$HOME/.local/share}/com.codeskill.lockdown/logs"/flight-recorder.jsonl.*
   ```
 
-### Windows
-Microsoft Defender SmartScreen flags unsigned executables with *"Windows protected your PC"*.
-- **SmartScreen Bypass:** Click **"More info"** on the blue dialog $\rightarrow$ Click **"Run anyway"**.
-- **PowerShell Unblock Command:**
-  ```powershell
-  # For NSIS Setup Installer (.exe):
-  Unblock-File -Path .\CodeSkill-LockDown-Setup.exe
-  .\CodeSkill-LockDown-Setup.exe
-  # Or for standalone executable:
-  Unblock-File -Path .\codeskill-lockdown.exe
-  .\codeskill-lockdown.exe
-  ```
-- **Developer Local Run (on Windows):**
-  ```powershell
-  npm install
-  npm run build:windows
-  npm run tauri:dev
-  ```
+---
 
-### Linux
-Linux does not require paid certificates; standard Unix executable permissions apply:
-- **Debian / Ubuntu Package:**
+## 3. Running Locally & Installing
+
+- **Debian / Ubuntu (`.deb`):**
   ```bash
   sudo dpkg -i codeskill-lockdown.deb || sudo apt-get install -f -y
   codeskill-lockdown
@@ -69,16 +49,33 @@ Linux does not require paid certificates; standard Unix executable permissions a
   ./codeskill-lockdown-cage.sh
   ```
 
+**System Build Dependencies (Ubuntu/Debian):**
+```bash
+sudo apt-get update
+sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libx11-dev libayatana-appindicator3-dev librsvg2-dev
+```
+
+**Local Development & Verification:**
+```bash
+cd codeskill-lockdown-linux
+npm install
+npm run tauri:dev
+```
+```bash
+cargo check --manifest-path codeskill-lockdown-linux/src-tauri/Cargo.toml
+cargo test --manifest-path codeskill-lockdown-linux/src-tauri/Cargo.toml
+node --check codeskill-lockdown-linux/dist-isolation/index.js
+```
+
 ---
 
-## 3. Production Compilation & Packaging
+## 4. Packaging & CI/CD Release
 
-Cross-platform packaging of native desktop installers requires running on the respective operating system or in CI:
-
-| Target | Generated Asset | Build Requirement |
-| :--- | :--- | :--- |
-| **macOS** | `codeskill-lockdown.dmg` (~11 MB) | Built on macOS via `npm run tauri:build` |
-| **Windows** | `CodeSkill-LockDown-Setup.exe` (~15 MB) | Built on Windows or GitHub Actions (`windows-latest`) via NSIS (`npm run build:windows`) |
-| **Linux** | `codeskill-lockdown.deb` (~12 MB) / `.AppImage` | Built on Ubuntu 22.04 or GitHub Actions (`ubuntu-22.04`) via `dpkg` |
-
-The automated release workflow in [`.github/workflows/lockdown-release.yml`](../.github/workflows/lockdown-release.yml) runs across all three platforms concurrently upon pushing any tag matching `lockdown-v*`.
+- **Local Linux Build:**
+  ```bash
+  cd codeskill-lockdown-linux
+  npm install
+  npm run build:linux
+  ```
+  Outputs `.deb` and `.AppImage` under `codeskill-lockdown-linux/src-tauri/target/release/bundle/`.
+- **Automated CI:** [`.github/workflows/lockdown-release.yml`](../.github/workflows/lockdown-release.yml) builds `build-linux` (`ubuntu-22.04`) only when `codeskill-lockdown-linux/**` (excluding `*.md`) changes, and publishes `codeskill-lockdown.deb`, `CodeSkill-LockDown-<version>.deb`, `codeskill-lockdown.AppImage`, `CodeSkill-LockDown-<version>.AppImage`, `SHA256SUMS-linux.txt`, and `release-manifest-linux.json` on merges to `main` or `lockdown-v*` tags.
