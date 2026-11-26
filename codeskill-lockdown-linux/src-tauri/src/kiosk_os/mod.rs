@@ -342,18 +342,19 @@ pub fn exit_lockdown_app(app: tauri::AppHandle) {
     close_secondary_monitor_shields(&app);
     clear_kiosk_dirty(&app);
     let _ = crate::state_persistence::clear_persisted_exam_session(app.clone());
-    if let Some(window) = app.get_webview_window("exam-kiosk") {
-        let _ = window.clear_all_browsing_data();
-        let _ = window.destroy();
-    }
+    // TEMP TESTING: do not destroy window or clear browsing data
+    // if let Some(window) = app.get_webview_window("exam-kiosk") {
+    //     let _ = window.clear_all_browsing_data();
+    //     let _ = window.destroy();
+    // }
     if let Ok(dir) = app.path().app_data_dir() {
         let scoped = dir.join("scoped_webview_data");
         if scoped.exists() {
             let _ = std::fs::remove_dir_all(scoped);
         }
     }
-    app.exit(0);
-    std::process::exit(0);
+    // app.exit(0);
+    // std::process::exit(0);
 }
 
 #[tauri::command]

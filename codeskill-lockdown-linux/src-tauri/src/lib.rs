@@ -57,7 +57,7 @@ fn consume_pending_launch_url(app: AppHandle) -> Option<String> {
     } else {
         None
     };
-    if url.is_some() && permissions_onboarding::is_onboarding_needed(&app) {
+    if false && url.is_some() && permissions_onboarding::is_onboarding_needed(&app) {
         security::log_diagnostic_entry(
             "INFO",
             "DEEP_LINK",
@@ -201,7 +201,7 @@ fn handle_deep_link_url(app: &AppHandle, url_str: &str) {
                 );
 
                 // Check if one-time permissions onboarding is needed
-                if permissions_onboarding::is_onboarding_needed(app) {
+                if false && permissions_onboarding::is_onboarding_needed(app) {
                     let startup_state = app.state::<StartupPermissionsState>();
                     if let Ok(mut pending) = startup_state.pending_launch_url.lock() {
                         *pending = Some(target_url);
@@ -718,6 +718,16 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             if let Some(ref assessment_id) = locked_id {
                 let path = url.path();
 
+                // TEMP TESTING: allow / startup route during testing (webview loads devUrl before deep-link redirect)
+                if path == "/" {
+                    security::log_diagnostic_entry(
+                        "INFO",
+                        "SECURITY",
+                        &format!("TEMPORARILY allowing / startup route on locked assessment: {}", assessment_id),
+                    );
+                    return true;
+                }
+
                 // Allow exam-taking route and its subpaths for this assessment, or onboarding/diagnostic
                 let assessment_prefix = format!("/assessments/{}", assessment_id);
                 if path.starts_with(&assessment_prefix)
@@ -754,10 +764,26 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                     return false;
                 }
 
-                // If host is the configured frontend origin, allow if it's the current assessment
+                // If host is the configured frontend origin, allow the / route and assessment routes only; block everything else
+                // TEMP TESTING: allow / route so the LockDown browser doesn't exit when assessment is locked
                 let frontend = config::get_frontend_origin();
                 if let Ok(frontend_url) = url::Url::parse(&frontend) {
                     if url.host_str() == frontend_url.host_str() && url.port() == frontend_url.port() {
+                        // TEMP TESTING: allow / route during testing
+                        if url.path() == "/" {
+                            // allow / startup route
+                        } else if url.path().starts_with("/assessments") {
+                            // allow assessment routes
+                        } else {
+                            security::log_diagnostic_entry(
+                                "WARN",
+                                "SECURITY",
+                                &format!("Navigation on frontend origin blocked outside locked exam: {}", path),
+                            );
+                            return false;
+                        }
+                    } else {
+                        // not on frontend origin - block
                         security::log_diagnostic_entry(
                             "WARN",
                             "SECURITY",
@@ -786,15 +812,14 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 || path.starts_with("/contests")
                 || path.starts_with("/leaderboard");
 
-            if is_general_website_path {
-                security::log_diagnostic_entry(
-                    "WARN",
-                    "SECURITY",
-                    &format!("General website navigation blocked inside CodeSkill LockDown: {}", path),
-                );
-                kiosk_os::exit_lockdown_app(webview.app_handle().clone());
-                return false;
-            }
+           if is_general_website_path {
+    security::log_diagnostic_entry(
+        "INFO",
+        "SECURITY",
+        &format!("TEMPORARILY allowing general website route during testing: {}", path),
+    );
+    return true;
+}
 
             // Only allow designated LockDown paths
             let is_allowed_lockdown_path = path.starts_with("/assessments")
@@ -889,7 +914,7 @@ pub fn run() {
             state_persistence::hydrate_attestation_state_from_disk(app.handle());
 
             // Start background watchdog for multi-monitor, stealth overlays, and forbidden processes
-            security::start_security_watchdog(app.handle().clone());
+            // security::start_security_watchdog(app.handle().clone());
 
             // Listen for deep link events in Tauri v2
             #[cfg(desktop)]
