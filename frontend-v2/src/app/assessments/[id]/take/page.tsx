@@ -284,15 +284,18 @@ export default function TakeAssessmentPage({
   const [lockdownExitCountdown, setLockdownExitCountdown] = useState<number | null>(null);
   const [isExamSubmitted, setIsExamSubmitted] = useState<boolean>(() => {
     if (typeof window === "undefined" || !isLockdownClient()) return false;
+    if (new URLSearchParams(window.location.search).get("retake") === "1") return false;
     const local = LockdownSessionStore.getLocalState(id);
     return Boolean(local?.isSubmitted);
   });
   const [submissionReceiptId, setSubmissionReceiptId] = useState<string | null>(() => {
     if (typeof window === "undefined" || !isLockdownClient()) return null;
+    if (new URLSearchParams(window.location.search).get("retake") === "1") return null;
     return LockdownSessionStore.getLocalState(id)?.submissionReceiptId || null;
   });
   const [submittedAtMs, setSubmittedAtMs] = useState<number | null>(() => {
     if (typeof window === "undefined" || !isLockdownClient()) return null;
+    if (new URLSearchParams(window.location.search).get("retake") === "1") return null;
     return LockdownSessionStore.getLocalState(id)?.submittedAtMs || null;
   });
   const [startError, setStartError] = useState<string | null>(null);
@@ -340,7 +343,10 @@ export default function TakeAssessmentPage({
             setServerEndsAtEpochMs(persisted.serverEndsAtEpochMs);
             setAttemptDeadlineAt(persisted.serverEndsAtEpochMs);
           }
-          if (persisted?.isSubmitted) {
+          const isExplicitRetakeLaunch =
+            typeof window !== "undefined" &&
+            new URLSearchParams(window.location.search).get("retake") === "1";
+          if (persisted?.isSubmitted && !isExplicitRetakeLaunch) {
             setIsExamSubmitted(true);
             setSubmissionReceiptId(persisted.submissionReceiptId || `REC-${id.slice(0, 8)}`);
             setSubmittedAtMs(persisted.submittedAtMs || Date.now());
@@ -510,12 +516,28 @@ export default function TakeAssessmentPage({
             setEnableForensicWatermark(Boolean(asmt.securityPolicy.enableForensicWatermark));
           }
 
+          const overviewCanRetake = Boolean(res.data?.canRetake);
+          const hasActiveInProgressAttempt = res.data?.attempt?.status === "in_progress";
+          const isExplicitRetakeLaunch =
+            typeof window !== "undefined" &&
+            new URLSearchParams(window.location.search).get("retake") === "1";
+          const canStartOrResumeAttempt =
+            isExplicitRetakeLaunch || overviewCanRetake || hasActiveInProgressAttempt;
+
+          if (isLockdownClient() && canStartOrResumeAttempt) {
+            // Clear any stale isSubmitted state from a prior attempt so multi-attempt / unlimited retakes start cleanly
+            setIsExamSubmitted(false);
+            setSubmissionReceiptId(null);
+            setSubmittedAtMs(null);
+            void LockdownSessionStore.saveState(id, { isSubmitted: false });
+          }
+
           // Check authoritative server resume state
           if (typeof studentAssessmentsAPI.getResumeState === "function") {
             try {
               const resumeRes = await studentAssessmentsAPI.getResumeState(id);
               const resumeData = resumeRes.data?.data || resumeRes.data;
-              if (resumeData?.alreadySubmitted) {
+              if (resumeData?.alreadySubmitted && !canStartOrResumeAttempt) {
                 if (!cancelled) {
                   setIsExamSubmitted(true);
                   const recId = submissionReceiptId || `REC-${id.slice(0, 8).toUpperCase()}`;
@@ -532,7 +554,7 @@ export default function TakeAssessmentPage({
                 }
                 return;
               }
-              if (resumeData?.hasAttempt && typeof resumeData.remainingSeconds === "number") {
+              if (!resumeData?.alreadySubmitted && resumeData?.hasAttempt && typeof resumeData.remainingSeconds === "number") {
                 if (resumeData.serverEndsAtEpochMs) {
                   setServerEndsAtEpochMs(resumeData.serverEndsAtEpochMs);
                   setAttemptDeadlineAt(resumeData.serverEndsAtEpochMs);
