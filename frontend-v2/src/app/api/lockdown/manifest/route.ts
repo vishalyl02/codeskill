@@ -4,6 +4,7 @@ import {
   DEFAULT_TAG,
   CANONICAL_REPO,
   getPlatformCandidates,
+  PLATFORM_CONFIG,
 } from '@/lib/lockdown-download-config';
 
 export const dynamic = 'force-dynamic';
@@ -35,7 +36,7 @@ export async function GET() {
         os: 'windows',
         installerType: 'nsis',
         format: 'exe',
-        filename: winCandidates[0] || 'CodeSkill-LockDown-Setup.exe',
+        filename: PLATFORM_CONFIG.windows.canonicalFilename,
         candidates: winCandidates,
         downloadUrl: `/api/lockdown/download?platform=windows&version=${CURRENT_VERSION}`,
         cdnUrl: cdnBase ? `${cdnBase}/CodeSkill-LockDown-Setup.exe` : null,
@@ -46,7 +47,7 @@ export async function GET() {
         os: 'macos',
         installerType: 'dmg',
         format: 'dmg',
-        filename: macCandidates[0] || 'codeskill-lockdown.dmg',
+        filename: PLATFORM_CONFIG.macos.canonicalFilename,
         candidates: macCandidates,
         downloadUrl: `/api/lockdown/download?platform=macos&version=${CURRENT_VERSION}`,
         cdnUrl: cdnBase ? `${cdnBase}/codeskill-lockdown.dmg` : null,
@@ -57,7 +58,7 @@ export async function GET() {
         os: 'linux',
         installerType: 'deb',
         format: 'deb',
-        filename: linuxCandidates[0] || 'codeskill-lockdown.deb',
+        filename: PLATFORM_CONFIG.linux.canonicalFilename,
         candidates: linuxCandidates,
         downloadUrl: `/api/lockdown/download?platform=linux&version=${CURRENT_VERSION}`,
         cdnUrl: cdnBase ? `${cdnBase}/codeskill-lockdown.deb` : null,

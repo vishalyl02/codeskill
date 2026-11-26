@@ -329,12 +329,12 @@ export default function AdminAssessmentsPage() {
                     </button>
 
                     <Link
-                      href={`/assessments/${test._id}`}
-                      target="_blank"
+                      href={`/admin/assessments/${encodeURIComponent(test._id)}/preview`}
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      aria-label={`Preview ${test.title}`}
                       title="Preview Candidate Interface"
                     >
-                      <ExternalLink className="w-3.5 h-3.5" />
+                      <ExternalLink aria-hidden="true" className="w-3.5 h-3.5" />
                     </Link>
 
                     <button

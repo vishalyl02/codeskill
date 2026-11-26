@@ -13,6 +13,25 @@ export interface AssignedAssessment {
   targetCourses?: string[]; targetDepartments?: string[]; targetBatches?: string[];
   proctoring?: Record<string, unknown>;
 }
+
+export function requiresAssessmentLockdown(assessment: {
+  requireLockdown?: boolean | null;
+  securityPolicy?: {
+    requireSEB?: boolean | null;
+    requireLockdown?: boolean | null;
+    secureExamMode?: string | null;
+  } | null;
+}): boolean {
+  const policy = assessment.securityPolicy;
+  return Boolean(
+    assessment.requireLockdown ||
+    policy?.requireSEB ||
+    policy?.requireLockdown ||
+    policy?.secureExamMode === "STRICT" ||
+    policy?.secureExamMode === "STANDARD"
+  );
+}
+
 export function formatSemesterScope(semesters?: string[]): string {
   if (!semesters || semesters.length === 0) return "All Semesters";
   const cleaned = semesters.map(s => String(s).replace(/^(semester|sem)[\s_-]*/i, '').trim()).filter(Boolean);

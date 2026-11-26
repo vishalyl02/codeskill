@@ -34,6 +34,18 @@ export const PLATFORM_CONFIG: Record<string, PlatformAssetConfig> = {
   },
 };
 
+export function getPlatformAssetConfig(platform: string, format?: string | null): PlatformAssetConfig {
+  if (platform === 'linux' && format?.toLowerCase() === 'appimage') {
+    return {
+      canonicalFilename: 'codeskill-lockdown.AppImage',
+      contentType: 'application/octet-stream',
+      format: 'appimage',
+      installerType: 'appimage',
+    };
+  }
+  return PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.windows;
+}
+
 export function getPlatformCandidates(
   platform: string,
   version: string = DEFAULT_VERSION,
@@ -65,8 +77,6 @@ export function getPlatformCandidates(
           'codeskill-lockdown.AppImage',
           'CodeSkill-LockDown.AppImage',
           `CodeSkill-LockDown-${cleanVersion}.AppImage`,
-          `CodeSkill.LockDown_${cleanVersion}_amd64.deb`,
-          'codeskill-lockdown.deb',
         ];
       }
       return [
@@ -74,8 +84,6 @@ export function getPlatformCandidates(
         'codeskill-lockdown.deb',
         'CodeSkill-LockDown.deb',
         `CodeSkill-LockDown-${cleanVersion}.deb`,
-        `CodeSkill.LockDown_${cleanVersion}_amd64.AppImage`,
-        'codeskill-lockdown.AppImage',
       ];
     default:
       return ['CodeSkill-LockDown-Setup.exe'];
