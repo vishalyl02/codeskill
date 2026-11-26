@@ -77,8 +77,8 @@ export function AssessmentPreview() {
                 transition={{ duration: 0.4, delay: idx * 0.08 }}
                 onClick={() => setActiveStep(idx)}
                 className={`p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${activeStep === idx
-                    ? "bg-card border-foreground/50 shadow-md ring-1 ring-foreground/20"
-                    : "bg-background border-border/80 hover:border-border hover:bg-card"
+                  ? "bg-card border-foreground/50 shadow-md ring-1 ring-foreground/20"
+                  : "bg-background border-border/80 hover:border-border hover:bg-card"
                   }`}
               >
                 <div className="space-y-2">

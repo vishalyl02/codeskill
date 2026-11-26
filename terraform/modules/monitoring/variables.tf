@@ -78,6 +78,12 @@ variable "redis_cluster_id" {
   default     = ""
 }
 
+variable "enable_redis_alarms" {
+  description = "Whether to create Redis CloudWatch alarms. Use a static boolean instead of deriving from redis_cluster_id to avoid unknown-at-plan-time count errors."
+  type        = bool
+  default     = false
+}
+
 variable "log_retention_days" {
   description = "Log retention in days (optional)"
   type        = number

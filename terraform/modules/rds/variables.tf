@@ -69,6 +69,11 @@ variable "db_password" {
   type        = string
   default     = ""
   sensitive   = true
+
+  validation {
+    condition     = var.db_password == "" || length(var.db_password) >= 8
+    error_message = "The db_password value must be at least 8 characters long to satisfy AWS RDS requirements, or left empty to auto-generate."
+  }
 }
 
 variable "multi_az" {
@@ -99,6 +104,12 @@ variable "app_security_group_id" {
   description = "Application security group ID (optional for legacy support)"
   type        = string
   default     = ""
+}
+
+variable "create_legacy_security_group" {
+  description = "Whether to create the legacy RDS security group from app_security_group_id. Use a static boolean instead of deriving from resource attributes to avoid unknown-at-plan-time count errors."
+  type        = bool
+  default     = false
 }
 
 variable "security_group_ids" {

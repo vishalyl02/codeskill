@@ -266,8 +266,9 @@ module "waf" {
 # 6. Storage (S3) & IAM Role Definitions
 # -----------------------------------------------------------------------------
 module "s3" {
-  source      = "../../modules/s3"
-  name_prefix = local.name_prefix
+  source                = "../../modules/s3"
+  name_prefix           = local.name_prefix
+  enable_public_avatars = true
 }
 
 module "iam" {

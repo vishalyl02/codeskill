@@ -95,7 +95,7 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx_high" {
 
 # Redis High Engine CPU Alarm (> 75% for 10 minutes)
 resource "aws_cloudwatch_metric_alarm" "redis_cpu_high" {
-  count               = var.redis_cluster_id != "" ? 1 : 0
+  count               = var.enable_redis_alarms ? 1 : 0
   alarm_name          = "${var.name_prefix}-redis-cpu-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2

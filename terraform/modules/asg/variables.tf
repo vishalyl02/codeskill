@@ -24,3 +24,9 @@ variable "pm2_io_parameter_name" {
   type        = string
   default     = ""
 }
+
+variable "s3_bucket_name" {
+  description = "S3 bucket name containing releases artifact. If empty, defaults to name_prefix-files-reports."
+  type        = string
+  default     = ""
+}
