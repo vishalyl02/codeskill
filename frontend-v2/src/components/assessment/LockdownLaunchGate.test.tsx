@@ -133,4 +133,21 @@ describe("LockdownLaunchGate", () => {
     );
     expect(screen.queryByRole("button", { name: "Check LockDown status" })).not.toBeInTheDocument();
   });
+
+  it("fetches download metadata only once even when onClientDetected identity changes across re-renders", async () => {
+    const { rerender } = await act(async () =>
+      render(<LockdownLaunchGate examId="exam-123" onClientDetected={() => {}} />),
+    );
+    await act(async () => {
+      rerender(<LockdownLaunchGate examId="exam-123" onClientDetected={() => {}} />);
+    });
+    await act(async () => {
+      rerender(<LockdownLaunchGate examId="exam-123" onClientDetected={() => {}} />);
+    });
+
+    const metadataFetches = (global.fetch as jest.Mock).mock.calls.filter(
+      ([url]) => url === "/api/lockdown/download?redirect=false&format=json",
+    );
+    expect(metadataFetches).toHaveLength(1);
+  });
 });

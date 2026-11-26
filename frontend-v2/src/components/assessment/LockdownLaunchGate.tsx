@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Check, Copy, Download, ExternalLink, Info, Monitor, ShieldCheck } from "lucide-react";
 import { authStorage } from "@/lib/auth-storage";
 import { isLockdownClient } from "@/lib/lockdown-bridge";
@@ -100,27 +100,34 @@ export default function LockdownLaunchGate({
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [linuxFormat, setLinuxFormat] = useState<"deb" | "appimage">("deb");
   const [copyFeedback, setCopyFeedback] = useState<{ command: string; success: boolean } | null>(null);
+  const onClientDetectedRef = useRef(onClientDetected);
+  onClientDetectedRef.current = onClientDetected;
 
   useEffect(() => {
+    let cancelled = false;
     const client = isLockdownClient();
-    if (client && onClientDetected) {
-      onClientDetected();
+    if (client && onClientDetectedRef.current) {
+      onClientDetectedRef.current();
     }
 
-    // Fetch manifest or download metadata to get the latest published version
+    // Fetch manifest or download metadata once on mount to get the latest published version
     fetch("/api/lockdown/download?redirect=false&format=json", {
       headers: { Accept: "application/json" },
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.version) {
+        if (!cancelled && data?.version) {
           setLockdownVersion(data.version);
         }
       })
       .catch(() => {
         // Default to 1.0.0 if offline
       });
-  }, [onClientDetected]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const getPortalOrigin = () => {
     if (typeof window !== "undefined" && window.location && window.location.origin) {
