@@ -14,12 +14,8 @@ import {
   RotateCcw,
   Send,
   ShieldAlert,
-  ShieldCheck,
   Lock,
-  Maximize2,
-  Minimize2,
   Layers,
-  PanelLeft,
   Award,
   Check,
   Camera,
@@ -30,8 +26,6 @@ import {
   Volume2,
   Info,
   X,
-  Loader2,
-  WifiOff,
   Play,
 } from "lucide-react";
 import Link from "next/link";
@@ -68,6 +62,7 @@ import { toast } from "react-hot-toast";
 import { useAssessmentMedia } from "@/hooks/useAssessmentMedia";
 import { MicrophoneLevelIndicator } from "@/components/assessment/MicrophoneLevelIndicator";
 import { releaseAssessmentStream } from "@/lib/assessment-media-session";
+import { AssessmentTakeHeader } from "@/components/assessment/AssessmentTakeHeader";
 import { AssessmentReadingZoom } from "@/components/assessment/AssessmentReadingZoom";
 import { ResizableAssessmentPanels } from "@/components/assessment/ResizableAssessmentPanels";
 import { FloatingAssessmentMonitor } from "@/components/assessment/FloatingAssessmentMonitor";
@@ -1581,14 +1576,20 @@ export default function TakeAssessmentPage({
     return () => clearTimeout(t);
   }, [warningToast]);
 
-  // Fullscreen trigger helper
-  const toggleFullscreen = () => {
+  const enforceFullscreen = proctoring?.enforceFullscreen !== false;
+  const toggleFullscreen = useCallback(() => {
     if (isDocumentFullscreen()) {
-      if (proctoring?.enforceFullscreen === false) void document.exitFullscreen().catch(() => {});
+      if (!enforceFullscreen) void document.exitFullscreen().catch(() => {});
     } else {
       void enterDocumentFullscreen().catch(() => setWarningToast({ id: Date.now(), message: "Fullscreen could not be enabled. Please allow fullscreen and try again.", type: "warning" }));
     }
-  };
+  }, [enforceFullscreen]);
+
+  const toggleQuestionSidebar = useCallback(() => {
+    if (window.matchMedia("(min-width: 1024px)").matches) setSidebarCollapsed(value => !value);
+    else setMobileSidebarOpen(value => !value);
+  }, []);
+  const openSubmitModal = useCallback(() => setShowSubmitModal(true), []);
 
   // Question Interaction Handlers
   const currentQ = questions[currentIndex];
@@ -2667,175 +2668,31 @@ export default function TakeAssessmentPage({
       reconnectMedia={reconnectMedia}
     >
       <div ref={examPageRef} data-assessment-page-capture className={`h-dvh overflow-hidden bg-background text-foreground font-sans flex flex-col relative [touch-action:pan-x_pan-y_pinch-zoom] ${proctoring?.blockCopyPaste !== false ? "select-none" : ""}`}>
-      {/* Top Test Header Bar */}
-      <header className="h-16 shrink-0 border-b border-border bg-card/95 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center gap-3">
-          <button type="button" aria-label="Toggle question sidebar" aria-controls="assessment-question-sidebar" onClick={() => {
-            if (window.matchMedia("(min-width: 1024px)").matches) setSidebarCollapsed(value => !value);
-            else setMobileSidebarOpen(value => !value);
-          }} className="rounded-lg border border-border p-2 hover:bg-muted"><PanelLeft className="size-4" /></button>
-          {/* CU Official Logo */}
-          <div className="w-9 h-9 rounded-xl overflow-hidden bg-muted/40 shrink-0 border border-border p-1 flex items-center justify-center">
-            <img
-              src="https://images.seeklogo.com/logo-png/43/1/chandigarh-university-cu-logo-png_seeklogo-432515.png"
-              alt="Chandigarh University"
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = "/cu-logo.png";
-              }}
-            />
-          </div>
-          <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary border border-primary/20 flex items-center justify-center font-bold text-xs font-mono shadow-xs">
-            Q{currentIndex + 1}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xs sm:text-sm font-bold text-foreground">
-                Question {currentIndex + 1} <span className="text-muted-foreground font-normal">of {totalQuestionCount}</span>
-              </h1>
-              <span className="hidden sm:inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-foreground border border-border">
-                Chandigarh University
-              </span>
-              {assessmentCode && (
-                <span className="hidden md:inline px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-muted text-foreground border border-border">
-                  {assessmentCode}
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-muted-foreground font-medium truncate max-w-[140px] sm:max-w-none">
-              {currentQ.topic} {currentQ.subtopic ? `• ${currentQ.subtopic}` : ""}
-            </p>
-          </div>
-        </div>
-
-        {/* Center: Live Countdown Clock & Penalty Badge */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {isLockdownActive && (
-            <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs font-semibold select-none shadow-xs"
-              title="CodeSkill LockDown active: Attestation verified & OS kiosk engaged"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>LockDown Active</span>
-            </div>
-          )}
-          {((proctoring?.mode === 'partial_proctored') || (proctoring?.violationPenaltyMarks && proctoring.violationPenaltyMarks > 0) || totalPenaltyMarks > 0) && (
-            <div
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md border text-xs font-mono font-bold transition-all shadow-xs ${
-                totalPenaltyMarks > 0
-                  ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800"
-                  : "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800"
-              }`}
-              title="Partial proctored exam: Negative marks applied for violations. Manual submission is required."
-            >
-              <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-              <span>
-                Penalty: -{totalPenaltyMarks}
-              </span>
-              <span className="hidden lg:inline font-normal text-[10px] opacity-80">
-                ({violations.length} {violations.length === 1 ? "violation" : "violations"})
-              </span>
-            </div>
-          )}
-
-          <div
-            className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-md border text-xs sm:text-sm font-mono font-bold transition-all ${
-              isTimeCritical
-                ? "bg-rose-50 text-rose-700 border-rose-300 animate-pulse shadow-xs"
-                : "bg-slate-50 text-slate-800 border-slate-200"
-            }`}
-          >
-            <Clock className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isTimeCritical ? "text-rose-600" : "text-primary"}`} />
-            <span>{formatTime(timeLeftSeconds)}</span>
-          </div>
-
-          {isSequentialActive && questionTimeLimitSeconds > 0 && (
-            <div
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-mono font-bold ${
-                questionTimeLeftSeconds <= 10
-                  ? "bg-rose-50 text-rose-700 border-rose-300 animate-pulse dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800"
-                  : "bg-slate-50 text-slate-800 border-slate-200"
-              }`}
-              aria-label={`Question time remaining: ${formatTime(questionTimeLeftSeconds)}`}
-            >
-              <Clock className={`w-3.5 h-3.5 ${questionTimeLeftSeconds <= 10 ? "text-rose-600" : "text-primary"}`} />
-              <span>Question {formatTime(questionTimeLeftSeconds)}</span>
-            </div>
-          )}
-
-          {/* Offline Autosave Live Sync Indicator */}
-          <div className="flex items-center">
-            {syncStatus === 'synced' && (
-              <div
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800 text-[11px] font-medium transition-all shadow-xs"
-                title="All answers saved to server"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span className="hidden sm:inline">Saved</span>
-              </div>
-            )}
-            {syncStatus === 'syncing' && (
-              <div
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800 text-[11px] font-medium transition-all shadow-xs"
-                title="Syncing answers with server"
-              >
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600 dark:text-sky-400" />
-                <span className="hidden sm:inline">Syncing...</span>
-              </div>
-            )}
-            {syncStatus === 'offline-buffered' && (
-              <div
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-700 text-[11px] font-medium animate-pulse shadow-xs"
-                title="Wi-Fi disconnected. Answers are encrypted and stored locally, will sync automatically once connected."
-              >
-                <WifiOff className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>Offline — {pendingSyncCount} {pendingSyncCount === 1 ? 'answer' : 'answers'} saved locally (Encrypted)</span>
-              </div>
-            )}
-            {syncStatus === 'error' && (
-              <div
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-300 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800 text-[11px] font-medium shadow-xs"
-                title="Temporary sync error. Retrying automatically..."
-              >
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
-                <span>Sync Error ({pendingSyncCount})</span>
-              </div>
-            )}
-          </div>
-
-          {/* Fullscreen Button */}
-          <button
-            onClick={toggleFullscreen}
-            className="hidden sm:flex items-center justify-center p-2 rounded-md border border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors"
-            disabled={isFullscreen && proctoring?.enforceFullscreen !== false}
-            title={isFullscreen && proctoring?.enforceFullscreen !== false ? "Fullscreen required during the test" : isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
-
-          {/* Tab Switch Strike Counter */}
-          {proctoring?.detectTabSwitch !== false && tabSwitches > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-xs font-bold">
-              <ShieldAlert className="w-3.5 h-3.5" />
-              <span>{tabSwitches}/{maxTabSwitches}</span>
-            </div>
-          )}
-
-          {/* Permanent Top Submit Test Button */}
-          <button
-            aria-label="Submit Test"
-            onClick={() => setShowSubmitModal(true)}
-            disabled={
-              (isSequentialActive && !isLastQuestion)
-              || (isSectionLockActive && Boolean(activeSection))
-            }
-            className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-md bg-primary hover:bg-primary/90 active:bg-primary/80 text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Submit Test</span>
-          </button>
-        </div>
-      </header>
+      <AssessmentTakeHeader
+        questionNumber={currentIndex + 1}
+        totalQuestionCount={totalQuestionCount}
+        assessmentCode={assessmentCode}
+        topic={currentQ.topic}
+        subtopic={currentQ.subtopic}
+        isLockdownActive={isLockdownActive}
+        showPenalty={proctoring?.mode === "partial_proctored" || (proctoring?.violationPenaltyMarks ?? 0) > 0 || totalPenaltyMarks > 0}
+        totalPenaltyMarks={totalPenaltyMarks}
+        violationCount={violations.length}
+        timeRemaining={formatTime(timeLeftSeconds)}
+        isTimeCritical={isTimeCritical}
+        questionTimeRemaining={isSequentialActive && questionTimeLimitSeconds > 0 ? formatTime(questionTimeLeftSeconds) : undefined}
+        isQuestionTimeCritical={questionTimeLeftSeconds <= 10}
+        syncStatus={syncStatus}
+        pendingSyncCount={syncStatus === "offline-buffered" || syncStatus === "error" ? pendingSyncCount : 0}
+        isFullscreen={isFullscreen}
+        enforceFullscreen={enforceFullscreen}
+        tabSwitches={proctoring?.detectTabSwitch !== false ? tabSwitches : 0}
+        maxTabSwitches={maxTabSwitches}
+        submitDisabled={(isSequentialActive && !isLastQuestion) || (isSectionLockActive && Boolean(activeSection))}
+        onToggleSidebar={toggleQuestionSidebar}
+        onToggleFullscreen={toggleFullscreen}
+        onSubmit={openSubmitModal}
+      />
 
       {/* Warning Toast Floating Notification */}
       {submitError && (

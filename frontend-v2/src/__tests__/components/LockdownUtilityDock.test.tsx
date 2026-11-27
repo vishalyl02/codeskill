@@ -39,6 +39,36 @@ describe("LockdownUtilityDock Component", () => {
     expect(await screen.findByText("AC Power")).toBeInTheDocument();
   });
 
+  it("drags from a status badge or button without activating the dragged button", async () => {
+    render(<LockdownUtilityDock />);
+    const dock = screen.getByLabelText("CodeSkill LockDown Security Utility Dock");
+    const badge = screen.getByText("LockDown");
+    const expand = screen.getByTitle("Expand utility dock controls");
+
+    const pointer = (target: HTMLElement, type: string, x: number, y: number) => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      fireEvent(target, event);
+    };
+
+    pointer(badge, "pointerdown", 45, 710);
+    pointer(badge, "pointermove", 105, 670);
+    pointer(badge, "pointerup", 105, 670);
+    expect(dock).toHaveStyle({ left: "76px" });
+
+    pointer(expand, "pointerdown", 105, 670);
+    pointer(expand, "pointermove", 145, 670);
+    pointer(expand, "pointerup", 145, 670);
+    fireEvent.click(expand, { detail: 1 });
+    expect(dock).toHaveStyle({ left: "116px" });
+    expect(screen.queryByTitle("Collapse utility dock")).not.toBeInTheDocument();
+
+    pointer(expand, "pointerdown", 145, 670);
+    pointer(expand, "pointerup", 145, 670);
+    fireEvent.click(expand, { detail: 1 });
+    expect(await screen.findByTitle("Collapse utility dock")).toBeInTheDocument();
+  });
+
   it("expands controls when expand button is clicked", async () => {
     render(
       <LockdownUtilityDock

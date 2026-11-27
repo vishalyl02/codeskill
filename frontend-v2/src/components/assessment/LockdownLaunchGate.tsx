@@ -77,7 +77,6 @@ const setupNotes: Record<Platform, {
 interface LockdownLaunchGateProps {
   examId: string;
   examTitle?: string;
-  preview?: boolean;
   /** Whether the assessment requires camera access for proctoring. Defaults to true (safe). */
   requireCamera?: boolean;
   /** Whether the assessment requires microphone access for proctoring. Defaults to false. */
@@ -88,7 +87,6 @@ interface LockdownLaunchGateProps {
 export default function LockdownLaunchGate({
   examId,
   examTitle,
-  preview = false,
   requireCamera = true,
   requireMicrophone = false,
   onClientDetected,
@@ -244,15 +242,9 @@ export default function LockdownLaunchGate({
               </p>
             </div>
 
-            {preview ? (
-              <a href={diagnosticsDeepLink} className={launchClassName}>
-                {launchLabel}
-              </a>
-            ) : (
-              <button type="button" onClick={handleLaunchClick} className={launchClassName}>
-                {launchLabel}
-              </button>
-            )}
+            <button type="button" onClick={handleLaunchClick} className={launchClassName}>
+              {launchLabel}
+            </button>
 
             <div className="space-y-3 border-t border-border pt-4">
               <p className="text-sm leading-relaxed">Trouble opening LockDown? Check whether your device is ready.</p>

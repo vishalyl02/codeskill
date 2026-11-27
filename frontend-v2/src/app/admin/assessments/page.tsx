@@ -45,8 +45,8 @@ export default function AdminAssessmentsPage() {
     fetchAssessments();
   }, [search]);
 
-  const handleCopyLink = (code: string, id: string) => {
-    const url = `${window.location.origin}/assessments/${id}`;
+  const handleCopyLink = (studentPath: string, id: string) => {
+    const url = new URL(studentPath, window.location.origin).href;
     navigator.clipboard.writeText(url);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
@@ -173,6 +173,7 @@ export default function AdminAssessmentsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {assessments.map((test) => {
+            const studentPath = `/assessments/${encodeURIComponent(test._id)}`;
             const isLive = test.status === "published";
 
             return (
@@ -277,11 +278,18 @@ export default function AdminAssessmentsPage() {
                   </div>
 
                   {/* Anti-cheat summary */}
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground mb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground mb-4">
                     <div className="flex items-center gap-1.5">
                       <ShieldAlert className="w-3.5 h-3.5 text-primary" />
                       <span>Camera, Voice & Anti-Cheat Enabled</span>
                     </div>
+                    <Link
+                      href={studentPath}
+                      className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+                    >
+                      <ExternalLink aria-hidden="true" className="size-3" />
+                      Student link
+                    </Link>
                   </div>
                 </div>
 
@@ -308,7 +316,7 @@ export default function AdminAssessmentsPage() {
 
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => handleCopyLink(test.code, test._id)}
+                      onClick={() => handleCopyLink(studentPath, test._id)}
                       className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                       title="Copy Candidate Link"
                     >

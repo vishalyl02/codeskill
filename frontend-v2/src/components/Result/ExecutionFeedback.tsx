@@ -183,7 +183,7 @@ export default function ExecutionFeedback({
           latest graded attempts for this question and test count.
         </p>
       )}
-      {result.compileOutput && context === "practice" && (
+      {result.compileOutput && (context === "practice" || mode === "run") && (
         <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-rose-500/20 bg-rose-500/5 p-3 text-xs">
           {result.compileOutput}
         </pre>
@@ -201,7 +201,7 @@ export default function ExecutionFeedback({
           >
             {cases.map((test, index) => (
               <button
-                key={test.id ?? test.testId ?? index}
+                key={context === "assessment" ? index : test.id ?? test.testId ?? index}
                 onClick={() => setSelection(index)}
                 aria-pressed={selected === test}
                 className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${selected === test ? "border-primary/50 bg-primary/5" : "border-border bg-card"} ${test.passed ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
@@ -211,7 +211,7 @@ export default function ExecutionFeedback({
                 ) : (
                   <XCircle className="size-3.5" />
                 )}
-                Case {test.id ?? test.testId ?? index + 1}
+                {context === "assessment" ? `Test Case ${index + 1}` : `Case ${test.id ?? test.testId ?? index + 1}`}
                 {test.isHidden && (
                   <LockKeyhole aria-label="Hidden test" className="size-3" />
                 )}

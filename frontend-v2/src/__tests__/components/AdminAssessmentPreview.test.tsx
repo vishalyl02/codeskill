@@ -64,6 +64,7 @@ it("opens the admin card preview in the current tab", async () => {
   expect(preview).toHaveAttribute("href", "/admin/assessments/exam-123/preview");
   expect(preview).not.toHaveAttribute("target", "_blank");
   expect(screen.getByRole("button", { name: "Copy Candidate Link" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Student link" })).toHaveAttribute("href", "/assessments/exam-123");
 });
 
 it.each(["MCQ", "CODING", "MIXED"])("shows the student LockDown setup for %s using the admin API", async (type) => {
@@ -79,11 +80,8 @@ it.each(["MCQ", "CODING", "MIXED"])("shows the student LockDown setup for %s usi
   expect(screen.getByRole("link", { name: "Run system check" })).toHaveAttribute(
     "href", expect.stringContaining("codeskill-lockdown://system-check"),
   );
-  const launch = screen.getByRole("link", { name: "Launch in CodeSkill LockDown" });
-  const launchUrl = new URL(launch.getAttribute("href")!);
-  expect(launchUrl.protocol).toBe("codeskill-lockdown:");
-  expect(launchUrl.hostname).toBe("system-check");
-  expect(launchUrl.searchParams.has("token")).toBe(false);
+  expect(screen.getByRole("button", { name: "Launch in CodeSkill LockDown" })).toBeEnabled();
+  expect(screen.queryByRole("link", { name: "Launch in CodeSkill LockDown" })).not.toBeInTheDocument();
   expect(screen.getByText("Return to this page and select Launch in CodeSkill LockDown.")).toBeInTheDocument();
 });
 

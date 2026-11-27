@@ -97,11 +97,14 @@ export default function LockdownUtilityDock({
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const dragStateRef = useRef<{
+    pointerId: number;
     startX: number;
     startY: number;
     initialX: number;
     initialY: number;
+    moved: boolean;
   } | null>(null);
+  const suppressDragClickRef = useRef(false);
 
   // Dock collapse & pin state
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
@@ -230,55 +233,61 @@ export default function LockdownUtilityDock({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Pointer drag event handlers
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return; // Only primary mouse/touch button
-    e.stopPropagation();
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || dragStateRef.current || !(event.target instanceof Element)) return;
+    if (event.target.closest("[data-dock-popover]")) return;
+
+    suppressDragClickRef.current = false;
+    // Capture on the original target so a tap can still activate a tool button.
     try {
-      e.currentTarget.setPointerCapture(e.pointerId);
+      event.target.setPointerCapture?.(event.pointerId);
     } catch {
-      // ignore
+      // Pointer events within the bar still work if WebKit declines capture.
     }
-    const curX = position?.x ?? 16;
-    const curY = position?.y ?? (window.innerHeight - 64);
+    const bounds = dockRef.current?.getBoundingClientRect();
     dragStateRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      initialX: curX,
-      initialY: curY,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      initialX: position?.x ?? bounds?.left ?? 16,
+      initialY: position?.y ?? bounds?.top ?? window.innerHeight - 64,
+      moved: false,
     };
-    setIsDragging(true);
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragStateRef.current) return;
-    const dx = e.clientX - dragStateRef.current.startX;
-    const dy = e.clientY - dragStateRef.current.startY;
-    const nextX = dragStateRef.current.initialX + dx;
-    const nextY = dragStateRef.current.initialY + dy;
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragStateRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) < 5) return;
+      drag.moved = true;
+      setIsDragging(true);
+    }
 
     const dockW = dockRef.current?.offsetWidth || 300;
     const dockH = dockRef.current?.offsetHeight || 48;
-    const minX = 12;
-    const maxX = Math.max(minX, window.innerWidth - dockW - 12);
-    const minY = 12;
-    const maxY = Math.max(minY, window.innerHeight - dockH - 12);
-
-    const clampedX = Math.max(minX, Math.min(nextX, maxX));
-    const clampedY = Math.max(minY, Math.min(nextY, maxY));
-    setPosition({ x: clampedX, y: clampedY });
+    setPosition({
+      x: Math.max(12, Math.min(drag.initialX + dx, window.innerWidth - dockW - 12)),
+      y: Math.max(12, Math.min(drag.initialY + dy, window.innerHeight - dockH - 12)),
+    });
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragStateRef.current) {
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
-      }
-      dragStateRef.current = null;
-      setIsDragging(false);
-    }
+  const handlePointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragStateRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    suppressDragClickRef.current = drag.moved && event.type === "pointerup";
+    dragStateRef.current = null;
+    if (drag.moved) setIsDragging(false);
+  };
+
+  const handleDockClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!suppressDragClickRef.current || event.detail === 0) return;
+    suppressDragClickRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   // Reset to default bottom-left anchor
@@ -697,7 +706,14 @@ export default function LockdownUtilityDock({
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.15 }}
-          className={`relative flex items-center bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-md border border-slate-700/70 shadow-2xl rounded-full text-xs text-slate-200 transition-shadow ${
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onPointerLeave={handlePointerEnd}
+          onLostPointerCapture={handlePointerEnd}
+          onClickCapture={handleDockClickCapture}
+          className={`relative flex cursor-grab items-center active:cursor-grabbing bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-md border border-slate-700/70 shadow-2xl rounded-full text-xs text-slate-200 transition-shadow ${
             isDragging ? "ring-2 ring-sky-500/50 shadow-sky-950/50" : ""
           } ${isExpanded ? "px-2.5 py-1.5 gap-2" : "px-2 py-1 gap-1.5"}`}
         >
@@ -705,9 +721,6 @@ export default function LockdownUtilityDock({
           <div
             role="button"
             aria-label="Drag utility dock"
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
             onDoubleClick={handleResetPosition}
             className="flex items-center justify-center p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800/80 cursor-grab active:cursor-grabbing transition-colors"
             title="Drag to reposition • Double-click to snap to bottom-left"
@@ -872,6 +885,7 @@ export default function LockdownUtilityDock({
                   {/* Volume Slider Popover (Direction-aware) */}
                   {showVolumeSlider && (
                     <div
+                      data-dock-popover
                       className={`absolute ${popoverPositionClass} bg-slate-900 border border-slate-700 rounded-xl p-3 shadow-2xl flex flex-col gap-1.5 w-48 z-50`}
                     >
                       <div className="flex items-center justify-between text-[11px] text-slate-300">

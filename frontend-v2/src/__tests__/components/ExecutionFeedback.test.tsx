@@ -11,14 +11,14 @@ const result: ExecutionFeedbackResult = {
   memory: 12.5,
   results: [
     {
-      id: 1,
+      id: "abc",
       passed: true,
       input: "PASSED-INPUT",
       output: "PASSED-OUTPUT",
       expected: "PASSED-EXPECTED",
     },
     {
-      id: 4,
+      id: "bbcd",
       passed: false,
       isHidden: true,
       input: "SECRET-INPUT",
@@ -60,7 +60,9 @@ it("assessment hides every hidden case field even if a malformed response includ
       language="python"
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: /Case 4/ }));
+  expect(screen.getByRole("button", { name: "Test Case 1" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /abc|bbcd/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Test Case 2/ }));
   expect(container.textContent).not.toContain("SECRET");
   expect(screen.getByText(/Details are private/)).toBeInTheDocument();
   expect(
@@ -83,7 +85,7 @@ it("practice submission shows failed hidden input, expected output, actual outpu
   expect(screen.getByText("SECRET-EXPECTED")).toBeInTheDocument();
   expect(screen.getByText("SECRET-ERROR")).toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /Case 1/ }),
+    screen.queryByRole("button", { name: /Case abc/ }),
   ).not.toBeInTheDocument();
   expect(container.textContent).not.toContain("PASSED-");
   expect(screen.getByText("0 ms")).toBeInTheDocument();
@@ -98,7 +100,7 @@ it("sample runs retain passed sample details", () => {
     />,
   );
   expect(screen.getByText("PASSED-INPUT")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Case 1/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Case abc/ })).toBeInTheDocument();
 });
 it("uses server comparison values and shows no successful hidden cases", () => {
   const accepted = {
