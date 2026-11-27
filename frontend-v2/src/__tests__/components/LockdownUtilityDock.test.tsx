@@ -39,6 +39,19 @@ describe("LockdownUtilityDock Component", () => {
     expect(await screen.findByText("AC Power")).toBeInTheDocument();
   });
 
+  it("anchors the macOS assessment dock above the actions when collapsed or expanded", async () => {
+    render(<LockdownUtilityDock bottomInset={58} showSyncStatus={false} />);
+    const dock = screen.getByLabelText("CodeSkill LockDown Security Utility Dock");
+    expect(dock).toHaveStyle({ left: "16px", bottom: "58px" });
+
+    fireEvent.click(screen.getByTitle("Expand utility dock controls"));
+    expect(await screen.findByTitle("Collapse utility dock")).toBeInTheDocument();
+    expect(dock).toHaveStyle({ bottom: "58px" });
+    fireEvent.click(screen.getByTitle("Collapse utility dock"));
+    expect(screen.getByTitle("Expand utility dock controls")).toBeInTheDocument();
+    expect(dock).toHaveStyle({ bottom: "58px" });
+  });
+
   it("drags from a status badge or button without activating the dragged button", async () => {
     render(<LockdownUtilityDock />);
     const dock = screen.getByLabelText("CodeSkill LockDown Security Utility Dock");

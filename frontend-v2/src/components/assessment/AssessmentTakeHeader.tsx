@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import {
-  AlertTriangle, CheckCircle2, Clock, Loader2, Maximize2, Minimize2,
+  AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, Maximize2, Minimize2,
   PanelLeft, Send, ShieldAlert, ShieldCheck, WifiOff,
 } from "lucide-react";
 import type { SyncStatus } from "@/lib/offline-autosave-queue";
@@ -31,9 +31,9 @@ const AssessmentIntegrityBadges = memo(function AssessmentIntegrityBadges({
       )}
       {showPenalty && (
         <div
-          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md border text-xs font-mono font-bold transition-all shadow-xs ${
+          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md border text-xs font-mono font-bold transition-colors shadow-xs ${
             totalPenaltyMarks > 0
-              ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800"
+              ? "bg-rose-50 text-rose-700 border-rose-300 animate-pulse dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800"
               : "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800"
           }`}
           title="Partial proctored exam: Negative marks applied for violations. Manual submission is required."
@@ -63,12 +63,17 @@ interface AssessmentTakeHeaderProps extends IntegrityBadgeProps {
   isQuestionTimeCritical: boolean;
   syncStatus: SyncStatus;
   pendingSyncCount: number;
+  compactLockdown?: boolean;
   isFullscreen: boolean;
   enforceFullscreen: boolean;
   tabSwitches: number;
   maxTabSwitches: number;
   submitDisabled: boolean;
   onToggleSidebar: () => void;
+  onPreviousQuestion?: () => void;
+  onNextQuestion?: () => void;
+  previousQuestionDisabled?: boolean;
+  nextQuestionDisabled?: boolean;
   onToggleFullscreen: () => void;
   onSubmit: () => void;
 }
@@ -77,11 +82,12 @@ export const AssessmentTakeHeader = memo(function AssessmentTakeHeader({
   questionNumber, totalQuestionCount, assessmentCode, topic, subtopic,
   isLockdownActive, showPenalty, totalPenaltyMarks, violationCount,
   timeRemaining, isTimeCritical, questionTimeRemaining, isQuestionTimeCritical,
-  syncStatus, pendingSyncCount, isFullscreen, enforceFullscreen, tabSwitches,
-  maxTabSwitches, submitDisabled, onToggleSidebar, onToggleFullscreen, onSubmit,
+  syncStatus, pendingSyncCount, compactLockdown = false, isFullscreen, enforceFullscreen, tabSwitches,
+  maxTabSwitches, submitDisabled, onToggleSidebar, onPreviousQuestion, onNextQuestion,
+  previousQuestionDisabled, nextQuestionDisabled, onToggleFullscreen, onSubmit,
 }: AssessmentTakeHeaderProps) {
   return (
-    <header className="h-16 shrink-0 border-b border-border bg-card/95 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+    <header className="h-16 shrink-0 border-b border-border bg-card px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-sm">
       <div className="flex items-center gap-3">
         <button type="button" aria-label="Toggle question sidebar" aria-controls="assessment-question-sidebar" onClick={onToggleSidebar} className="rounded-lg border border-border p-2 hover:bg-muted"><PanelLeft className="size-4" /></button>
         {/* CU Official Logo */}
@@ -112,25 +118,39 @@ export const AssessmentTakeHeader = memo(function AssessmentTakeHeader({
               </span>
             )}
           </div>
-          <p className="text-[11px] text-muted-foreground font-medium truncate max-w-[140px] sm:max-w-none">
-            {topic} {subtopic ? `• ${subtopic}` : ""}
-          </p>
+          {!compactLockdown && (
+            <p className="text-[11px] text-muted-foreground font-medium truncate max-w-[140px] sm:max-w-none">
+              {topic} {subtopic ? `• ${subtopic}` : ""}
+            </p>
+          )}
         </div>
+        {compactLockdown && (
+          <nav aria-label="Question navigation" className="flex items-center gap-0.5">
+            <button type="button" aria-label="Previous question" title="Previous question" onClick={onPreviousQuestion} disabled={previousQuestionDisabled}
+              className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30">
+              <ChevronLeft aria-hidden="true" className="size-4" />
+            </button>
+            <button type="button" aria-label="Next question" title="Next question" onClick={onNextQuestion} disabled={nextQuestionDisabled}
+              className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30">
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </button>
+          </nav>
+        )}
       </div>
 
       {/* Center: Live Countdown Clock & Penalty Badge */}
       <div className="flex items-center gap-2 sm:gap-3">
         <AssessmentIntegrityBadges
-          isLockdownActive={isLockdownActive}
-          showPenalty={showPenalty}
+          isLockdownActive={!compactLockdown && isLockdownActive}
+          showPenalty={!compactLockdown && showPenalty}
           totalPenaltyMarks={totalPenaltyMarks}
-          violationCount={violationCount}
+          violationCount={compactLockdown ? 0 : violationCount}
         />
 
         <div
-          className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-md border text-xs sm:text-sm font-mono font-bold transition-all ${
+          className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-md border text-xs sm:text-sm font-mono font-bold transition-colors ${
             isTimeCritical
-              ? "bg-rose-50 text-rose-700 border-rose-300 animate-pulse shadow-xs"
+              ? `bg-rose-50 text-rose-700 border-rose-300 shadow-xs ${compactLockdown ? "" : "animate-pulse"}`
               : "bg-slate-50 text-slate-800 border-slate-200"
           }`}
         >
@@ -142,7 +162,7 @@ export const AssessmentTakeHeader = memo(function AssessmentTakeHeader({
           <div
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-mono font-bold ${
               isQuestionTimeCritical
-                ? "bg-rose-50 text-rose-700 border-rose-300 animate-pulse dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800"
+                ? `bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800 ${compactLockdown ? "" : "animate-pulse"}`
                 : "bg-slate-50 text-slate-800 border-slate-200"
             }`}
             aria-label={`Question time remaining: ${questionTimeRemaining}`}
@@ -153,10 +173,10 @@ export const AssessmentTakeHeader = memo(function AssessmentTakeHeader({
         )}
 
         {/* Offline Autosave Live Sync Indicator */}
-        <div className="flex items-center">
+        {!compactLockdown && <div className="flex items-center sm:min-w-[5.5rem]">
           {syncStatus === 'synced' && (
             <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800 text-[11px] font-medium transition-all shadow-xs"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800 text-[11px] font-medium transition-colors shadow-xs"
               title="All answers saved to server"
             >
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -165,7 +185,7 @@ export const AssessmentTakeHeader = memo(function AssessmentTakeHeader({
           )}
           {syncStatus === 'syncing' && (
             <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800 text-[11px] font-medium transition-all shadow-xs"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800 text-[11px] font-medium transition-colors shadow-xs"
               title="Syncing answers with server"
             >
               <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600 dark:text-sky-400" />
@@ -175,10 +195,10 @@ export const AssessmentTakeHeader = memo(function AssessmentTakeHeader({
           {syncStatus === 'offline-buffered' && (
             <div
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-700 text-[11px] font-medium animate-pulse shadow-xs"
-              title="Wi-Fi disconnected. Answers are encrypted and stored locally, will sync automatically once connected."
+              title="Answers are stored on this device while CodeSkill retries syncing."
             >
               <WifiOff className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span>Offline — {pendingSyncCount} {pendingSyncCount === 1 ? 'answer' : 'answers'} saved locally (Encrypted)</span>
+              <span>Pending sync ({pendingSyncCount})</span>
             </div>
           )}
           {syncStatus === 'error' && (
@@ -190,20 +210,19 @@ export const AssessmentTakeHeader = memo(function AssessmentTakeHeader({
               <span>Sync Error ({pendingSyncCount})</span>
             </div>
           )}
-        </div>
+        </div>}
 
-        {/* Fullscreen Button */}
-        <button
+        {!compactLockdown && <button
           onClick={onToggleFullscreen}
           className="hidden sm:flex items-center justify-center p-2 rounded-md border border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors"
           disabled={isFullscreen && enforceFullscreen}
           title={isFullscreen && enforceFullscreen ? "Fullscreen required during the test" : isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
         >
           {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-        </button>
+        </button>}
 
         {/* Tab Switch Strike Counter */}
-        {tabSwitches > 0 && (
+        {!compactLockdown && tabSwitches > 0 && (
           <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-xs font-bold">
             <ShieldAlert className="w-3.5 h-3.5" />
             <span>{tabSwitches}/{maxTabSwitches}</span>
@@ -215,7 +234,7 @@ export const AssessmentTakeHeader = memo(function AssessmentTakeHeader({
           aria-label="Submit Test"
           onClick={onSubmit}
           disabled={submitDisabled}
-          className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-md bg-primary hover:bg-primary/90 active:bg-primary/80 text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-md bg-primary hover:bg-primary/90 active:bg-primary/80 text-white text-xs font-semibold uppercase tracking-wider transition-colors shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Send className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Submit Test</span>

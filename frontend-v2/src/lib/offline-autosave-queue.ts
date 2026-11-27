@@ -17,6 +17,7 @@ export interface AutosavePayload {
   method?: string;
   updatedAt?: number;
   candidateId?: string;
+  idempotencyKey?: string;
 }
 
 export type StatusListener = (status: SyncStatus, pendingCount: number) => void;
@@ -29,6 +30,7 @@ interface StoredRecord {
   method: string;
   updatedAt: number;
   candidateId?: string;
+  idempotencyKey?: string;
 }
 
 function normalizeReplayEndpoint(endpoint: string): string {
@@ -353,6 +355,7 @@ export class OfflineAutosaveQueue {
       method,
       updatedAt: item.updatedAt || Date.now(),
       candidateId: item.candidateId,
+      idempotencyKey: item.idempotencyKey,
     };
 
     // Coalesce in memory (Last-Write-Wins)
@@ -364,6 +367,10 @@ export class OfflineAutosaveQueue {
     if (this.status !== 'offline-buffered') {
       this.setStatus('syncing');
       await this.flush();
+      // A new draft can arrive while the previous write is in flight.
+      if (record.idempotencyKey && this.queue.get(entryKey) === record && this.status === 'syncing') {
+        await this.flush();
+      }
     } else {
       this.notify();
     }
@@ -423,7 +430,7 @@ export class OfflineAutosaveQueue {
       if (!entry) continue;
 
       const candidateId = entry.candidateId || 'candidate';
-      const autosaveKey = `autosave:${entry.attemptId}:${candidateId}:${++this.sequenceNumber}`;
+      const autosaveKey = entry.idempotencyKey ?? `autosave:${entry.attemptId}:${candidateId}:${++this.sequenceNumber}`;
       const headers = { 'X-Idempotency-Key': autosaveKey };
       const dataWithFallback =
         entry.payload && typeof entry.payload === 'object'
@@ -462,9 +469,10 @@ export class OfflineAutosaveQueue {
           }
         }
 
-        // Successfully synced!
-        this.queue.delete(key);
-        await this.removeFromStorage(entry.attemptId, key);
+        if (this.queue.get(key) === entry) {
+          this.queue.delete(key);
+          await this.removeFromStorage(entry.attemptId, key);
+        }
       } catch (err: any) {
         allSuccess = false;
         const status = err?.response?.status;

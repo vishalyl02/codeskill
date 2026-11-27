@@ -75,6 +75,8 @@ interface LockdownUtilityDockProps {
   onSafeReload?: () => Promise<void> | void;
   onProctorTerminated?: (reason: string) => void;
   onTimerSync?: (serverEndsAtEpochMs: number, serverNowMs?: number) => void;
+  bottomInset?: number;
+  showSyncStatus?: boolean;
 }
 
 export default function LockdownUtilityDock({
@@ -88,6 +90,8 @@ export default function LockdownUtilityDock({
   onSafeReload,
   onProctorTerminated,
   onTimerSync,
+  bottomInset,
+  showSyncStatus = true,
 }: LockdownUtilityDockProps) {
   const isRefDocAllowed = allowReferenceDoc !== undefined ? allowReferenceDoc : Boolean(referencePdfUrl);
   // Dock DOM reference
@@ -206,11 +210,11 @@ export default function LockdownUtilityDock({
 
   // Anchor to bottom-left on mount (x: 16px, y: window.innerHeight - dockH - 16px)
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || bottomInset !== undefined) return;
     const dockH = dockRef.current?.offsetHeight || 48;
     const initialY = Math.max(16, window.innerHeight - dockH - 16);
     setPosition({ x: 16, y: initialY });
-  }, []);
+  }, [bottomInset]);
 
   // Re-clamp position within viewport on window resize
   useEffect(() => {
@@ -229,9 +233,17 @@ export default function LockdownUtilityDock({
         };
       });
     };
+    const dock = dockRef.current;
+    const observer = bottomInset !== undefined && dock && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(handleResize)
+      : null;
+    if (dock) observer?.observe(dock);
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [bottomInset]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || dragStateRef.current || !(event.target instanceof Element)) return;
@@ -294,7 +306,7 @@ export default function LockdownUtilityDock({
   const handleResetPosition = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const dockH = dockRef.current?.offsetHeight || 48;
-    setPosition({ x: 16, y: Math.max(16, window.innerHeight - dockH - 16) });
+    setPosition(bottomInset === undefined ? { x: 16, y: Math.max(16, window.innerHeight - dockH - 16) } : null);
     toast.success("Dock anchored to bottom-left", { duration: 1500 });
   };
 
@@ -351,14 +363,15 @@ export default function LockdownUtilityDock({
   // 3. System Telemetry & Background Synchronization
   // ---------------------------------------------------------------------------
 
-  // Subscribe to offline autosave status
+  // Subscribe to offline autosave status when this dock displays it.
   useEffect(() => {
+    if (!showSyncStatus) return;
     const unsub = offlineAutosaveQueue.onStatusChange((status, count) => {
       setSyncStatus(status);
       setPendingSyncCount(count);
     });
     return () => unsub();
-  }, []);
+  }, [showSyncStatus]);
 
   // Poll system telemetry periodically (every 5 seconds)
   useEffect(() => {
@@ -697,13 +710,13 @@ export default function LockdownUtilityDock({
         style={
           position
             ? { left: `${position.x}px`, top: `${position.y}px` }
-            : { left: "16px", bottom: "16px" }
+            : { left: "16px", bottom: bottomInset ?? 16 }
         }
         className="fixed z-50 select-none font-sans touch-none"
       >
         <motion.div
-          layout
-          initial={{ opacity: 0, scale: 0.95 }}
+          layout={bottomInset === undefined}
+          initial={bottomInset === undefined ? { opacity: 0, scale: 0.95 } : false}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.15 }}
           onPointerDown={handlePointerDown}
@@ -751,7 +764,7 @@ export default function LockdownUtilityDock({
           </button>
 
           {/* Offline Autosave Live Indicator (Only shown during active assessment) */}
-          {Boolean(assessmentId) && (
+          {showSyncStatus && Boolean(assessmentId) && (
             <div
               className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px]"
               title={
@@ -759,7 +772,7 @@ export default function LockdownUtilityDock({
                   ? "All answers securely synced to server"
                   : syncStatus === "syncing"
                   ? "Syncing answers to server..."
-                  : `Offline: ${pendingSyncCount} answers buffered locally (Encrypted)`
+                  : "Answers are stored on this device while CodeSkill retries syncing."
               }
             >
               {syncStatus === "synced" && (
@@ -777,7 +790,7 @@ export default function LockdownUtilityDock({
               {syncStatus === "offline-buffered" && (
                 <span className="flex items-center gap-1 text-amber-400 font-medium animate-pulse">
                   <WifiOff className="w-3 h-3 text-amber-400" />
-                  <span>Offline ({pendingSyncCount})</span>
+                  <span>Pending sync ({pendingSyncCount})</span>
                 </span>
               )}
               {syncStatus === "error" && (
@@ -794,7 +807,7 @@ export default function LockdownUtilityDock({
             <div
               className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${
                 battery.percentage <= 15
-                  ? "text-rose-400 animate-pulse"
+                  ? `text-rose-400 ${bottomInset === undefined ? "animate-pulse" : ""}`
                   : battery.percentage <= 30
                   ? "text-amber-400"
                   : "text-slate-300"

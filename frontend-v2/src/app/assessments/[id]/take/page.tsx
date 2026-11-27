@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, use, useCallback, Fragment, useMemo, useContext } from "react";
+import { useEffect, useEffectEvent, useState, useRef, use, useCallback, Fragment, useMemo, useContext, useSyncExternalStore, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { enterDocumentFullscreen, fullscreenEvents, isDocumentFullscreen } from "@/lib/fullscreen";
 import { useRouter } from "next/navigation";
@@ -45,6 +45,7 @@ import { LockdownSessionStore } from "@/lib/lockdown-session-store";
 import { lockdownLogger } from "@/lib/lockdown-logger";
 import {
   isLockdownClient,
+  detectClientPlatform,
   initializeLockdownAttestation,
   consumeLockdownLaunchToken,
   engageOsKiosk,
@@ -62,7 +63,9 @@ import { toast } from "react-hot-toast";
 import { useAssessmentMedia } from "@/hooks/useAssessmentMedia";
 import { MicrophoneLevelIndicator } from "@/components/assessment/MicrophoneLevelIndicator";
 import { releaseAssessmentStream } from "@/lib/assessment-media-session";
+import { assessmentStartupError, retryAssessmentSettings, retryAssessmentStartRateLimit } from "@/lib/assessment-startup";
 import { AssessmentTakeHeader } from "@/components/assessment/AssessmentTakeHeader";
+import { checkpointMacAssessmentDraft, clearMacAssessmentDrafts, readMacAssessmentDraft } from "@/lib/mac-assessment-draft";
 import { AssessmentReadingZoom } from "@/components/assessment/AssessmentReadingZoom";
 import { ResizableAssessmentPanels } from "@/components/assessment/ResizableAssessmentPanels";
 import { FloatingAssessmentMonitor } from "@/components/assessment/FloatingAssessmentMonitor";
@@ -71,6 +74,7 @@ import { useModalAccessibility } from "@/hooks/useModalAccessibility";
 import {
   checkAssessmentFace,
   getAssessmentFaceReference,
+  prepareAssessmentFaceVerification,
   clearAssessmentFaceReference,
   type AssessmentFaceCheck,
 } from "@/lib/assessment-face-verification";
@@ -99,6 +103,8 @@ interface Question {
   codeSnippet?: string;
   starterCode?: string | Array<{ language: string; code: string }> | Record<string, string>;
   language?: string;
+  inputFormat?: string;
+  outputFormat?: string;
   constraints?: string | string[];
   supportedLanguages?: string[];
   hideMainMethod?: boolean;
@@ -149,13 +155,64 @@ interface ViolationEvent {
 
 const MAX_FACE_WARNINGS = 5;
 
+const subscribeToHydration = () => () => {};
+const MacLockdownEditor = memo(DSAAssessmentEditor);
+
+function subscribeToConnection(onChange: () => void) {
+  window.addEventListener("online", onChange);
+  window.addEventListener("offline", onChange);
+  return () => {
+    window.removeEventListener("online", onChange);
+    window.removeEventListener("offline", onChange);
+  };
+}
+
+function LockdownSaveStatus({ syncStatus }: { syncStatus: SyncStatus }) {
+  const online = useSyncExternalStore(subscribeToConnection, () => navigator.onLine, () => true);
+  const [showSaving, setShowSaving] = useState(false);
+
+  useEffect(() => {
+    if (syncStatus !== "syncing") {
+      setShowSaving(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => setShowSaving(true), 500);
+    return () => window.clearTimeout(timeout);
+  }, [syncStatus]);
+
+  const offline = !online || syncStatus === "offline-buffered";
+  const pending = syncStatus === "error";
+  return (
+    <span className="ml-auto min-w-[9ch] px-1.5 text-right text-xs tabular-nums text-muted-foreground"
+      title={pending || offline ? "Some changes may be waiting to sync." : "Changes are automatically saved while online."}
+    >
+      {offline ? "Offline" : pending ? "Sync pending" : syncStatus === "syncing" && showSaving ? "Saving…" : "Saved"}
+    </span>
+  );
+}
+
 export default function TakeAssessmentPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const resolvedParams = use(params);
-  const id = resolvedParams.id;
+  const { id } = use(params);
+  // LockDown's native bridge and persisted attempt state are only available in the webview.
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
+  if (!hydrated) {
+    return (
+      <div role="status" className="flex min-h-screen items-center justify-center gap-3 bg-background text-sm text-foreground">
+        <Spinner aria-hidden="true" className="h-5 w-5 animate-spin text-primary" />
+        Loading assessment settings…
+      </div>
+    );
+  }
+  return <AssessmentAttempt key={id} id={id} />;
+}
+
+function AssessmentAttempt({ id }: { id: string }) {
+  const compactLockdown = isLockdownClient() && detectClientPlatform() === "macos";
+  const CodingEditor = compactLockdown ? MacLockdownEditor : DSAAssessmentEditor;
   const router = useRouter();
   const authContext = useContext(AuthContext);
   const user = authContext?.user;
@@ -218,6 +275,8 @@ export default function TakeAssessmentPage({
   const attemptIdRef = useRef<string>("attempt");
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsRetry, setSettingsRetry] = useState(0);
   const [proctoring, setProctoring] = useState<AssessmentProctoring | null>(null);
   const [totalPenaltyMarks, setTotalPenaltyMarks] = useState(0);
   const [loadedAssessmentId, setLoadedAssessmentId] = useState<string | null>(null);
@@ -294,6 +353,7 @@ export default function TakeAssessmentPage({
     return LockdownSessionStore.getLocalState(id)?.submittedAtMs || null;
   });
   const [startError, setStartError] = useState<string | null>(null);
+  const [hasPreviousResult, setHasPreviousResult] = useState(false);
   const [accommodations, setAccommodations] = useState<any>(null);
   const [lockSectionsSequentially, setLockSectionsSequentially] = useState(false);
   const [lockQuestionsSequentially, setLockQuestionsSequentially] = useState(false);
@@ -321,7 +381,6 @@ export default function TakeAssessmentPage({
 
   useEffect(() => {
     if (id) {
-      void offlineAutosaveQueue.hydrate(id);
       try {
         const prefetched = LockdownSessionStore.getQuestionBundle(id);
         if (prefetched && prefetched.length > 0) {
@@ -352,6 +411,10 @@ export default function TakeAssessmentPage({
       })();
     }
   }, [id]);
+
+  useEffect(() => {
+    if (loadedAssessmentId === id) void offlineAutosaveQueue.hydrate(id);
+  }, [id, loadedAssessmentId]);
 
   useEffect(() => {
     if (!isLockdownClient()) return;
@@ -413,6 +476,7 @@ export default function TakeAssessmentPage({
   useEffect(() => {
     let cancelled = false;
     setIsLoadingSettings(true);
+    setSettingsError(null);
 
     const loadAssessment = async () => {
       if (isLockdownClient()) {
@@ -447,9 +511,12 @@ export default function TakeAssessmentPage({
       if (cancelled) return;
 
       try {
-        const res = await studentAssessmentsAPI.getOverview(id);
+        const res = compactLockdown
+          ? await retryAssessmentSettings(() => studentAssessmentsAPI.getOverview(id), () => cancelled)
+          : await studentAssessmentsAPI.getOverview(id);
+        const asmt = res.data?.assessment;
+        if (compactLockdown && !asmt) throw new Error("CodeSkill could not load the assessment details.");
         if (!cancelled) {
-          const asmt = res.data?.assessment;
           if (typeof asmt?.questionCount === "number") {
             setTotalQuestionCount(asmt.questionCount);
           }
@@ -511,6 +578,9 @@ export default function TakeAssessmentPage({
             setEnableForensicWatermark(Boolean(asmt.securityPolicy.enableForensicWatermark));
           }
 
+          if (compactLockdown) {
+            setHasPreviousResult(Boolean(res.data?.attempt?.submittedAt || res.data?.completedAttemptsCount > 0));
+          }
           const overviewCanRetake = Boolean(res.data?.canRetake);
           const hasActiveInProgressAttempt = res.data?.attempt?.status === "in_progress";
           const isExplicitRetakeLaunch =
@@ -525,6 +595,11 @@ export default function TakeAssessmentPage({
             setSubmissionReceiptId(null);
             setSubmittedAtMs(null);
             void LockdownSessionStore.saveState(id, { isSubmitted: false });
+          }
+
+          if (compactLockdown && getAssessmentFaceReference(id)) {
+            // Fetch and initialize cached models while the pre-exam checks are running.
+            void prepareAssessmentFaceVerification().catch(() => {});
           }
 
           // Check authoritative server resume state
@@ -612,8 +687,11 @@ export default function TakeAssessmentPage({
           }
         }
       } catch (error) {
-        console.error("Failed to load assessment proctoring settings:", error);
-        if (!cancelled) setProctoring({});
+        console.warn("Failed to load assessment proctoring settings:", error);
+        if (!cancelled) {
+          if (compactLockdown) setSettingsError(assessmentStartupError(error, "settings"));
+          else setProctoring({});
+        }
       } finally {
         if (!cancelled) setIsLoadingSettings(false);
       }
@@ -624,7 +702,7 @@ export default function TakeAssessmentPage({
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [compactLockdown, id, settingsRetry]);
 
   // Stop any handed-off preflight stream when this route is really left. Defer
   // one event turn so React Strict Mode's development-only remount can cancel it.
@@ -672,6 +750,7 @@ export default function TakeAssessmentPage({
 
 
   const draftDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingMacCodingSave = useRef<(() => void) | null>(null);
 
   const responsesRef = useRef(responses);
   if (!draftDebounceRef.current) {
@@ -683,6 +762,8 @@ export default function TakeAssessmentPage({
       clearTimeout(draftDebounceRef.current);
       draftDebounceRef.current = null;
       setResponses(responsesRef.current);
+      pendingMacCodingSave.current?.();
+      pendingMacCodingSave.current = null;
     }
   }, []);
 
@@ -784,6 +865,7 @@ export default function TakeAssessmentPage({
   // Start the attempt only after the candidate enters fullscreen from the secure gate.
   const startAttemptRequestedRef = useRef(false);
   const beginAssessmentAfterFullscreen = useCallback(async () => {
+    if (isLoadingSettings || settingsError || isExamSubmitted) return;
     if (isLockdownClient() && ((mediaRequirements.needsMediaGate && !isMediaGatePassed) || !isAppsGatePassed)) {
       console.info("[LockDown Start] Waiting on pre-exam gates:", {
         needsMediaGate: mediaRequirements.needsMediaGate,
@@ -801,8 +883,6 @@ export default function TakeAssessmentPage({
         isMediaGatePassed,
         isAppsGatePassed,
       });
-      startAttemptRequestedRef.current = false;
-      setIsLoading(false);
       return;
     }
     if (startAttemptRequestedRef.current) return;
@@ -855,14 +935,16 @@ export default function TakeAssessmentPage({
         }
       } else {
         try {
-          res = await studentAssessmentsAPI.startAttempt(id);
+          res = compactLockdown
+            ? await retryAssessmentStartRateLimit(() => studentAssessmentsAPI.startAttempt(id))
+            : await studentAssessmentsAPI.startAttempt(id);
         } catch (startErr: any) {
           const msg = startErr?.response?.data?.message || "";
           if (
             msg.includes("not started yet") ||
             msg.includes("duplicate key") ||
             msg.includes("concurrent") ||
-            startErr?.response?.status === 429
+            (!compactLockdown && startErr?.response?.status === 429)
           ) {
             await new Promise((resolve) => setTimeout(resolve, 500));
             res = await studentAssessmentsAPI.startAttempt(id);
@@ -874,6 +956,9 @@ export default function TakeAssessmentPage({
       const data = res.data?.data && res.data.data.questions ? res.data.data : res.data;
       if (data?.proctoring) setProctoring(data.proctoring);
       const questionsList = data?.questions || res.data?.questions || [];
+      if (!Array.isArray(questionsList) || questionsList.length === 0) {
+        throw new Error("CodeSkill did not receive any questions for this attempt. Return to the assessment details or contact your instructor.");
+      }
       const totalQuestions = (
         typeof data.totalQuestionCount === "number"
           ? data.totalQuestionCount
@@ -1044,6 +1129,21 @@ export default function TakeAssessmentPage({
           };
         }
       });
+      if (compactLockdown && (data.attemptId || data._id)) {
+        const completed = new Set<string>(data.completedQuestionIds || []);
+        for (const question of questionsList as Question[]) {
+          if (completed.has(question._id)) continue;
+          const draft = readMacAssessmentDraft(attemptIdRef.current, question._id);
+          if (!draft) continue;
+          const saved = initialResponses[question._id];
+          initialResponses[question._id] = {
+            ...saved,
+            ...draft,
+            selectedAnswer: -1,
+            status: saved?.status === "answered" || saved?.status === "marked_for_review" ? saved.status : "draft",
+          };
+        }
+      }
       responsesRef.current = initialResponses;
       setResponses(initialResponses);
       setLoadedAssessmentId(id);
@@ -1056,13 +1156,15 @@ export default function TakeAssessmentPage({
         }
       }
     } catch (err: any) {
-      console.error("Failed to start assessment:", err);
+      // Keep the verified camera handoff available for a retry in this webview.
       releaseAssessmentStream(id);
       const message = err?.response?.data?.message;
-      const resolvedMessage = Array.isArray(message)
-        ? message.join(" ")
-        : message || "We could not start this assessment. Please check your attempt eligibility and try again.";
-      lockdownLogger.error("ASSESSMENT_START", "start_attempt_failed", {
+      const resolvedMessage = compactLockdown
+        ? assessmentStartupError(err, "start")
+        : Array.isArray(message)
+          ? message.join(" ")
+          : message || "We could not start this assessment. Please check your attempt eligibility and try again.";
+      lockdownLogger.warn("ASSESSMENT_START", "start_attempt_failed", {
         assessmentId: id,
         statusCode: err?.response?.status ?? null,
         message: resolvedMessage,
@@ -1077,7 +1179,8 @@ export default function TakeAssessmentPage({
     } finally {
       setIsLoading(false);
     }
-  }, [id, router, mediaRequirements.requireCamera, mediaRequirements.needsMediaGate, isMediaGatePassed, isAppsGatePassed]);
+  }, [compactLockdown, id, isLoadingSettings, settingsError, isExamSubmitted, router, isLockdownActive, attestedSessionId,
+    mediaRequirements.requireCamera, mediaRequirements.needsMediaGate, isMediaGatePassed, isAppsGatePassed]);
 
   // Trigger attempt start once LockDown pre-exam gates pass
   useEffect(() => {
@@ -1086,16 +1189,20 @@ export default function TakeAssessmentPage({
       isMediaGatePassed &&
       isAppsGatePassed &&
       !startAttemptRequestedRef.current &&
+      !startError &&
+      !settingsError &&
       !isExamSubmitted &&
       !isLoadingSettings
     ) {
       void beginAssessmentAfterFullscreen();
     }
-  }, [isMediaGatePassed, isAppsGatePassed, isExamSubmitted, isLoadingSettings, beginAssessmentAfterFullscreen]);
+  }, [isMediaGatePassed, isAppsGatePassed, isExamSubmitted, isLoadingSettings, settingsError, startError, beginAssessmentAfterFullscreen]);
 
   // Media starts only for a loaded, active session; stopping is permanent for this assessment.
+  const hasTimeRemaining = timeLeftSeconds > 0;
   const {
     videoRef,
+    getAnalysisVideo,
     attachVideo,
     cameraActive,
     micActive,
@@ -1187,6 +1294,7 @@ export default function TakeAssessmentPage({
         if (lastError) throw lastError;
 
         // Final exam submission confirmed: zero-fill and purge encrypted offline vault
+        if (compactLockdown) clearMacAssessmentDrafts(attemptId);
         await offlineAutosaveQueue.purgeAll(id);
       } catch (err: any) {
         submissionRequestedRef.current = false;
@@ -1234,6 +1342,7 @@ export default function TakeAssessmentPage({
       stopCamera,
       router,
       currentIndex,
+      compactLockdown,
       flushDraftToState,
       lockQuestionsSequentially,
       permittedQuestionIndex,
@@ -1252,8 +1361,52 @@ export default function TakeAssessmentPage({
     return () => window.clearTimeout(timer);
   }, [lockdownExitCountdown]);
 
+  const reportFaceIssue = useEffectEvent((issue: string, details: string) => {
+    const isAutoSubmitMode =
+      proctoring?.autoSubmitOnViolation !== false &&
+      proctoring?.mode !== "partial_proctored";
+    if (compactLockdown) {
+      setFaceMonitorStatus(isAutoSubmitMode ? details : `${details} (Negative marks deducted)`);
+    }
+    if (activeFaceIssueRef.current === issue) return;
+    activeFaceIssueRef.current = issue;
+    faceWarningsRef.current += 1;
+    setFaceWarningCount(faceWarningsRef.current);
+    recordViolation(issue, details);
+    const warningNumber = faceWarningsRef.current;
+
+    if (isAutoSubmitMode) {
+      const warningText =
+        warningNumber === 4
+          ? `Face warning 4/5: ${details} One more warning will automatically submit your assessment.`
+          : `Face warning ${warningNumber}/5: ${details}`;
+      setWarningToast({
+        id: Date.now(),
+        message: warningText,
+        type: warningNumber >= 4 ? "alert" : "warning",
+      });
+      if (!compactLockdown) setFaceMonitorStatus(details);
+      if (warningNumber >= 5) {
+        setIsAutoSubmitting(true);
+        setWarningToast({
+          id: Date.now(),
+          message:
+            "Five face-verification warnings reached. Your assessment is being submitted now.",
+          type: "alert",
+        });
+        void submitExam(true);
+      }
+    } else if (!compactLockdown) {
+      setFaceMonitorStatus(`${details} (Negative marks deducted)`);
+    }
+  });
+
+  const legacyFaceTime = compactLockdown ? null : timeLeftSeconds;
+  const legacyRecordViolation = compactLockdown ? null : recordViolation;
+  const legacySubmitExam = compactLockdown ? null : submitExam;
+  const legacyAutoSubmit = compactLockdown ? null : proctoring?.autoSubmitOnViolation;
   useEffect(() => {
-    if (!cameraActive || loadedAssessmentId !== id || isSubmitting || timeLeftSeconds <= 0) return;
+    if (!cameraActive || loadedAssessmentId !== id || isSubmitting || !hasTimeRemaining) return;
     const reference = getAssessmentFaceReference(id);
     if (!reference) {
       setFaceMonitorStatus("Identity selfie missing");
@@ -1261,57 +1414,28 @@ export default function TakeAssessmentPage({
     }
 
     let cancelled = false;
-    const reportFaceIssue = (issue: string, details: string) => {
-      if (activeFaceIssueRef.current === issue) return;
-      activeFaceIssueRef.current = issue;
-      faceWarningsRef.current += 1;
-      setFaceWarningCount(faceWarningsRef.current);
-      recordViolation(issue, details);
-      const warningNumber = faceWarningsRef.current;
-      const isAutoSubmitMode =
-        proctoring?.autoSubmitOnViolation !== false &&
-        proctoring?.mode !== "partial_proctored";
-
-      if (isAutoSubmitMode) {
-        const warningText =
-          warningNumber === 4
-            ? `Face warning 4/5: ${details} One more warning will automatically submit your assessment.`
-            : `Face warning ${warningNumber}/5: ${details}`;
-        setWarningToast({
-          id: Date.now(),
-          message: warningText,
-          type: warningNumber >= 4 ? "alert" : "warning",
-        });
-        setFaceMonitorStatus(details);
-        if (warningNumber >= 5) {
-          setIsAutoSubmitting(true);
-          setWarningToast({
-            id: Date.now(),
-            message:
-              "Five face-verification warnings reached. Your assessment is being submitted now.",
-            type: "alert",
-          });
-          void submitExam(true);
-        }
-      } else {
-        setFaceMonitorStatus(`${details} (Negative marks deducted)`);
-      }
-    };
+    let consecutiveMatches = 0;
+    let consecutiveUnavailable = 0;
+    let canvas: HTMLCanvasElement | null = null;
 
     const inspectFrame = async () => {
       if (cancelled || faceMonitorBusyRef.current || isSubmitting) return;
-      const video = videoRef.current;
+      const video = (compactLockdown ? getAnalysisVideo?.() : null) ?? videoRef.current;
       if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) return;
       faceMonitorBusyRef.current = true;
       try {
-        const canvas = document.createElement("canvas");
-        canvas.width = 320;
-        canvas.height = Math.max(180, Math.round((320 * video.videoHeight) / video.videoWidth));
+        if (!canvas || !compactLockdown) canvas = document.createElement("canvas");
+        const height = Math.max(180, Math.round((320 * video.videoHeight) / video.videoWidth));
+        if (canvas.width !== 320) canvas.width = 320;
+        if (canvas.height !== height) canvas.height = height;
         const context = canvas.getContext("2d");
         if (!context) return;
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const check: AssessmentFaceCheck = await checkAssessmentFace(canvas, reference);
+        const check: AssessmentFaceCheck = compactLockdown
+          ? await checkAssessmentFace(canvas, reference, true)
+          : await checkAssessmentFace(canvas, reference);
         if (cancelled) return;
+        consecutiveUnavailable = 0;
 
         let issue: { type: string; details: string } | null = null;
         if (check.status === "no-face") issue = { type: "face_not_detected", details: "No face detected. Keep your face visible in the camera." };
@@ -1328,35 +1452,52 @@ export default function TakeAssessmentPage({
 
         if (!issue) {
           faceCandidateRef.current = null;
-          activeFaceIssueRef.current = null;
-          setFaceMonitorStatus("Face matched · monitoring");
+          consecutiveMatches += 1;
+          if (!compactLockdown || !activeFaceIssueRef.current || consecutiveMatches >= 2) {
+            activeFaceIssueRef.current = null;
+            setFaceMonitorStatus("Face matched · monitoring");
+          }
           return;
         }
 
+        consecutiveMatches = 0;
         const previous = faceCandidateRef.current;
         const candidate = previous?.issue === issue.type
           ? { issue: issue.type, count: previous.count + 1 }
           : { issue: issue.type, count: 1 };
         faceCandidateRef.current = candidate;
-        setFaceMonitorStatus(issue.details);
-        // Require two consecutive detections to avoid transient camera/pose false positives.
+        if (!compactLockdown) setFaceMonitorStatus(issue.details);
+        // Confirm a change before replacing the last known result on macOS or recording a warning.
         if (candidate.count >= 2) reportFaceIssue(issue.type, issue.details);
       } catch {
-        if (!cancelled) setFaceMonitorStatus("Face check unavailable · retrying");
+        consecutiveMatches = 0;
+        if (compactLockdown) faceCandidateRef.current = null;
+        consecutiveUnavailable += 1;
+        if (!cancelled && (!compactLockdown || consecutiveUnavailable >= 2)) setFaceMonitorStatus("Face check unavailable · retrying");
       } finally {
         faceMonitorBusyRef.current = false;
       }
     };
 
-    setFaceMonitorStatus("Loading face verification models…");
-    void inspectFrame();
+    let firstCheck: number | undefined;
+    if (compactLockdown) {
+      setFaceMonitorStatus((status) => status === "Waiting for camera" ? "Checking identity…" : status);
+      firstCheck = window.setTimeout(() => void inspectFrame(), 300);
+    } else {
+      setFaceMonitorStatus("Loading face verification models…");
+      void inspectFrame();
+    }
     const interval = window.setInterval(() => void inspectFrame(), 2500);
     return () => {
       cancelled = true;
+      window.clearTimeout(firstCheck);
       window.clearInterval(interval);
-      faceMonitorBusyRef.current = false;
+      if (!compactLockdown) faceMonitorBusyRef.current = false;
     };
-  }, [cameraActive, id, isSubmitting, loadedAssessmentId, recordViolation, submitExam, timeLeftSeconds, videoRef, proctoring?.autoSubmitOnViolation]);
+  }, [
+    cameraActive, compactLockdown, getAnalysisVideo, hasTimeRemaining, id, isSubmitting, loadedAssessmentId, videoRef,
+    legacyAutoSubmit, legacyFaceTime, legacyRecordViolation, legacySubmitExam,
+  ]);
 
   useEffect(() => {
     if (!lockQuestionsSequentially || questionTimeLimitSeconds <= 0 || questionDeadlineAtEpochMs === null) {
@@ -1510,7 +1651,7 @@ export default function TakeAssessmentPage({
   const lastSavedFingerprintRef = useRef<string>("");
 
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || loadedAssessmentId !== id || isExamSubmitted) return;
 
     const autosaveInterval = setInterval(async () => {
       const currentFingerprint = JSON.stringify(responsesRef.current)
@@ -1549,6 +1690,7 @@ export default function TakeAssessmentPage({
         await offlineAutosaveQueue.enqueue({
           attemptId: id,
           questionId: questions[lockQuestionsSequentially ? permittedQuestionIndex : currentIndex]?._id || 'all-progress',
+          idempotencyKey: compactLockdown ? crypto.randomUUID() : undefined,
           payload,
           endpoint: `/api/assessments/${id}/save-progress`,
           method: 'POST',
@@ -1560,7 +1702,7 @@ export default function TakeAssessmentPage({
     }, 15000);
 
     return () => clearInterval(autosaveInterval);
-  }, [id, isLoading, questions, startedAt, lockSectionsSequentially, lockQuestionsSequentially, activeSectionId, permittedQuestionIndex, currentIndex, violations.length]);
+  }, [compactLockdown, id, isLoading, loadedAssessmentId, isExamSubmitted, questions, startedAt, lockSectionsSequentially, lockQuestionsSequentially, activeSectionId, permittedQuestionIndex, currentIndex, violations.length]);
 
   // Anti-Cheat functionality is handled by the exam security container component.
   // The hooks below rely on the security container.
@@ -1760,6 +1902,11 @@ export default function TakeAssessmentPage({
     (code: string, language: string, codeByLanguage?: Record<string, string>) => {
       if (!currentQ) return;
       const previous = responsesRef.current[currentQ._id];
+      const wasSubmitted = compactLockdown && previous?.status === "answered";
+      const status = wasSubmitted ? "answered" : previous?.status === "marked_for_review" ? "marked_for_review" : "draft";
+      const testCasesPassed = wasSubmitted ? previous?.testCasesPassed ?? 0 : 0;
+      const totalTestCases = wasSubmitted ? previous?.totalTestCases ?? 0 : 0;
+      const languageDrafts = { ...(previous?.codeByLanguage || {}), ...(codeByLanguage || {}), [language]: code };
       const next = {
         ...responsesRef.current,
         [currentQ._id]: {
@@ -1767,47 +1914,58 @@ export default function TakeAssessmentPage({
           selectedAnswer: -1,
           code,
           language,
-          codeByLanguage: { ...(previous?.codeByLanguage || {}), ...(codeByLanguage || {}), [language]: code },
-          testCasesPassed: 0,
-          totalTestCases: 0,
-          status: previous?.status === "marked_for_review" ? "marked_for_review" : "draft",
+          codeByLanguage: languageDrafts,
+          testCasesPassed,
+          totalTestCases,
+          status,
         },
       };
       // 1. Synchronously update ref: timed autosaves, navigation, and submission always have up-to-date code
       responsesRef.current = next;
+      if (compactLockdown && attemptIdRef.current !== "attempt") {
+        checkpointMacAssessmentDraft(attemptIdRef.current, currentQ._id, {
+          code, language, codeByLanguage: languageDrafts,
+        });
+      }
 
       // 2. Debounce parent state re-render by 400ms so fast typing doesn't choke React on low-spec CPUs
       if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
+      const saveDraft = () => {
+        void offlineAutosaveQueue.enqueue({
+          attemptId: id,
+          questionId: currentQ._id,
+          idempotencyKey: compactLockdown ? crypto.randomUUID() : undefined,
+          payload: {
+            responses: [{
+              questionId: currentQ._id,
+              selectedAnswer: -1,
+              selectedAnswers: [],
+              code,
+              language,
+              testCasesPassed,
+              totalTestCases,
+              status,
+            }],
+            timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+            violations: violationsRef.current,
+          },
+          endpoint: `/api/assessments/${id}/save-progress`,
+          method: 'POST',
+        });
+      };
+      if (compactLockdown) pendingMacCodingSave.current = saveDraft;
+
       draftDebounceRef.current = setTimeout(() => {
+        draftDebounceRef.current = null;
+        pendingMacCodingSave.current = null;
         setResponses(responsesRef.current);
-        if (currentQ?._id) {
-          void offlineAutosaveQueue.enqueue({
-            attemptId: id,
-            questionId: currentQ._id,
-            payload: {
-              responses: [{
-                questionId: currentQ._id,
-                selectedAnswer: -1,
-                selectedAnswers: [],
-                code,
-                language,
-                testCasesPassed: 0,
-                totalTestCases: 0,
-                status: previous?.status === "marked_for_review" ? "marked_for_review" : "draft",
-              }],
-              timeSpentSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
-              violations: violationsRef.current,
-            },
-            endpoint: `/api/assessments/${id}/save-progress`,
-            method: 'POST',
-          });
-        }
+        saveDraft();
       }, 400);
     },
-    [currentQ, id, startedAt]
+    [compactLockdown, currentQ, id, startedAt]
   );
 
-  const handleSaveCodingQuestion = async (
+  const handleSaveCodingQuestion = useCallback(async (
     code: string,
     language: string,
     testCasesPassed: number,
@@ -1871,7 +2029,7 @@ export default function TakeAssessmentPage({
       });
       throw err;
     }
-  };
+  }, [currentQ, flushDraftToState, id, lockQuestionsSequentially, lockSectionsSequentially, questions, startedAt]);
 
   // Section grouping & sequential locking calculation
   const sectionGroups = useMemo(() => {
@@ -2237,6 +2395,17 @@ export default function TakeAssessmentPage({
     questions,
   ]);
 
+  const handlePreviousQuestion = useCallback(() => {
+    if (isSequentialActive || (compactLockdown && isNavigating)) return;
+    flushDraftToState();
+    if (isSectionLockActive && activeSection) {
+      const previousIndex = activeSection.questionIndices[activeSection.questionIndices.indexOf(currentIndex) - 1];
+      if (typeof previousIndex === "number") void navigateWithinActiveSection(previousIndex);
+    } else {
+      setCurrentIndex((prev) => Math.max(0, prev - 1));
+    }
+  }, [activeSection, compactLockdown, currentIndex, flushDraftToState, isNavigating, isSectionLockActive, isSequentialActive, navigateWithinActiveSection]);
+
   useEffect(() => {
     questionTimerExpiryHandledRef.current = false;
   }, [currentIndex]);
@@ -2354,9 +2523,10 @@ export default function TakeAssessmentPage({
     return Object.values(responses).filter(
       (r) =>
         r.status === "answered" &&
-        ((r.selectedAnswers && r.selectedAnswers.length > 0) || r.selectedAnswer >= 0 || (r.code && r.code.trim().length > 0))
+        ((r.selectedAnswers && r.selectedAnswers.length > 0) || r.selectedAnswer >= 0
+          || (compactLockdown ? r.code !== undefined : Boolean(r.code?.trim())))
     ).length;
-  }, [responses]);
+  }, [compactLockdown, responses]);
 
   const reviewCount = useMemo(() => {
     return Object.values(responses).filter(
@@ -2498,12 +2668,12 @@ export default function TakeAssessmentPage({
     securityPolicy?.secureExamMode === "STANDARD"
   );
 
-  if (!isLoadingSettings && requiresLockdown && !isLockdownClient()) {
+  if (!isLoadingSettings && !settingsError && requiresLockdown && !isLockdownClient()) {
     return <LockdownLaunchGate examId={id} examTitle={assessmentTitle} />;
   }
 
   // Pre-Exam Media & Hardware Permission Gate (only rendered if media is required by this assessment)
-  if (!isLoadingSettings && isLockdownClient() && mediaRequirements.needsMediaGate && !isMediaGatePassed) {
+  if (!isLoadingSettings && !settingsError && isLockdownClient() && mediaRequirements.needsMediaGate && !isMediaGatePassed) {
     return (
       <LockdownMediaPermissionGate
         assessmentId={id}
@@ -2519,7 +2689,7 @@ export default function TakeAssessmentPage({
   }
 
   // Pre-Exam Interactive Background Apps Blocker Gate (must pass before attempt starts)
-  if (isLockdownClient() && isMediaGatePassed && !isAppsGatePassed) {
+  if (!isLoadingSettings && !settingsError && isLockdownClient() && isMediaGatePassed && !isAppsGatePassed) {
     return (
       <LockdownAppBlockerGate
         assessmentId={id}
@@ -2529,21 +2699,29 @@ export default function TakeAssessmentPage({
     );
   }
 
-  if (startError) {
-    const isSelfieRequired = startError.toLowerCase().includes("selfie") || startError.toLowerCase().includes("identity");
+  const preparationError = settingsError || startError;
+  if (preparationError) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-5 py-12">
         <section className="w-full max-w-xl rounded-2xl border border-border bg-card p-7 text-center shadow-sm">
           <ShieldAlert className="mx-auto mb-4 h-10 w-10 text-amber-500" />
           <h1 className="text-xl font-bold text-foreground">Assessment could not be started</h1>
-          <p role="alert" className="mt-3 text-sm text-muted-foreground">{startError}</p>
+          <p role="alert" className="mt-3 text-sm text-muted-foreground">{preparationError}</p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <button
               type="button"
-              onClick={async () => {
+              onClick={() => {
+                if (settingsError) {
+                  setIsLoadingSettings(true);
+                  setSettingsError(null);
+                  setSettingsRetry((retry) => retry + 1);
+                  return;
+                }
                 setStartError(null);
-                startAttemptRequestedRef.current = false;
-                await beginAssessmentAfterFullscreen();
+                setIsLoading(true);
+                if (!isLockdownClient() && proctoring?.enforceFullscreen === false) {
+                  void beginAssessmentAfterFullscreen();
+                }
               }}
               className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 cursor-pointer"
             >
@@ -2553,9 +2731,9 @@ export default function TakeAssessmentPage({
               href={`/assessments/${id}`}
               className="rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 px-4 py-2.5 text-sm font-semibold text-primary transition-colors cursor-pointer"
             >
-              {isSelfieRequired ? "Take Selfie on Briefing Page" : "Back to Assessment Details"}
+              Back to Assessment Details
             </Link>
-            <button
+            {(!compactLockdown || hasPreviousResult) && <button
               type="button"
               onClick={async () => {
                 await releaseLockdownKiosk();
@@ -2564,7 +2742,7 @@ export default function TakeAssessmentPage({
               className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted cursor-pointer"
             >
               View previous result
-            </button>
+            </button>}
           </div>
         </section>
       </main>
@@ -2585,7 +2763,7 @@ export default function TakeAssessmentPage({
     );
   }
 
-  if (isLoading || !currentQ) {
+  if (isLoading || loadedAssessmentId !== id || !currentQ) {
     return (
       <LockdownRouteGuard assessmentId={id} allowedUrlPatterns={allowedUrlPatterns} allowFindOnPage={allowFindOnPage} accommodations={accommodations}>
         <SafeExamBrowser
@@ -2594,16 +2772,17 @@ export default function TakeAssessmentPage({
           monitorViolations={false}
           detectTabSwitch={false}
           blockCopyPaste={false}
-          onFullscreenEntered={async () => {
-            if (isLockdownClient() && (!isMediaGatePassed || !isAppsGatePassed)) return;
-            await beginAssessmentAfterFullscreen();
-          }}
+          onFullscreenEntered={isLockdownClient() ? undefined : beginAssessmentAfterFullscreen}
         >
           <div className="flex-1 min-h-screen bg-background flex items-center justify-center font-sans">
             <div className="text-center space-y-3">
               <Spinner className="w-9 h-9 animate-spin text-primary mx-auto" />
               <h2 className="text-sm font-semibold text-foreground">Preparing Secure Assessment Environment</h2>
-              <p className="text-xs text-muted-foreground">{isLoadingSettings ? "Loading assessment settings…" : proctoring?.enforceFullscreen === false ? "Your assessment is starting." : "The test will start after you enter fullscreen."}</p>
+              <p className="text-xs text-muted-foreground">{isLoadingSettings
+                ? "Loading assessment settings…"
+                : isLockdownClient() || proctoring?.enforceFullscreen === false
+                  ? "Verifying your session and opening the assessment…"
+                  : "The test will start after you enter fullscreen."}</p>
             </div>
             {isLockdownClient() && (
               <LockdownUtilityDock
@@ -2613,6 +2792,8 @@ export default function TakeAssessmentPage({
                 allowScratchpad={allowScratchpad}
                 allowReferenceDoc={allowReferenceDoc}
                 referencePdfUrl={referencePdfUrl}
+                bottomInset={compactLockdown ? 16 : undefined}
+                showSyncStatus={!compactLockdown}
                 isSubmitted={false}
                 onSafeReload={async () => {
                   await offlineAutosaveQueue.forceSyncNow(api);
@@ -2684,12 +2865,17 @@ export default function TakeAssessmentPage({
         isQuestionTimeCritical={questionTimeLeftSeconds <= 10}
         syncStatus={syncStatus}
         pendingSyncCount={syncStatus === "offline-buffered" || syncStatus === "error" ? pendingSyncCount : 0}
+        compactLockdown={compactLockdown}
         isFullscreen={isFullscreen}
         enforceFullscreen={enforceFullscreen}
         tabSwitches={proctoring?.detectTabSwitch !== false ? tabSwitches : 0}
         maxTabSwitches={maxTabSwitches}
         submitDisabled={(isSequentialActive && !isLastQuestion) || (isSectionLockActive && Boolean(activeSection))}
         onToggleSidebar={toggleQuestionSidebar}
+        onPreviousQuestion={compactLockdown ? handlePreviousQuestion : undefined}
+        onNextQuestion={compactLockdown ? handleSaveAndNext : undefined}
+        previousQuestionDisabled={isNavigating || isSequentialActive || (isSectionLockActive ? isFirstQuestionOfCurrentSection : currentIndex === 0)}
+        nextQuestionDisabled={isNavigating || isLastQuestion}
         onToggleFullscreen={toggleFullscreen}
         onSubmit={openSubmitModal}
       />
@@ -2805,10 +2991,13 @@ export default function TakeAssessmentPage({
                 ? index !== permittedQuestionIndex
                 : isSectionLockActive && sectionStatus !== "active";
               const response = responses[q._id];
-              const answered = response?.status === "answered" && (((response.selectedAnswers && response.selectedAnswers.length > 0) || response.selectedAnswer >= 0) || Boolean(response.code?.trim()));
               const review = !isSequentialActive && response?.status === "marked_for_review";
               const current = index === currentIndex;
               const coding = ["coding", "algorithmic", "dsa"].includes(q.questionType?.toLowerCase()) || (!q.options?.length && Boolean(q.starterCode || q.codeSnippet));
+              const answered = response?.status === "answered" && (
+                (compactLockdown && coding) || Boolean(response.selectedAnswers?.length)
+                || response.selectedAnswer >= 0 || Boolean(response.code?.trim())
+              );
               const sectionQuestionsCount = q.sectionTitle
                 ? sectionCounts[q.sectionTitle] || 0
                 : 0;
@@ -2890,7 +3079,7 @@ export default function TakeAssessmentPage({
                         {coding ? "Coding" : "MCQ"} · {
                           isQuestionLocked
                             ? sectionStatus === "completed" ? "Submitted" : "Locked"
-                            : review ? "Review" : answered ? "Answered" : response?.code?.trim() ? "Draft" : "Not answered"
+                            : review ? "Review" : answered ? "Answered" : response?.code?.trim() && !compactLockdown ? "Draft" : "Not answered"
                         }
                       </span>
                     </span>
@@ -2904,7 +3093,7 @@ export default function TakeAssessmentPage({
         )}
         {(() => {
           const isCodingQuestion = ["coding", "algorithmic", "dsa"].includes(currentQ.questionType?.toLowerCase()) || (!currentQ.options?.length && Boolean(currentQ.starterCode || currentQ.codeSnippet));
-          return <AssessmentReadingZoom>{readingScale => <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden p-3 pb-24 gap-3 relative">
+          return <AssessmentReadingZoom>{readingScale => <main className={`relative flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden p-3 ${compactLockdown ? "pb-2" : "pb-24"}`}>
             {(isSequentialActive || isSectionLockActive) && (
               <div
                 className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
@@ -2925,7 +3114,7 @@ export default function TakeAssessmentPage({
               </div>
             )}
             {isCodingQuestion ? (
-              <DSAAssessmentEditor assessmentId={id} readingScale={readingScale} key={currentQ._id} question={currentQ} savedResponse={responses[currentQ._id]} onDraftChange={handleCodingDraft} onSave={handleSaveCodingQuestion} onControlsChange={setCodingControls} blockCopyPaste={proctoring?.blockCopyPaste !== false} />
+              <CodingEditor assessmentId={id} macLockdown={compactLockdown} readingScale={readingScale} key={currentQ._id} question={currentQ} savedResponse={responses[currentQ._id]} onDraftChange={handleCodingDraft} onSave={handleSaveCodingQuestion} onControlsChange={compactLockdown ? undefined : setCodingControls} blockCopyPaste={proctoring?.blockCopyPaste !== false} />
             ) : (
               <ResizableAssessmentPanels key={currentQ._id} className="rounded-2xl border border-border bg-card">
                 <section aria-label="Question statement" tabIndex={0} className="assessment-scroll flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain p-5 space-y-6">
@@ -3045,15 +3234,20 @@ export default function TakeAssessmentPage({
             )}
 
             {/* ───────────────────────────────────────────────────────────── */}
-            {/* Fixed Bottom Center Action Controls Bar (Outside Container)   */}
+            {/* Assessment actions */}
             {/* ───────────────────────────────────────────────────────────── */}
-            <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-32px)]">
+            <div className={compactLockdown
+              ? "z-20 shrink-0 rounded-lg border border-border bg-card"
+              : "fixed bottom-4 left-1/2 z-40 max-w-[calc(100vw-32px)] -translate-x-1/2"}
+            >
               <nav
                 aria-label="Assessment navigation and actions"
-                className="flex items-center gap-2 sm:gap-3 bg-card/95 dark:bg-card/90 backdrop-blur-xl border border-border px-3 sm:px-4 py-2 sm:py-2.5 rounded-2xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
+                className={compactLockdown
+                  ? "flex min-h-10 flex-wrap items-center gap-1.5 px-2 py-1"
+                  : "flex items-center gap-2 rounded-2xl border border-border bg-card/95 px-3 py-2 shadow-2xl ring-1 ring-black/5 backdrop-blur-xl sm:gap-3 sm:px-4 sm:py-2.5 dark:bg-card/90 dark:ring-white/10"}
               >
                 {/* Coding execution actions (Run Code, Submit Solution, Saved indicator) */}
-                {isCodingQuestion && codingControls && (
+                {!compactLockdown && isCodingQuestion && codingControls && (
                   <>
                     <div className="hidden md:flex items-center gap-1.5 px-2 text-[11px] font-semibold">
                       {codingControls.isSaved ? (
@@ -3073,7 +3267,7 @@ export default function TakeAssessmentPage({
                       aria-label="Run Code"
                       onClick={codingControls.runTest}
                       disabled={codingControls.isRunning || codingControls.isSubmitting || codingControls.runCooldown > 0}
-                      className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl bg-background hover:bg-muted text-foreground text-xs font-bold border border-border shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-3.5 py-2 text-xs font-bold text-foreground shadow-xs transition-all hover:bg-muted disabled:opacity-50 cursor-pointer sm:px-4"
                     >
                       {codingControls.isRunning ? (
                         <Spinner className="w-3.5 h-3.5 animate-spin" />
@@ -3089,7 +3283,7 @@ export default function TakeAssessmentPage({
                       aria-label="Submit Solution"
                       onClick={codingControls.submitSolution}
                       disabled={codingControls.isSubmitting || codingControls.submitCooldown > 0}
-                      className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 disabled:opacity-50 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 disabled:opacity-50 cursor-pointer sm:px-5"
                     >
                       {codingControls.isSubmitting ? (
                         <Spinner className="w-3.5 h-3.5 animate-spin" />
@@ -3119,41 +3313,32 @@ export default function TakeAssessmentPage({
                   </>
                 )}
 
+                {compactLockdown && <LockdownSaveStatus syncStatus={syncStatus} />}
+
                 {!isSequentialActive && (
                   <button
                     type="button"
                     onClick={handleMarkForReview}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-xs font-semibold text-amber-600 dark:text-amber-400 transition-colors cursor-pointer"
+                    aria-label={compactLockdown ? (currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review") : undefined}
+                    className={compactLockdown
+                      ? `grid size-8 place-items-center rounded-md hover:bg-muted ${currentResponse?.status === "marked_for_review" ? "text-amber-500" : "text-muted-foreground"}`
+                      : "inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-500/10 cursor-pointer dark:text-amber-400"}
                     title={currentResponse?.status === "marked_for_review" ? "Remove review flag" : "Mark for later review"}
                   >
                     <Bookmark className="w-3.5 h-3.5" />
-                    <span>{currentResponse?.status === "marked_for_review" ? "Unreview" : isCodingQuestion ? "Review later" : "Review"}</span>
+                    {!compactLockdown && <span>{currentResponse?.status === "marked_for_review" ? "Unreview" : isCodingQuestion ? "Review later" : "Review"}</span>}
                   </button>
                 )}
 
                 {/* Previous question */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isSequentialActive) return;
-                    flushDraftToState();
-                    if (isSectionLockActive && activeSection) {
-                      const previousIndex = activeSection.questionIndices[
-                        activeSection.questionIndices.indexOf(currentIndex) - 1
-                      ];
-                      if (typeof previousIndex === "number") void navigateWithinActiveSection(previousIndex);
-                    } else {
-                      setCurrentIndex((prev) => Math.max(0, prev - 1));
-                    }
-                  }}
-                  disabled={
-                    isSequentialActive
-                    || (isSectionLockActive ? isFirstQuestionOfCurrentSection : currentIndex === 0)
-                  }
-                  className="inline-flex items-center gap-1 px-3 sm:px-4 py-2 rounded-xl border border-border hover:bg-muted text-xs font-semibold text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <ChevronLeft className="w-4 h-4" /> <span>Previous</span>
-                </button>
+                {!compactLockdown && (
+                  <button type="button" onClick={handlePreviousQuestion}
+                    disabled={isSequentialActive || (isSectionLockActive ? isFirstQuestionOfCurrentSection : currentIndex === 0)}
+                    className="inline-flex items-center gap-1 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer sm:px-4"
+                  >
+                    <ChevronLeft className="size-4" /> <span>Previous</span>
+                  </button>
+                )}
 
                 {/* Advance one question or submit the final assessment. */}
                 {isLastQuestion ? (
@@ -3163,7 +3348,9 @@ export default function TakeAssessmentPage({
                       if (isSectionLockActive) setShowSectionSubmitModal(true);
                       else setShowSubmitModal(true);
                     }}
-                    className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 cursor-pointer"
+                    className={compactLockdown
+                      ? "inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted"
+                      : "inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 cursor-pointer sm:px-5"}
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>
@@ -3174,14 +3361,15 @@ export default function TakeAssessmentPage({
                           : "Review answers"}
                     </span>
                   </button>
-                ) : (
+                ) : !compactLockdown && (
                   <button
                     type="button"
                     onClick={handleSaveAndNext}
                     disabled={isNavigating}
-                    className="inline-flex items-center gap-1 px-4 sm:px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-sm shadow-primary/20 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+                    className="inline-flex items-center gap-1 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-sm shadow-primary/20 transition-all hover:bg-primary/90 disabled:opacity-60 disabled:cursor-wait cursor-pointer sm:px-5"
                   >
-                    <span>{isNavigating ? "Loading…" : "Next question"}</span> <ChevronRight className="w-4 h-4" />
+                    <span>{isNavigating ? "Loading…" : "Next question"}</span>
+                    <ChevronRight className="size-4" />
                   </button>
                 )}
               </nav>
@@ -3195,7 +3383,7 @@ export default function TakeAssessmentPage({
           <div className="bg-card border border-border rounded-xl p-3 shadow-sm space-y-2 relative overflow-hidden">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className={`w-2 h-2 rounded-full bg-emerald-500 ${compactLockdown ? "" : "animate-pulse"}`} />
                 <span className="text-xs font-bold uppercase tracking-wider text-foreground">
                   Proctoring Monitor
                 </span>
@@ -3277,10 +3465,10 @@ export default function TakeAssessmentPage({
                       className={`w-2 h-2 rounded-full ${
                         faceDetectionStatus === "active"
                           ? faceCount > 1
-                            ? "bg-rose-400 animate-pulse"
+                            ? (compactLockdown ? "bg-rose-400" : "bg-rose-400 animate-pulse")
                             : "bg-emerald-400"
                           : faceDetectionStatus === "initializing"
-                            ? "bg-amber-400 animate-pulse"
+                            ? (compactLockdown ? "bg-amber-400" : "bg-amber-400 animate-pulse")
                             : "bg-zinc-400"
                       }`}
                     />
@@ -3450,8 +3638,11 @@ export default function TakeAssessmentPage({
           allowScratchpad={allowScratchpad}
           allowReferenceDoc={allowReferenceDoc}
           referencePdfUrl={referencePdfUrl}
+          bottomInset={compactLockdown ? 58 : undefined}
+          showSyncStatus={!compactLockdown}
           isSubmitted={isSubmitting || submissionRequestedRef.current}
           onSafeReload={async () => {
+            if (compactLockdown) flushDraftToState();
             await offlineAutosaveQueue.forceSyncNow(api);
           }}
           onTimerSync={(newEpoch, newServerNow) => {

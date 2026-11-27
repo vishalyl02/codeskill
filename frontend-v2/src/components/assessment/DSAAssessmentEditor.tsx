@@ -5,6 +5,9 @@ import { useExecutionRuntimes } from "@/hooks/useExecutionRuntimes";
 import { useState, useRef, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { ResizableAssessmentPanels } from "./ResizableAssessmentPanels";
+import { Group, Panel, Separator } from "react-resizable-panels";
+import { MacAssessmentTestPanel } from "./MacAssessmentTestPanel";
+import { MacAssessmentExecutionResult, type MacSubmissionState } from "./MacAssessmentExecutionResult";
 import { useTheme } from "@/context/ThemeContext";
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 import {
@@ -169,6 +172,9 @@ export interface CodingExecutionControls {
   submitSolution: () => void;
 }
 
+// The execution service accepts up to 100 cases per request.
+const MAX_CUSTOM_TEST_CASES = 100;
+
 interface DSAAssessmentEditorProps {
   assessmentId: string;
   readingScale?: number;
@@ -206,6 +212,7 @@ interface DSAAssessmentEditorProps {
   onNext?: () => void;
   isLastQuestion?: boolean;
   blockCopyPaste?: boolean;
+  macLockdown?: boolean;
 }
 
 export default function DSAAssessmentEditor({
@@ -219,6 +226,7 @@ export default function DSAAssessmentEditor({
   onNext,
   isLastQuestion = false,
   blockCopyPaste = true,
+  macLockdown = false,
 }: DSAAssessmentEditorProps) {
   const { resolvedTheme } = useTheme();
   const executionRuntimes = useExecutionRuntimes();
@@ -249,6 +257,11 @@ export default function DSAAssessmentEditor({
     return matchesSupported && matchesRuntime;
   };
 
+  const hasMacSavedDraft = macLockdown
+    && savedResponse?.code !== undefined
+    && savedResponse.status !== "unvisited"
+    && savedResponse.status !== "skipped";
+
   const initialLang = (() => {
     // 1. The candidate's explicitly saved local preference for this specific question
     if (typeof window !== "undefined") {
@@ -256,7 +269,7 @@ export default function DSAAssessmentEditor({
       if (saved && isLanguageAllowed(saved)) return canonicalEditorLanguage(saved);
     }
     // 2. Saved response code if the candidate actually wrote/saved code for this question
-    if (savedResponse?.code && savedResponse?.language && isLanguageAllowed(savedResponse.language)) {
+    if ((savedResponse?.code || hasMacSavedDraft) && savedResponse?.language && isLanguageAllowed(savedResponse.language)) {
       return canonicalEditorLanguage(savedResponse.language);
     }
     // 3. Question author's configured default language
@@ -306,8 +319,8 @@ export default function DSAAssessmentEditor({
     const languageDraft = Object.entries(savedResponse?.codeByLanguage || {}).find(
       ([savedLanguage]) => canonicalEditorLanguage(savedLanguage) === canonicalEditorLanguage(lang),
     )?.[1];
-    if (languageDraft !== undefined && languageDraft.trim().length > 0) return languageDraft;
-    if (savedResponse?.code !== undefined && savedResponse.code.trim().length > 0) {
+    if (languageDraft !== undefined && (macLockdown || languageDraft.trim().length > 0)) return languageDraft;
+    if (savedResponse?.code !== undefined && (hasMacSavedDraft || savedResponse.code.trim().length > 0)) {
       if (!savedResponse.language || canonicalEditorLanguage(savedResponse.language) === canonicalEditorLanguage(lang)) {
         return savedResponse.code;
       }
@@ -326,9 +339,28 @@ export default function DSAAssessmentEditor({
     return initMap;
   });
   const [showLangDropdown, setShowLangDropdown] = useState(false);
+  // Normalize test cases from question
+  const sampleCases: TestCase[] = (question.testCases || []).filter(
+    (tc) => !tc.isHidden && hasSampleContent(tc),
+  );
+
   const [selectedTestCaseIndex, setSelectedTestCaseIndex] = useState(0);
-  const [customInput, setCustomInput] = useState(() => question.testCases?.find(tc => !tc.isHidden)?.input || "");
+  const [customInputs, setCustomInputs] = useState(() =>
+    macLockdown ? (sampleCases.length ? [] : [""]) : [question.testCases?.find(tc => !tc.isHidden)?.input || ""],
+  );
+  const [selectedCustom, setSelectedCustom] = useState(0);
+  const setCustomInput = (input: string) => {
+    setCustomInputs((inputs) => [input, ...inputs.slice(1)]);
+  };
+  const runScopeRef = useRef<"samples" | "custom">(macLockdown && !sampleCases.length ? "custom" : "samples");
   const [bottomTab, setBottomTab] = useState<"testcases" | "custom_input" | "output">("testcases");
+
+  const selectMacCase = (kind: "sample" | "custom", index: number) => {
+    runScopeRef.current = kind === "sample" ? "samples" : "custom";
+    if (kind === "sample") setSelectedTestCaseIndex(index);
+    else setSelectedCustom(index);
+    setBottomTab(kind === "sample" ? "testcases" : "custom_input");
+  };
 
   // Runner execution state
   const [isRunning, setIsRunning] = useState(false);
@@ -347,7 +379,7 @@ export default function DSAAssessmentEditor({
   const lastRunRef = useRef<{
     code: string;
     language: string;
-    customInput: string | null;
+    customInputs: readonly string[] | string | null;
     runResult: any;
   } | null>(null);
 
@@ -396,8 +428,9 @@ export default function DSAAssessmentEditor({
   }, []);
 
   const [runResult, setRunResult] = useState<any>(null);
-  const [resultSource, setResultSource] = useState<{ code: string; language: string } | null>(null);
+  const [resultSource, setResultSource] = useState<{ code: string; language: string; customInputs?: readonly string[] } | null>(null);
   const [resultMode, setResultMode] = useState<'run' | 'submission'>('run');
+  const [macSubmissionState, setMacSubmissionState] = useState<MacSubmissionState>(null);
   const [copied, setCopied] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
   const activeExecutionIdRef = useRef<string | null>(null);
@@ -431,11 +464,6 @@ export default function DSAAssessmentEditor({
   }, [question._id]);
 
 
-
-  // Normalize test cases from question
-  const sampleCases: TestCase[] = (question.testCases || []).filter(
-    (tc) => !tc.isHidden && hasSampleContent(tc),
-  );
 
   const shouldHideEntryPoint = Boolean(question.hideMainMethod);
 
@@ -531,15 +559,18 @@ export default function DSAAssessmentEditor({
   // Run Test (Single or Sample cases)
   const handleRunTest = async () => {
     if (isRunning || isSubmitting || runCooldown > 0) return;
+    if (macLockdown) setMacSubmissionState(null);
 
     // Deduplication check: if code, language and custom input are identical to last run, display previous output
-    const activeCustomInput = bottomTab === "custom_input" || sampleCases.length === 0 ? customInput : null;
-    setResultSource({ code, language });
+    const customTabSelected = macLockdown ? runScopeRef.current === "custom" : bottomTab === "custom_input";
+    const inputsToRun = customTabSelected || sampleCases.length === 0 ? customInputs : null;
+    const inputCacheKey = macLockdown ? inputsToRun : inputsToRun?.[0] ?? null;
+    setResultSource({ code, language, customInputs: macLockdown ? inputsToRun ?? undefined : undefined });
     if (
       lastRunRef.current &&
       lastRunRef.current.code === code &&
       lastRunRef.current.language === language &&
-      lastRunRef.current.customInput === activeCustomInput &&
+      lastRunRef.current.customInputs === inputCacheKey &&
       lastRunRef.current.runResult
     ) {
       setRunResult(lastRunRef.current.runResult);
@@ -559,72 +590,36 @@ export default function DSAAssessmentEditor({
     setRunResult(null); // Clear previous result immediately
 
     try {
-      let runResultData: any = null;
-      if (bottomTab === "custom_input") {
-        // Run with custom stdin against the judge; a clean run is reported
-        // as accepted because no expected output is configured.
-        const res = await awaitExecution(
-          () => runAPI.run({
-            code,
-            language,
-            executionId,
-            testCases: [{ id: "run", input: customInput || "", expected: "" }],
-            config: {
-              customInput: true,
-              timeLimit: (question.timeLimit || 2000) * 2,
-              memoryLimit: question.memoryLimit || 256,
-            },
-          }),
-          (jobId) => runAPI.getJob(jobId),
-        );
-        runResultData = res.data;
-      } else if (sampleCases.length > 0) {
-        // Run against all sample test cases through the judge
-        const payloadTestCases = sampleCases.map((tc, idx) => ({
-          id: tc.id || String(idx + 1),
-          input: tc.input || "",
-          expected: tc.expected || tc.output || "",
-        }));
-
-        const res = await awaitExecution(
-          () => runAPI.run({
-            code,
-            language,
-            executionId,
-            testCases: payloadTestCases,
-            config: {
-              timeLimit: question.timeLimit || 12000,
-              memoryLimit: question.memoryLimit || 256,
-            },
-          }),
-          (jobId) => runAPI.getJob(jobId),
-        );
-        runResultData = res.data;
-      } else {
-        // Run without testcases
-        const res = await awaitExecution(
-          () => runAPI.run({
-            code,
-            language,
-            executionId,
-            testCases: [{ id: "run", input: customInput || "", expected: "" }],
-            config: {
-              customInput: true,
-              timeLimit: question.timeLimit || 8000,
-              memoryLimit: question.memoryLimit || 256,
-            },
-          }),
-          (jobId) => runAPI.getJob(jobId),
-        );
-        runResultData = res.data;
-      }
+      const testCases = inputsToRun
+        ? inputsToRun.map((input, index) => ({ id: macLockdown ? `custom-${index + 1}` : "run", input, expected: "" }))
+        : sampleCases.map((tc, index) => ({
+            id: tc.id || String(index + 1),
+            input: tc.input || "",
+            expected: tc.expected || tc.output || "",
+          }));
+      const { data: runResultData } = await awaitExecution(
+        () => runAPI.run({
+          code,
+          language,
+          executionId,
+          testCases,
+          config: {
+            ...(inputsToRun ? { customInput: true } : {}),
+            timeLimit: customTabSelected
+              ? (question.timeLimit || 2000) * 2
+              : question.timeLimit || (inputsToRun ? 8000 : 12000),
+            memoryLimit: question.memoryLimit || 256,
+          },
+        }),
+        (jobId) => runAPI.getJob(jobId),
+      );
 
       if (activeExecutionIdRef.current === executionId && runResultData) {
         setRunResult(runResultData);
         lastRunRef.current = {
           code,
           language,
-          customInput: activeCustomInput,
+          customInputs: inputCacheKey,
           runResult: runResultData,
         };
       }
@@ -647,6 +642,7 @@ export default function DSAAssessmentEditor({
   // in attempt state even if the runner or progress endpoint is unavailable.
   const handleSubmitSolution = async () => {
     if (isRunning || isSubmitting || submitCooldown > 0) return;
+    if (macLockdown) setMacSubmissionState(null);
     setResultSource({ code, language });
 
     // Deduplication check: if code is identical to last submission, save progress without re-queueing Piston execution
@@ -662,10 +658,12 @@ export default function DSAAssessmentEditor({
       setBottomTab("output");
       try {
         await onSave(code, language, lastEvaluatedRef.current.passed, lastEvaluatedRef.current.total);
+        if (macLockdown) setMacSubmissionState("saved");
         setSaveSuccessNotice(
           `Solution saved. Passed ${lastEvaluatedRef.current.passed} of ${lastEvaluatedRef.current.total} test cases (result cached from last run).`
         );
       } catch {
+        if (macLockdown) setMacSubmissionState("save_failed");
         setSaveSuccessNotice("Code kept in this session. Server save failed; please try Submit Solution again.");
       } finally {
         setIsSubmitting(false);
@@ -684,7 +682,8 @@ export default function DSAAssessmentEditor({
     let verified = false;
     let evaluatedData: any = null;
     try {
-      const res = await studentAssessmentsAPI.evaluateCode(assessmentId, { questionId: question._id, code, language });
+      const evaluate = () => studentAssessmentsAPI.evaluateCode(assessmentId, { questionId: question._id, code, language });
+      const res = macLockdown ? await awaitExecution(evaluate, (jobId) => runAPI.getJob(jobId)) : await evaluate();
       evaluatedData = res.data;
       setRunResult(evaluatedData);
       passed = evaluatedData.passedCount ?? evaluatedData.results?.filter((result: any) => result.passed).length ?? 0;
@@ -702,11 +701,14 @@ export default function DSAAssessmentEditor({
         message: err.response?.data?.message || err.message || 'Execution unavailable' });
     }
     try {
+      if (macLockdown && !verified) return;
       await onSave(code, language, passed, total);
+      if (macLockdown) setMacSubmissionState("saved");
       setSaveSuccessNotice(verified
         ? `Solution saved. Passed ${passed} of ${total} test cases. Final grading runs on the server.`
         : "Code saved. Execution could not be verified; try running it again.");
     } catch {
+      if (macLockdown) setMacSubmissionState("save_failed");
       setSaveSuccessNotice("Code kept in this session. Server save failed; please try Submit Solution again.");
     } finally {
       setIsSubmitting(false);
@@ -764,6 +766,159 @@ export default function DSAAssessmentEditor({
   const allPassed =
     resultsList.length > 0 && resultsList.every((r: any) => r.passed || r.status === "accepted" || r.status === "success");
 
+  const editorWorkspace = (
+    <>
+    {/* Editor Toolbar */}
+    <div className="flex items-center justify-between shrink-0 flex-wrap gap-2 px-4 py-2.5 bg-muted/40 border-b border-border">
+      <div className="flex items-center gap-3">
+        {/* Language Selector Dropdown */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowLangDropdown((p) => !p)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-background hover:bg-muted border border-border rounded-lg text-xs font-semibold text-foreground transition-colors"
+          >
+            <Code2 className="w-3.5 h-3.5 text-primary" />
+            <span>{LANGUAGES.find((l) => l.value === language)?.label || language}</span>
+            <ChevronDown className="w-3 h-3 text-muted-foreground" />
+          </button>
+
+          {showLangDropdown && (
+            <div className="absolute left-0 top-full mt-1 w-44 bg-popover border border-border rounded-xl shadow-xl z-50 py-1 overflow-hidden">
+              {LANGUAGES.filter((option) => isLanguageAllowed(option.value)).map((l) => (
+                <button
+                  key={l.value}
+                  type="button"
+                  disabled={isRunning || isSubmitting}
+                  onClick={() => handleLanguageChange(l.value)}
+                  className={`w-full text-left px-3.5 py-2 text-xs font-medium flex items-center justify-between transition-colors ${
+                    language === l.value
+                      ? "text-primary bg-primary/10 font-bold"
+                      : "text-foreground hover:bg-muted"
+                  }`}
+                >
+                  <span>{l.label}</span>
+                  {language === l.value && <Check className="w-3.5 h-3.5 text-primary" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <span className="text-[11px] text-muted-foreground hidden sm:inline font-mono">
+          {lineCount} lines • {editorCode.length} chars
+        </span>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={isRunning || isSubmitting}
+          onClick={() => handleResetCode(false)}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background hover:bg-muted text-foreground border border-border text-[11px] font-semibold transition-colors"
+          title="Reset and restore starter code for this question"
+        >
+          <RotateCcw className="w-3 h-3 text-muted-foreground" />
+          <span>Reset Boilerplate</span>
+        </button>
+
+        {!blockCopyPaste && (
+          <button
+            type="button"
+            onClick={handleCopyCode}
+            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            title="Copy code"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+        )}
+      </div>
+    </div>
+
+    <div className={`flex-1 min-w-0 overflow-hidden ${macLockdown ? "min-h-0" : "min-h-[120px]"}`} aria-label="Code editor workspace">
+      <Editor
+        height="100%"
+        path={`${question._id}/solution.${LANGUAGES.find(item => item.value === language)?.ext || language}`}
+        language={language}
+        value={editorCode}
+        onChange={value => { if (value !== undefined && value !== code) updateCode(value); }}
+        onMount={handleEditorDidMount}
+        theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
+        options={{
+          automaticLayout: true,
+          minimap: { enabled: false },
+          fontSize: Math.round(13 * readingScale),
+          lineNumbers: "on",
+          scrollBeyondLastLine: false,
+          wordWrap: "on",
+          bracketPairColorization: { enabled: false },
+          guides: { bracketPairs: false, indentation: true },
+          folding: false,
+          contextmenu: false,
+          padding: { top: 12, bottom: 12 },
+          tabSize: 4,
+          readOnly: isRunning || isSubmitting,
+          ariaLabel: "Assessment code editor",
+        }}
+        loading={<div className="p-4 h-full text-sm text-muted-foreground">Loading code editor…</div>}
+      />
+    </div>
+
+    {/* Save Notice Banner */}
+    {saveSuccessNotice && !macLockdown && (
+      <div className="px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center justify-between animate-in fade-in">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{saveSuccessNotice}</span>
+        </div>
+        <button
+          onClick={() => setSaveSuccessNotice(null)}
+          className="text-emerald-600/80 dark:text-emerald-400/80 hover:text-emerald-700 dark:hover:text-emerald-300"
+        >
+          ✕
+        </button>
+      </div>
+    )}
+    </>
+  );
+  const feedbackResult = runResult ? {
+    ...runResult,
+    status: runResult.status || (allPassed ? "accepted" : resultsList[0]?.status || "wrong_answer"),
+    results: resultsList,
+    passedCount: runResult.passedCount ?? resultsList.filter((r: any) => r.passed).length,
+    totalCount: runResult.totalCount ?? resultsList.length,
+  } : null;
+  const staleResults = Boolean(runResult && resultSource && (resultSource.code !== code || resultSource.language !== language));
+  const executionFeedback = macLockdown ? (
+    <MacAssessmentExecutionResult
+      key={isRunning || isSubmitting ? "pending" : resultMode}
+      mode={resultMode}
+      result={feedbackResult}
+      busy={isRunning || isSubmitting}
+      submissionState={macSubmissionState}
+      stale={staleResults}
+      cases={resultMode === "run" && resultSource
+        ? resultSource.customInputs?.map((input, index) => ({ id: `custom-${index + 1}`, input }))
+          ?? sampleCases.map((sample, index) => ({
+            id: sample.id || String(index + 1),
+            input: sample.input || "",
+            expected: sample.expected ?? sample.output ?? "",
+          }))
+        : undefined}
+    />
+  ) : (
+    <div className="space-y-3 font-mono text-xs">
+      {staleResults && (
+        <p className="font-sans text-xs text-muted-foreground">
+          Showing results for the code last executed. Run again to check your changes.
+        </p>
+      )}
+      <ExecutionFeedback context="assessment" mode={resultMode} language={resultSource?.language ?? language}
+        phase={isRunning || isSubmitting ? "running" : null} result={feedbackResult} />
+    </div>
+  );
+
   return (
     <ResizableAssessmentPanels initialSize={42} className="gap-0">
       {/* ─────────────────────────────────────────────────────────── */}
@@ -811,8 +966,8 @@ export default function DSAAssessmentEditor({
                   {question.sectionTitle}
                 </span>
               )}
-              <span>{question.topic}</span>
-              {question.subtopic && <span>• {question.subtopic}</span>}
+              {!macLockdown && <span>{question.topic}</span>}
+              {!macLockdown && question.subtopic && <span>• {question.subtopic}</span>}
             </div>
           </div>
 
@@ -856,7 +1011,8 @@ export default function DSAAssessmentEditor({
                     <button
                       onClick={() => {
                         setSelectedTestCaseIndex(idx);
-                        setCustomInput(tc.input);
+                        if (!macLockdown) setCustomInput(tc.input);
+                        runScopeRef.current = "samples";
                         setBottomTab("testcases");
                       }}
                       className="text-[11px] text-primary hover:underline font-mono"
@@ -898,119 +1054,52 @@ export default function DSAAssessmentEditor({
       {/* ─────────────────────────────────────────────────────────── */}
       {/* RIGHT PANE: Code Editor & Interactive Test Runner Console   */}
       {/* ─────────────────────────────────────────────────────────── */}
+      {macLockdown ? (
+        <Group orientation="vertical" className="min-h-0 min-w-0 flex-1">
+          <Panel id="code-editor" defaultSize="62%" minSize="112px"
+            className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
+            {editorWorkspace}
+          </Panel>
+          <Separator aria-label="Resize code editor and test console"
+            className="group flex h-3 cursor-row-resize touch-none items-center justify-center rounded-sm hover:bg-primary/10 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-primary">
+            <span aria-hidden="true" className="h-0.5 w-8 rounded-full bg-border group-hover:bg-primary" />
+          </Separator>
+          <Panel id="test-console" defaultSize="38%" minSize="135px">
+            <MacAssessmentTestPanel
+              showResults={bottomTab === "output"}
+              onShowResults={(show) => setBottomTab(show ? "output" : runScopeRef.current === "custom" ? "custom_input" : "testcases")}
+              samples={sampleCases}
+              customInputs={customInputs}
+              selectedSample={selectedTestCaseIndex}
+              selectedCustom={selectedCustom}
+              showingCustom={runScopeRef.current === "custom"}
+              onSelectCase={selectMacCase}
+              canAddCase={customInputs.length < MAX_CUSTOM_TEST_CASES}
+              onAddCase={(input = "") => {
+                if (customInputs.length >= MAX_CUSTOM_TEST_CASES) return;
+                setCustomInputs((inputs) => [...inputs, input]);
+                selectMacCase("custom", customInputs.length);
+              }}
+              onChangeInput={(input) => setCustomInputs((inputs) => inputs.map((value, index) => index === selectedCustom ? input : value))}
+              onRemoveCase={() => {
+                setCustomInputs((inputs) => inputs.filter((_, index) => index !== selectedCustom));
+                if (customInputs.length === 1) selectMacCase("sample", selectedTestCaseIndex);
+                else setSelectedCustom(Math.min(selectedCustom, customInputs.length - 2));
+              }}
+              isRunning={isRunning}
+              isSubmitting={isSubmitting}
+              runCooldown={runCooldown}
+              submitCooldown={submitCooldown}
+              onRun={handleRunTest}
+              onSubmit={handleSubmitSolution}
+            >
+              {executionFeedback}
+            </MacAssessmentTestPanel>
+          </Panel>
+        </Group>
+      ) : (
       <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-        {/* Editor Toolbar */}
-        <div className="flex items-center justify-between shrink-0 flex-wrap gap-2 px-4 py-2.5 bg-muted/40 border-b border-border">
-          <div className="flex items-center gap-3">
-            {/* Language Selector Dropdown */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowLangDropdown((p) => !p)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-background hover:bg-muted border border-border rounded-lg text-xs font-semibold text-foreground transition-colors"
-              >
-                <Code2 className="w-3.5 h-3.5 text-primary" />
-                <span>{LANGUAGES.find((l) => l.value === language)?.label || language}</span>
-                <ChevronDown className="w-3 h-3 text-muted-foreground" />
-              </button>
-
-              {showLangDropdown && (
-                <div className="absolute left-0 top-full mt-1 w-44 bg-popover border border-border rounded-xl shadow-xl z-50 py-1 overflow-hidden">
-                  {LANGUAGES.filter((option) => isLanguageAllowed(option.value)).map((l) => (
-                    <button
-                      key={l.value}
-                      type="button"
-                      disabled={isRunning || isSubmitting}
-                      onClick={() => handleLanguageChange(l.value)}
-                      className={`w-full text-left px-3.5 py-2 text-xs font-medium flex items-center justify-between transition-colors ${
-                        language === l.value
-                          ? "text-primary bg-primary/10 font-bold"
-                          : "text-foreground hover:bg-muted"
-                      }`}
-                    >
-                      <span>{l.label}</span>
-                      {language === l.value && <Check className="w-3.5 h-3.5 text-primary" />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <span className="text-[11px] text-muted-foreground hidden sm:inline font-mono">
-              {lineCount} lines • {editorCode.length} chars
-            </span>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={isRunning || isSubmitting}
-              onClick={() => handleResetCode(false)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background hover:bg-muted text-foreground border border-border text-[11px] font-semibold transition-colors"
-              title="Reset and restore starter code for this question"
-            >
-              <RotateCcw className="w-3 h-3 text-muted-foreground" />
-              <span>Reset Boilerplate</span>
-            </button>
-
-            {!blockCopyPaste && (
-              <button
-                type="button"
-                onClick={handleCopyCode}
-                className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
-                title="Copy code"
-              >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="flex-1 min-h-[120px] min-w-0 overflow-hidden" aria-label="Code editor workspace">
-          <Editor
-            height="100%"
-            path={`${question._id}/solution.${LANGUAGES.find(item => item.value === language)?.ext || language}`}
-            language={language}
-            value={editorCode}
-            onChange={value => { if (value !== undefined && value !== code) updateCode(value); }}
-            onMount={handleEditorDidMount}
-            theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
-            options={{
-              automaticLayout: true,
-              minimap: { enabled: false },
-              fontSize: Math.round(13 * readingScale),
-              lineNumbers: "on",
-              scrollBeyondLastLine: false,
-              wordWrap: "on",
-              bracketPairColorization: { enabled: false },
-              guides: { bracketPairs: false, indentation: true },
-              folding: false,
-              contextmenu: false,
-              padding: { top: 12, bottom: 12 },
-              tabSize: 4,
-              readOnly: isRunning || isSubmitting,
-              ariaLabel: "Assessment code editor",
-            }}
-            loading={<div className="p-4 h-full text-sm text-muted-foreground">Loading code editor…</div>}
-          />
-        </div>
-
-        {/* Save Notice Banner */}
-        {saveSuccessNotice && (
-          <div className="px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center justify-between animate-in fade-in">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{saveSuccessNotice}</span>
-            </div>
-            <button
-              onClick={() => setSaveSuccessNotice(null)}
-              className="text-emerald-600/80 dark:text-emerald-400/80 hover:text-emerald-700 dark:hover:text-emerald-300"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        {editorWorkspace}
 
         {/* ─────────────────────────────────────────────────────────── */}
         {/* BOTTOM PANEL: Test Cases, Custom Input, Output Console      */}
@@ -1021,7 +1110,10 @@ export default function DSAAssessmentEditor({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => setBottomTab("testcases")}
+                onClick={() => {
+                  runScopeRef.current = "samples";
+                  setBottomTab("testcases");
+                }}
                 className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors flex items-center gap-1.5 ${
                   bottomTab === "testcases"
                     ? "bg-card text-foreground border-t-2 border-primary shadow-xs"
@@ -1039,7 +1131,10 @@ export default function DSAAssessmentEditor({
 
               <button
                 type="button"
-                onClick={() => setBottomTab("custom_input")}
+                onClick={() => {
+                  runScopeRef.current = "custom";
+                  setBottomTab("custom_input");
+                }}
                 className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors flex items-center gap-1.5 ${
                   bottomTab === "custom_input"
                     ? "bg-card text-foreground border-t-2 border-primary shadow-xs"
@@ -1138,34 +1233,16 @@ export default function DSAAssessmentEditor({
               <div className="space-y-2">
                 <div className="text-[11px] font-bold uppercase text-muted-foreground">Standard Input (stdin)</div>
                 <textarea
-                  value={customInput}
-                  onChange={(e) => setCustomInput(e.target.value)}
+                  value={customInputs[0]}
+                  onChange={(event) => setCustomInput(event.target.value)}
                   rows={4}
                   placeholder="Enter custom input lines here..."
                   className="w-full bg-background border border-border rounded-lg p-3 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary resize-none"
                 />
               </div>
             )}
-
             {/* TAB 3: Execution Output Console */}
-            {bottomTab === "output" && (
-              <div className="space-y-3 font-mono text-xs">
-                {runResult && resultSource && (resultSource.code !== code || resultSource.language !== language) && (
-                  <p className="font-sans text-xs text-muted-foreground">
-                    Showing results for the code last executed. Run again to check your changes.
-                  </p>
-                )}
-                <ExecutionFeedback context="assessment" mode={resultMode} language={resultSource?.language ?? language}
-                  phase={isRunning || isSubmitting ? 'running' : null}
-                  result={runResult ? {
-                    ...runResult,
-                    status: runResult.status || (allPassed ? 'accepted' : resultsList[0]?.status || 'wrong_answer'),
-                    results: resultsList,
-                    passedCount: runResult.passedCount ?? resultsList.filter((r: any) => r.passed).length,
-                    totalCount: runResult.totalCount ?? resultsList.length,
-                  } : null} />
-              </div>
-            )}
+            {bottomTab === "output" && executionFeedback}
           </div>
 
           {/* Action Button Bar - only rendered inside editor when parent does not supply an external controls dock */}
@@ -1231,6 +1308,7 @@ export default function DSAAssessmentEditor({
           )}
         </div>
       </div>
+      )}
     </ResizableAssessmentPanels>
   );
 }

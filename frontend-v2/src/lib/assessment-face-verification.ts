@@ -102,6 +102,10 @@ async function getHuman() {
   return humanPromise;
 }
 
+export async function prepareAssessmentFaceVerification(): Promise<void> {
+  await Promise.all([getFaceLandmarker(), getHuman()]);
+}
+
 export async function createAssessmentFaceReference(
   snapshot: HTMLCanvasElement,
 ): Promise<AssessmentFaceReference> {
@@ -183,12 +187,15 @@ export function clearAssessmentFaceReference(assessmentId: string) {
 export async function checkAssessmentFace(
   snapshot: HTMLCanvasElement,
   reference: AssessmentFaceReference,
+  yieldBetweenModels = false,
 ): Promise<AssessmentFaceCheck> {
   const faceCount = await countFaces(snapshot);
   if (faceCount === 0) return { status: "no-face" };
   if (faceCount > 1) return { status: "multiple-faces" };
 
   const human = await getHuman();
+  // Yield between the two inference passes so the webview can paint and handle input.
+  if (yieldBetweenModels) await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
   const result = await human.detect(snapshot);
   const faces = result.face || [];
   if (faces.length === 0 || !faces[0]?.embedding) return { status: "no-face" };

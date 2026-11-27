@@ -336,8 +336,11 @@ export function useAssessmentMedia(
     };
   }, []);
 
+  const getAnalysisVideo = useCallback(() => sessionRef.current.analysisVideo, []);
+
   return {
     videoRef,
+    getAnalysisVideo,
     attachVideo,
     cameraActive: enabled && cameraActive,
     micActive: enabled && micActive,

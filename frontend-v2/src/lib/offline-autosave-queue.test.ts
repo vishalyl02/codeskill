@@ -62,6 +62,33 @@ describe('OfflineAutosaveQueue (frontend-v2)', () => {
     expect(queue.getStatus()).toBe('synced');
   });
 
+  it('keeps a new draft queued when an earlier write completes for the same question', async () => {
+    let finishFirst!: (result: unknown) => void;
+    let firstStarted!: () => void;
+    const sent = new Promise<void>((resolve) => { firstStarted = resolve; });
+    mockApiClient.request.mockImplementationOnce(() => {
+      firstStarted();
+      return new Promise((resolve) => { finishFirst = resolve; });
+    });
+    const original = queue.enqueue({
+      attemptId: 'mac-attempt', questionId: 'coding', idempotencyKey: 'earlier-draft',
+      payload: { code: 'earlier' },
+    });
+    await sent;
+    const newer = queue.enqueue({
+      attemptId: 'mac-attempt', questionId: 'coding', idempotencyKey: 'newer-draft',
+      payload: { code: 'newer' },
+    });
+    finishFirst({ status: 200 });
+    await Promise.all([original, newer]);
+    expect(mockApiClient.request).toHaveBeenCalledTimes(2);
+    expect(mockApiClient.request).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: { code: 'newer', idempotencyKey: 'newer-draft' },
+      headers: { 'X-Idempotency-Key': 'newer-draft' },
+    }));
+    expect(queue.getPendingCount()).toBe(0);
+  });
+
   it('preserves entries when network returns 503 or Network Error, and retries with backoff', async () => {
     mockApiClient.request.mockRejectedValue({
       response: { status: 503, data: { message: 'Service Unavailable' } },
