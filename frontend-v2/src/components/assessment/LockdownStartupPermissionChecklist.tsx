@@ -145,15 +145,9 @@ export default function LockdownStartupPermissionChecklist({
         onComplete();
         return;
       }
-      const destination = res?.targetUrl || targetUrl || checklist?.pendingExamUrl;
+      const destination = res?.targetUrl || targetUrl || checklist?.pendingExamUrl || (isLockdownClient() ? "/lockdown-system-check" : "/");
       if (destination && typeof window !== "undefined") {
         window.location.href = destination;
-      } else if (typeof window !== "undefined") {
-        if (isLockdownClient()) {
-          window.location.href = "/lockdown-system-check";
-        } else {
-          window.location.href = "/";
-        }
       }
     } catch (err) {
       console.error("Failed to complete permission onboarding:", err);
