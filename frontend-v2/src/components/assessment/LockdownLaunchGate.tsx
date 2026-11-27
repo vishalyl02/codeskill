@@ -221,7 +221,7 @@ export default function LockdownLaunchGate({
     : selectedPlatform.steps;
 
   return (
-    <div className={`mx-auto w-full max-w-[1440px] text-foreground ${preview ? "" : "px-3 pb-12 pt-24 sm:px-6 sm:pt-28 lg:px-[45px]"}`}>
+    <div className="mx-auto w-full max-w-[1440px] px-3 pb-12 pt-24 text-foreground sm:px-6 sm:pt-28 lg:px-[45px]">
       <div className="overflow-hidden rounded-3xl border border-foreground/15 bg-card text-black shadow-xl shadow-black/5 dark:text-white dark:shadow-black/20">
         <header className="flex items-start gap-4 border-b border-border bg-gradient-to-br from-primary/10 via-transparent to-transparent px-5 py-4 sm:px-8 sm:py-5">
           <div className="grid size-12 shrink-0 place-items-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">

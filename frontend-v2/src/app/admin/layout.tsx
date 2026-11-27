@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import { Navbar } from "@/components/Navbar";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
@@ -116,6 +117,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (isLoginPage) {
     return <>{children}</>;
+  }
+
+  if (/^\/admin\/assessments\/[^/]+\/preview$/.test(pathname)) {
+    return <><Navbar assessmentPreview />{children}</>;
   }
 
   return (

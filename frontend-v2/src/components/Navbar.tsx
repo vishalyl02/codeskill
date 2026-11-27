@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-export function Navbar() {
+export function Navbar({ assessmentPreview = false }: { assessmentPreview?: boolean } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { scrollY } = useScroll();
@@ -85,7 +85,7 @@ export function Navbar() {
   const isExamTakingPage = pathname ? (pathname.includes("/take") || pathname.endsWith("/attempt")) : false;
   const isLockdownPage = pathname ? pathname.startsWith("/lockdown-") : false;
 
-  if (!mounted || isAuthPage || isPortalPage || isWorkspacePage || isExamTakingPage || isLockdownPage) {
+  if (!mounted || isAuthPage || (isPortalPage && !assessmentPreview) || isWorkspacePage || isExamTakingPage || isLockdownPage) {
     return null;
   }
 
@@ -99,7 +99,7 @@ export function Navbar() {
   const navLinks = [
     { name: "Learning", href: "/learning", icon: Compass },
     { name: "Problems", href: "/problems", icon: Code2 },
-    { name: "Assessments", href: "/assessments", icon: ClipboardList },
+    { name: "Assessments", href: assessmentPreview ? "/admin/assessments" : "/assessments", icon: ClipboardList },
     { name: "Placements", href: "/placements", icon: BriefcaseBusiness },
     { name: "Contests", href: "/contests", icon: Trophy },
     { name: "Leaderboard", href: "/leaderboard", icon: BarChart3 },
