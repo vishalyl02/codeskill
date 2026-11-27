@@ -483,7 +483,7 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             var shadow = host.attachShadow({ mode: 'open' });
             shadow.innerHTML = '\
 <style>\
-  .bar{display:flex;align-items:center;gap:8px;background:rgba(15,23,42,0.94);backdrop-filter:blur(10px);border:1px solid rgba(51,65,85,0.85);border-radius:9999px;padding:6px 12px;color:#e2e8f0;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,0.45);cursor:grab;}\
+  .bar{display:flex;align-items:center;gap:8px;background:rgba(15,23,42,0.94);backdrop-filter:blur(10px);border:1px solid rgba(51,65,85,0.85);border-radius:9999px;padding:6px 12px;color:#e2e8f0;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,0.45);cursor:grab;touch-action:none;}\
   .bar:active{cursor:grabbing;}\
   .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:9999px;background:rgba(30,41,59,0.9);border:1px solid rgba(71,85,105,0.6);color:#cbd5e1;font-size:11px;font-weight:500;white-space:nowrap;}\
   .dot{width:7px;height:7px;border-radius:9999px;background:#10b981;box-shadow:0 0 6px #10b981;}\
@@ -493,6 +493,8 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
   .exit:hover{background:rgba(220,38,38,0.35);color:#fff;}\
   .panel{position:absolute;bottom:48px;right:0;width:250px;background:rgba(15,23,42,0.98);border:1px solid rgba(71,85,105,0.85);border-radius:12px;padding:12px;color:#e2e8f0;box-shadow:0 16px 40px rgba(0,0,0,0.6);display:none;}\
   .panel.open{display:block;}\
+  :host([data-dock-upper]) .panel{bottom:auto;top:calc(100% + 8px);}\
+  :host([data-dock-left]) .panel{right:auto;left:0;}\
   .modal-bg{position:fixed;inset:0;background:rgba(2,6,23,0.75);display:none;align-items:center;justify-content:center;z-index:2147483647;}\
   .modal-bg.open{display:flex;}\
   .modal{background:#0f172a;border:1px solid #334155;border-radius:14px;padding:18px 20px;max-width:340px;width:90%;color:#f1f5f9;box-shadow:0 20px 50px rgba(0,0,0,0.65);}\
@@ -570,22 +572,61 @@ pub fn lockdown_hardening_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             var cancelExit = shadow.getElementById('cancelExit');
             var confirmExit = shadow.getElementById('confirmExit');
 
-            // Drag support
-            var dragging = false, sx = 0, sy = 0, startRight = 16, startBottom = 14;
-            bar.addEventListener('mousedown', function(e) {
-                if (e.target && e.target.tagName === 'BUTTON') return;
-                dragging = true; sx = e.clientX; sy = e.clientY;
-                startRight = parseInt(host.style.right || '16', 10);
-                startBottom = parseInt(host.style.bottom || '14', 10);
+            // A click still activates its control; movement past the threshold drags the bar.
+            var drag = null;
+            var suppressDragClick = false;
+            function setBarPosition(right, bottom) {
+                right = Math.max(8, Math.min(right, window.innerWidth - bar.offsetWidth - 8));
+                bottom = Math.max(8, Math.min(bottom, window.innerHeight - bar.offsetHeight - 8));
+                host.style.right = right + 'px';
+                host.style.bottom = bottom + 'px';
+                host.toggleAttribute('data-dock-upper', bottom > window.innerHeight / 2);
+                host.toggleAttribute('data-dock-left', right > window.innerWidth / 2);
+            }
+            bar.addEventListener('pointerdown', function(e) {
+                if (e.button !== 0 || drag) return;
+                suppressDragClick = false;
+                var target = e.target;
+                try {
+                    if (target && target.setPointerCapture) target.setPointerCapture(e.pointerId);
+                } catch (_) {}
+                drag = {
+                    id: e.pointerId,
+                    x: e.clientX,
+                    y: e.clientY,
+                    right: parseInt(host.style.right || '16', 10),
+                    bottom: parseInt(host.style.bottom || '14', 10),
+                    moved: false
+                };
             });
-            window.addEventListener('mousemove', function(e) {
-                if (!dragging) return;
-                var nr = Math.max(8, startRight - (e.clientX - sx));
-                var nb = Math.max(8, startBottom - (e.clientY - sy));
-                host.style.right = nr + 'px';
-                host.style.bottom = nb + 'px';
+            bar.addEventListener('pointermove', function(e) {
+                if (!drag || drag.id !== e.pointerId) return;
+                var dx = e.clientX - drag.x;
+                var dy = e.clientY - drag.y;
+                if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+                drag.moved = true;
+                setBarPosition(drag.right - dx, drag.bottom - dy);
             });
-            window.addEventListener('mouseup', function() { dragging = false; });
+            function endDrag(e) {
+                if (!drag || drag.id !== e.pointerId) return;
+                suppressDragClick = drag.moved && e.type === 'pointerup';
+                drag = null;
+            }
+            bar.addEventListener('pointerup', endDrag);
+            bar.addEventListener('pointercancel', endDrag);
+            bar.addEventListener('pointerleave', endDrag);
+            bar.addEventListener('lostpointercapture', endDrag);
+            bar.addEventListener('click', function(e) {
+                if (!suppressDragClick || e.detail === 0) return;
+                suppressDragClick = false;
+                e.preventDefault();
+                e.stopPropagation();
+            }, true);
+            window.addEventListener('resize', function() {
+                if (host.style.display !== 'none') {
+                    setBarPosition(parseInt(host.style.right, 10), parseInt(host.style.bottom, 10));
+                }
+            });
 
             function refreshClock() {
                 invoker('get_synced_timestamp_ms').then(function(ms) {

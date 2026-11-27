@@ -393,7 +393,6 @@ export default function AssessmentBriefing({ id, adminPreview = false }: {
       <LockdownLaunchGate
         examId={id}
         examTitle={assessment.title}
-        preview={adminPreview}
         requireCamera={mediaRequirements.requireCamera}
         requireMicrophone={mediaRequirements.requireMicrophone}
         onClientDetected={() => router.refresh()}

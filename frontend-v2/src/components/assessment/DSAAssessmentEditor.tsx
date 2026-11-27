@@ -347,7 +347,7 @@ export default function DSAAssessmentEditor({
   const lastRunRef = useRef<{
     code: string;
     language: string;
-    customInput: string;
+    customInput: string | null;
     runResult: any;
   } | null>(null);
 
@@ -396,6 +396,7 @@ export default function DSAAssessmentEditor({
   }, []);
 
   const [runResult, setRunResult] = useState<any>(null);
+  const [resultSource, setResultSource] = useState<{ code: string; language: string } | null>(null);
   const [resultMode, setResultMode] = useState<'run' | 'submission'>('run');
   const [copied, setCopied] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
@@ -452,7 +453,6 @@ export default function DSAAssessmentEditor({
     setCode(nextCode);
     const next = { ...codeByLang, [canonicalEditorLanguage(language)]: nextCode };
     setCodeByLang(next);
-    setRunResult(null);
     onDraftChange?.(nextCode, language, next);
   };
 
@@ -490,7 +490,6 @@ export default function DSAAssessmentEditor({
     }
     onDraftChange?.(targetCode, newLang, updatedCache);
     setShowLangDropdown(false);
-    setRunResult(null);
 
     const langObj = LANGUAGES.find((l) => l.value === newLang);
     setSaveSuccessNotice(`Switched to ${langObj?.label || newLang}. Ready to compile.`);
@@ -510,7 +509,6 @@ export default function DSAAssessmentEditor({
     setCode(template);
     setCodeByLang(updatedCache);
     onDraftChange?.(template, language, updatedCache);
-    setRunResult(null);
     const langLabel = LANGUAGES.find((l) => l.value === language)?.label || language;
     setSaveSuccessNotice(
       starterCode && !forceDefault
@@ -535,10 +533,11 @@ export default function DSAAssessmentEditor({
     if (isRunning || isSubmitting || runCooldown > 0) return;
 
     // Deduplication check: if code, language and custom input are identical to last run, display previous output
-    const activeCustomInput = bottomTab === "custom_input" ? (customInput || "") : "";
+    const activeCustomInput = bottomTab === "custom_input" || sampleCases.length === 0 ? customInput : null;
+    setResultSource({ code, language });
     if (
       lastRunRef.current &&
-      lastRunRef.current.code.trim() === code.trim() &&
+      lastRunRef.current.code === code &&
       lastRunRef.current.language === language &&
       lastRunRef.current.customInput === activeCustomInput &&
       lastRunRef.current.runResult
@@ -648,11 +647,12 @@ export default function DSAAssessmentEditor({
   // in attempt state even if the runner or progress endpoint is unavailable.
   const handleSubmitSolution = async () => {
     if (isRunning || isSubmitting || submitCooldown > 0) return;
+    setResultSource({ code, language });
 
     // Deduplication check: if code is identical to last submission, save progress without re-queueing Piston execution
     if (
       lastEvaluatedRef.current &&
-      lastEvaluatedRef.current.code.trim() === code.trim() &&
+      lastEvaluatedRef.current.code === code &&
       lastEvaluatedRef.current.language === language &&
       lastEvaluatedRef.current.runResult
     ) {
@@ -1105,7 +1105,7 @@ export default function DSAAssessmentEditor({
                               : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground border border-border"
                           }`}
                         >
-                          Case {idx + 1}
+                          Test Case {idx + 1}
                         </button>
                       ))}
                     </div>
@@ -1150,7 +1150,12 @@ export default function DSAAssessmentEditor({
             {/* TAB 3: Execution Output Console */}
             {bottomTab === "output" && (
               <div className="space-y-3 font-mono text-xs">
-                <ExecutionFeedback context="assessment" mode={resultMode} language={language}
+                {runResult && resultSource && (resultSource.code !== code || resultSource.language !== language) && (
+                  <p className="font-sans text-xs text-muted-foreground">
+                    Showing results for the code last executed. Run again to check your changes.
+                  </p>
+                )}
+                <ExecutionFeedback context="assessment" mode={resultMode} language={resultSource?.language ?? language}
                   phase={isRunning || isSubmitting ? 'running' : null}
                   result={runResult ? {
                     ...runResult,
