@@ -38,6 +38,7 @@ import {
   ExecutionPriority,
 } from '../code-execution/priority-lanes';
 import { RedisService } from '../redis/redis.service';
+import { parseAssessmentStudentUids } from './assessment-student-uids';
 
 function codingTestCases(question: Question): Array<{ id: string | number; input: string; expected: string; isHidden: boolean }> {
   const cases = question.testCases?.length ? question.testCases : (question.metadata as any)?.testCases || [];
@@ -1312,6 +1313,14 @@ export class AssessmentsService {
       })),
     }));
 
+    const targetKeys = assessment.targetStudentIds || [];
+    const targetStudents = targetKeys.length
+      ? await this.activeStudentDirectory()?.andWhere(
+          '(u.id::text IN (:...targetKeys) OR u.uid IN (:...targetKeys))',
+          { targetKeys },
+        ).getMany()
+      : [];
+
     return {
       success: true,
       assessment: {
@@ -1319,6 +1328,7 @@ export class AssessmentsService {
         _id: assessment.id,
         questions: questionsList.map((q) => ({ ...q, _id: q.id })),
         sections,
+        targetStudents: (targetStudents || []).map((student) => this.studentSummary(student)),
       },
     };
   }
@@ -2000,7 +2010,7 @@ export class AssessmentsService {
 
     const users = await this.userRepo
       .createQueryBuilder('u')
-      .where("u.role = 'student' OR u.isAssessmentStudent = true")
+      .where("(u.role = 'student' OR u.isAssessmentStudent = true)")
       .andWhere('u.isActive = true')
       .select(['u.id', 'u.studentProfile'])
       .getMany();
@@ -2055,6 +2065,56 @@ export class AssessmentsService {
     };
   }
 
+  private activeStudentDirectory() {
+    return this.userRepo?.createQueryBuilder('u')
+      .where("(u.role = 'student' OR u.isAssessmentStudent = true)")
+      .andWhere('u.isActive = true')
+      .select(['u.id', 'u.name', 'u.email', 'u.uid', 'u.studentProfile']);
+  }
+
+  private studentSummary(student: User) {
+    return {
+      id: student.id,
+      name: student.name,
+      email: student.email,
+      uid: student.uid || '',
+      semester: student.studentProfile?.semester ?? null,
+      section: student.studentProfile?.section ?? '',
+      year: student.studentProfile?.year ?? null,
+      batch: student.studentProfile?.batch ?? '',
+    };
+  }
+
+  async resolveStudentUids(file: Express.Multer.File) {
+    const { uniqueUids, duplicateCount } = parseAssessmentStudentUids(file);
+    const qb = this.activeStudentDirectory();
+    if (!qb) throw new ServiceUnavailableException('The student directory is unavailable.');
+    const users = await qb.andWhere('LOWER(TRIM(u.uid)) IN (:...uids)', {
+      uids: [...uniqueUids.keys()],
+    }).getMany();
+
+    const matches = new Map<string, User[]>();
+    for (const user of users) {
+      const uid = user.uid?.trim().toLowerCase();
+      if (!uid) continue;
+      const group = matches.get(uid) || [];
+      group.push(user);
+      matches.set(uid, group);
+    }
+
+    const students = [];
+    const missingUids: string[] = [];
+    const ambiguousUids: string[] = [];
+    for (const [key, uid] of uniqueUids) {
+      const group = matches.get(key);
+      if (!group?.length) missingUids.push(uid);
+      else if (group.length > 1) ambiguousUids.push(uid);
+      else students.push(this.studentSummary(group[0]));
+    }
+
+    return { success: true, students, missingUids, ambiguousUids, duplicateCount };
+  }
+
   async searchStudents(query: {
     search?: string;
     semester?: string;
@@ -2063,28 +2123,22 @@ export class AssessmentsService {
     batch?: string;
     limit?: number;
   }) {
-    if (!this.userRepo) {
-      return { success: true, students: [] };
-    }
+    const qb = this.activeStudentDirectory();
+    if (!qb) return { success: true, students: [] };
 
-    const qb = this.userRepo
-      .createQueryBuilder('u')
-      .where("u.role = 'student' OR u.isAssessmentStudent = true")
-      .andWhere('u.isActive = true');
-
-    if (query.search?.trim()) {
-      const term = `%${query.search.trim().toLowerCase()}%`;
+    const search = typeof query.search === 'string' ? query.search.trim().toLowerCase() : '';
+    if (search) {
+      const term = `%${search.replace(/[\\%_]/g, '\\$&')}%`;
       qb.andWhere(
-        '(LOWER(u.name) LIKE :term OR LOWER(u.email) LIKE :term OR LOWER(COALESCE(u.uid, \'\')) LIKE :term)',
-        { term },
-      );
+        '(LOWER(u.name) LIKE :term OR LOWER(u.email) LIKE :term OR LOWER(TRIM(u.uid)) LIKE :term OR LOWER(u.username) LIKE :term OR u.id::text = :search)',
+        { term, search },
+      ).orderBy('CASE WHEN LOWER(TRIM(u.uid)) = :search THEN 0 WHEN LOWER(u.email) = :search OR LOWER(u.username) = :search OR u.id::text = :search THEN 1 WHEN LOWER(u.name) = :search THEN 2 ELSE 3 END', 'ASC');
     }
 
-    const limit = Math.min(100, Math.max(1, Number(query.limit) || 30));
-    const users = await qb
-      .select(['u.id', 'u.name', 'u.email', 'u.uid', 'u.studentProfile'])
-      .take(limit * 2)
-      .getMany();
+    const limit = Math.min(100, Math.max(1, Math.floor(Number(query.limit) || 30)));
+    qb.addOrderBy('u.name', 'ASC').addOrderBy('u.id', 'ASC');
+    const hasCohortFilter = query.semester || query.section || query.year || query.batch;
+    const users = await (hasCohortFilter ? qb : qb.take(limit)).getMany();
 
     const filtered = users.filter((u) => {
       const profile = u.studentProfile || {};
@@ -2114,16 +2168,7 @@ export class AssessmentsService {
 
     return {
       success: true,
-      students: filtered.slice(0, limit).map((u) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        uid: u.uid || '',
-        semester: u.studentProfile?.semester ?? null,
-        section: u.studentProfile?.section ?? '',
-        year: u.studentProfile?.year ?? null,
-        batch: u.studentProfile?.batch ?? '',
-      })),
+      students: filtered.slice(0, limit).map((student) => this.studentSummary(student)),
     };
   }
 
@@ -2147,7 +2192,7 @@ export class AssessmentsService {
 
     const users = await this.userRepo
       .createQueryBuilder('u')
-      .where("u.role = 'student' OR u.isAssessmentStudent = true")
+      .where("(u.role = 'student' OR u.isAssessmentStudent = true)")
       .andWhere('u.isActive = true')
       .select(['u.id', 'u.uid', 'u.name', 'u.email', 'u.studentProfile'])
       .getMany();

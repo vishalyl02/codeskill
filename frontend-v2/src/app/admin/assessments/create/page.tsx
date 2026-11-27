@@ -1,16 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { adminAssessmentsAPI, adminQuestionsAPI, adminUsersAPI } from "@/config/api";
+import { adminAssessmentsAPI, adminQuestionsAPI, adminUsersAPI, type AssessmentTargetStudent } from "@/config/api";
 import { useAssessmentStore, type ProctoringSettings } from "./_store/useAssessmentStore";
 import QuestionPicker from "./_components/QuestionPicker";
+import AssessmentStudentPicker from "./_components/AssessmentStudentPicker";
+import AssessmentSectionNavigation from "./_components/AssessmentSectionNavigation";
+import AssessmentSettingHelp from "./_components/AssessmentSettingHelp";
+import styles from "./AssessmentBuilder.module.css";
 import {
   ArrowLeft, CheckCircle2, Clock, Plus, Trash2, Shield, ShieldAlert,
   ShieldOff, AlertTriangle, GripVertical, Settings, Save, Sparkles, X, GraduationCap,
-  Lock, Search, UserCheck, Eye, EyeOff, Laptop, Monitor, KeyRound, Calculator, BookOpen, FileText,
+  Lock, Search, Eye, EyeOff, Laptop, Monitor, KeyRound, Calculator, BookOpen, FileText,
   ShieldCheck, Globe, Camera, Fingerprint
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
@@ -65,11 +69,20 @@ type AssessmentApiData = {
   targetSemesters?: string[];
   targetSections?: string[];
   targetGroups?: string[];
+  targetBatches?: string[];
+  targetDepartments?: string[];
+  targetCourses?: string[];
   targetStudentIds?: string[];
+  targetStudents?: AssessmentTargetStudent[];
   lockSectionsSequentially?: boolean;
   lockQuestionsSequentially?: boolean;
   requireLockdown?: boolean;
   allowVirtualMachine?: boolean;
+  lockdownQuitPassword?: string;
+  allowCalculators?: boolean;
+  allowScratchpad?: boolean;
+  allowReferenceDoc?: boolean;
+  referencePdfUrl?: string;
   requireCloseOtherApps?: boolean;
   allowSpellCheck?: boolean;
   allowFindOnPage?: boolean;
@@ -86,6 +99,41 @@ type AssessmentApiData = {
 
 import { MultiSelectDropdown } from "@/components/ui/MultiSelectDropdown";
 import { getStandardizedSectionOptions } from "@/lib/sections";
+
+type AdditionalCohortFilters = {
+  targetBatches: string[];
+  targetDepartments: string[];
+  targetCourses: string[];
+};
+
+type AssessmentAudience = AdditionalCohortFilters & {
+  targetSemesters: string[];
+  targetSections: string[];
+  targetGroups: string[];
+  targetStudentIds: string[];
+};
+
+type AudiencePreview = {
+  totalCount: number;
+  accessMode: "open_access" | "specific_only" | "cohort_only" | "combined";
+};
+
+const openAudience: AssessmentAudience = {
+  targetSemesters: [],
+  targetSections: [],
+  targetGroups: [],
+  targetStudentIds: [],
+  targetBatches: [],
+  targetDepartments: [],
+  targetCourses: [],
+};
+
+const audienceLabels = {
+  open_access: "Open Access",
+  specific_only: "Specific Students Only",
+  cohort_only: "Cohort Restricted",
+  combined: "Combined Access",
+};
 
 function toggleValue(values: string[], value: string) {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
@@ -116,16 +164,13 @@ function AssessmentBuilder() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [targetStudentIds, setTargetStudentIds] = useState<string[]>([]);
-  const [selectedStudentsList, setSelectedStudentsList] = useState<any[]>([]);
-  const [studentSearchInput, setStudentSearchInput] = useState("");
-  const [studentSearchResults, setStudentSearchResults] = useState<any[]>([]);
-  const [isSearchingStudents, setIsSearchingStudents] = useState(false);
+  const [selectedStudentsList, setSelectedStudentsList] = useState<AssessmentTargetStudent[]>([]);
+  const [eligibleToAll, setEligibleToAll] = useState(true);
+  const [additionalCohortFilters, setAdditionalCohortFilters] = useState<AdditionalCohortFilters>(openAudience);
   const [audiencePreview, setAudiencePreview] = useState<{
-    totalCount: number;
-    accessMode: "open_access" | "specific_only" | "cohort_only" | "combined";
-    sampleStudents: any[];
+    targeting: AssessmentAudience;
+    result: AudiencePreview | null;
   } | null>(null);
-  const [showSampleDrawer, setShowSampleDrawer] = useState(false);
   const [dynamicYears, setDynamicYears] = useState<string[]>(["1", "2", "3", "4"]);
   const [dynamicSemesters, setDynamicSemesters] = useState<string[]>(["1", "2", "3", "4", "5", "6", "7", "8"]);
   const [dynamicSections, setDynamicSections] = useState<string[]>([]);
@@ -221,6 +266,12 @@ function AssessmentBuilder() {
           lockQuestionsSequentially: Boolean(assessment.lockQuestionsSequentially),
           requireLockdown: Boolean(assessment.requireLockdown ?? assessment.securityPolicy?.requireSEB),
           allowVirtualMachine: Boolean(assessment.allowVirtualMachine),
+          securityPolicy: assessment.securityPolicy,
+          lockdownQuitPassword: assessment.lockdownQuitPassword,
+          allowCalculators: assessment.allowCalculators,
+          allowScratchpad: assessment.allowScratchpad,
+          allowReferenceDoc: assessment.allowReferenceDoc,
+          referencePdfUrl: assessment.referencePdfUrl,
           requireCloseOtherApps: assessment.requireCloseOtherApps ?? assessment.securityPolicy?.requireCloseOtherApps ?? true,
           allowSpellCheck: assessment.allowSpellCheck ?? assessment.securityPolicy?.allowSpellCheck ?? false,
           allowFindOnPage: assessment.allowFindOnPage ?? assessment.securityPolicy?.allowFindOnPage ?? true,
@@ -240,11 +291,20 @@ function AssessmentBuilder() {
         setTargetSemesters(semesters);
         setSelectedYears(Array.from(new Set(semesters.map((semester: string) => String(Math.ceil(Number(semester) / 2))))));
         setTargetSections(Array.isArray(assessment.targetSections) ? assessment.targetSections : []);
-        if (Array.isArray(assessment.targetStudentIds) && assessment.targetStudentIds.length) {
-          setTargetStudentIds(assessment.targetStudentIds);
-        }
-        const groups = (assessment.targetGroups || []).map((group: string) => String(group).toLowerCase());
-        setTargetGroup(groups.length > 1 ? "both" : groups[0] === "a" || groups[0] === "b" ? groups[0] : "");
+        const studentIds = Array.isArray(assessment.targetStudentIds) ? assessment.targetStudentIds : [];
+        setTargetStudentIds(studentIds);
+        setSelectedStudentsList(Array.isArray(assessment.targetStudents) ? assessment.targetStudents : []);
+        const groups = (assessment.targetGroups || []).map((group) => String(group).trim().replace(/^group[\s_-]*/i, "").toLowerCase());
+        const group = groups.includes("a") && groups.includes("b") ? "both" : groups.includes("a") ? "a" : groups.includes("b") ? "b" : "";
+        setTargetGroup(group);
+        const savedCohortFilters = {
+          targetBatches: assessment.targetBatches ?? [],
+          targetDepartments: assessment.targetDepartments ?? [],
+          targetCourses: assessment.targetCourses ?? [],
+        };
+        setAdditionalCohortFilters(savedCohortFilters);
+        setEligibleToAll(!(semesters.length || assessment.targetSections?.length || group || studentIds.length ||
+          Object.values(savedCohortFilters).some((values) => values.length > 0)));
         setStartTime(toDateTimeLocal(assessment.startTime));
         setEndTime(toDateTimeLocal(assessment.endTime));
         if (active) setFormReady(true);
@@ -281,80 +341,65 @@ function AssessmentBuilder() {
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
-    if (!studentSearchInput.trim()) {
-      setStudentSearchResults([]);
-      setIsSearchingStudents(false);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setIsSearchingStudents(true);
-      try {
-        const res = await adminAssessmentsAPI.searchStudents({ search: studentSearchInput.trim(), limit: 10 });
-        const payload = res.data?.students || res.data?.data?.students || [];
-        setStudentSearchResults(payload);
-      } catch {
-        setStudentSearchResults([]);
-      } finally {
-        setIsSearchingStudents(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [studentSearchInput]);
-
   const years = dynamicYears;
   const allSemesters = dynamicSemesters;
-  const visibleSemesters = selectedYears.length
+  const visibleSemesters = useMemo(() => selectedYears.length
     ? Array.from(new Set(selectedYears.flatMap((year) => {
         const firstSemester = (Number(year) - 1) * 2 + 1;
         return [String(firstSemester), String(firstSemester + 1)];
       }))).sort((a, b) => Number(a) - Number(b))
-    : allSemesters;
+    : allSemesters, [selectedYears, allSemesters]);
+  const configuredAudience = useMemo(() => ({
+    ...additionalCohortFilters,
+    targetSemesters: targetSemesters.length ? targetSemesters : selectedYears.length ? visibleSemesters : [],
+    targetSections,
+    targetGroups: targetGroup === "both" ? ["A", "B"] : targetGroup ? [targetGroup.toUpperCase()] : [],
+    targetStudentIds,
+  }), [additionalCohortFilters, targetSemesters, selectedYears, visibleSemesters, targetSections, targetGroup, targetStudentIds]);
+  const hasConfiguredAudience = Object.values(configuredAudience).some((values) => values.length > 0);
+  const effectiveAudience = eligibleToAll ? openAudience : configuredAudience;
+  const needsAudience = !eligibleToAll && !hasConfiguredAudience;
+  const audienceRequirement = "Select a cohort filter or add at least one student before saving.";
+  const currentPreview = audiencePreview?.targeting === effectiveAudience ? audiencePreview : null;
+  const previewResult = currentPreview?.result;
+  const audienceAccessMode = eligibleToAll ? "open_access" : previewResult?.accessMode;
   const sectionOptions = getStandardizedSectionOptions([
     ...targetSections,
     ...dynamicSections,
   ]);
 
   useEffect(() => {
-    let active = true;
-    const runPreview = async () => {
+    if (!formReady || needsAudience) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
       try {
-        const res = await adminAssessmentsAPI.previewTargetAudience({
-          targetSemesters: targetSemesters.length ? targetSemesters : selectedYears.length ? visibleSemesters : [],
-          targetSections,
-          targetGroups: targetGroup === "both" ? ["A", "B"] : targetGroup ? [targetGroup.toUpperCase()] : [],
-          targetStudentIds,
-        });
-        const data = res.data?.data || res.data;
-        if (active && data) {
-          setAudiencePreview(data);
-        }
+        const { data } = await adminAssessmentsAPI.previewTargetAudience(effectiveAudience, controller.signal);
+        const result = data?.data ?? data;
+        if (!controller.signal.aborted) setAudiencePreview({ targeting: effectiveAudience, result });
       } catch {
-        if (active) setAudiencePreview(null);
+        if (!controller.signal.aborted) setAudiencePreview({ targeting: effectiveAudience, result: null });
       }
-    };
-    const t = setTimeout(runPreview, 250);
+    }, 250);
     return () => {
-      active = false;
-      clearTimeout(t);
+      controller.abort();
+      window.clearTimeout(timer);
     };
-  }, [targetSemesters, selectedYears, visibleSemesters, targetSections, targetGroup, targetStudentIds]);
+  }, [effectiveAudience, formReady, needsAudience]);
 
-  const handleToggleStudent = (student: any) => {
-    setTargetStudentIds((prev) => {
-      if (prev.includes(student.id)) {
-        setSelectedStudentsList((list) => list.filter((s) => s.id !== student.id));
-        return prev.filter((id) => id !== student.id);
-      } else {
-        setSelectedStudentsList((list) => [...list.filter((s) => s.id !== student.id), student]);
-        return [...prev, student.id];
+  const addAssignedStudents = (students: AssessmentTargetStudent[]) => {
+    if (students.length > 0) setEligibleToAll(false);
+    setTargetStudentIds((current) => {
+      const ids = new Set(current);
+      for (const student of students) {
+        if (!student.uid || !ids.has(student.uid)) ids.add(student.id);
       }
+      return [...ids];
     });
-  };
-
-  const handleRemoveStudent = (studentId: string) => {
-    setTargetStudentIds((prev) => prev.filter((id) => id !== studentId));
-    setSelectedStudentsList((list) => list.filter((s) => s.id !== studentId));
+    setSelectedStudentsList((current) => {
+      const byId = new Map(current.map((student) => [student.id, student]));
+      for (const student of students) byId.set(student.id, student);
+      return [...byId.values()];
+    });
   };
 
   useEffect(() => {
@@ -363,11 +408,13 @@ function AssessmentBuilder() {
   }, []);
 
   const updateYears = (year: string) => {
+    setEligibleToAll(false);
     setSelectedYears((current) => toggleValue(current, year));
     setTargetSemesters([]);
   };
 
   const updateSemesters = (semester: string) => {
+    setEligibleToAll(false);
     setTargetSemesters((current) => {
       const updated = toggleValue(current, semester);
       if (updated.length && !selectedYears.length) {
@@ -378,7 +425,8 @@ function AssessmentBuilder() {
     });
   };
 
-  const updateGroup = (group: "a" | "b" | "both") => {
+  const updateGroup = (group: typeof targetGroup) => {
+    if (group) setEligibleToAll(false);
     setTargetGroup(group);
   };
 
@@ -454,7 +502,14 @@ function AssessmentBuilder() {
         : { title: "Live · Available now", detail: "Students can start now, while the schedule remains open.", className: "border-emerald-500/25 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300" };
   const durationInputValue = durationUnit === "hours" ? Number(store.durationMinutes) / 60 : store.durationMinutes;
 
+  const validateAudience = () => {
+    if (!needsAudience) return true;
+    addToast("error", "Choose who can take this assessment", audienceRequirement);
+    return false;
+  };
+
   const handlePublish = async (status: 'draft' | 'published') => {
+    if (!validateAudience()) return;
     if (hasDuplicateQuestions) {
       addToast("error", "Duplicate questions detected", "Each question can only be used once across the entire assessment.");
       return;
@@ -494,10 +549,7 @@ function AssessmentBuilder() {
         passingMarks: store.passingMarks !== '' ? Number(store.passingMarks) : undefined,
         category: store.category,
         allowedAttempts: store.allowedAttempts,
-        targetSemesters: targetSemesters.length ? targetSemesters : selectedYears.length ? visibleSemesters : [],
-        targetSections,
-        targetGroups: targetGroup === "both" ? ["A", "B"] : targetGroup ? [targetGroup.toUpperCase()] : [],
-        targetStudentIds,
+        ...effectiveAudience,
         lockSectionsSequentially: store.lockSectionsSequentially,
         lockQuestionsSequentially: store.lockQuestionsSequentially,
         requireLockdown: store.requireLockdown,
@@ -559,87 +611,93 @@ function AssessmentBuilder() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-32">
-      {/* Header */}
-      <div className="sticky top-0 z-40 bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/admin/assessments" className="p-2 rounded-xl border border-border hover:bg-muted text-muted-foreground transition-colors">
-              <ArrowLeft className="w-4 h-4" />
+    <div className="min-h-full bg-background">
+      <header className={`${styles.header} z-30 border-b border-border bg-card/95 backdrop-blur-md lg:sticky lg:top-0`}>
+        <div className="mx-auto flex max-w-[88rem] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2 sm:px-5 xl:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <Link href="/admin/assessments" aria-label="Back to all assessments" className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:text-foreground hover:border-primary/50 focus-visible:outline-2 focus-visible:outline-primary">
+              <ArrowLeft aria-hidden="true" className="size-4" />
             </Link>
-            <div>
-              <h1 className="text-base font-bold text-foreground">{editingId ? "Edit Assessment" : "Assessment Builder"}</h1>
-              <p className="text-[11px] text-muted-foreground font-medium">{editingId ? "Update the complete assessment configuration." : "Design professional evaluations."}</p>
+            <div className={`${styles.intro} min-w-0`}>
+              <h1 className="text-base font-semibold leading-tight tracking-tight text-foreground">{editingId ? "Edit Assessment" : "Assessment Builder"}</h1>
+              <p className="text-xs text-muted-foreground">{editingId ? "Update the complete assessment configuration." : "Design professional evaluations."}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-4 bg-muted/40 border border-border px-4 py-2 rounded-2xl">
-            <div className="text-center pr-4 border-r border-border">
-              <div className="text-[10px] font-bold text-muted-foreground uppercase">Questions</div>
-              <div className="text-sm font-bold font-mono">{totalQuestions}</div>
+          <dl className="grid grid-cols-3 divide-x divide-border rounded-lg border border-border bg-background px-1 py-1 text-center tabular-nums">
+            <div className="px-2.5 sm:px-3">
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Questions</dt>
+              <dd className="text-sm font-semibold">{totalQuestions}</dd>
             </div>
-            <div className="text-center pr-4 border-r border-border">
-              <div className="text-[10px] font-bold text-muted-foreground uppercase">Marks</div>
-              <div className="text-sm font-bold font-mono text-emerald-500">{totalMarks}</div>
+            <div className="px-2.5 sm:px-3">
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Marks</dt>
+              <dd className="text-sm font-semibold">{totalMarks}</dd>
             </div>
-            <div className="text-center">
-              <div className="text-[10px] font-bold text-muted-foreground uppercase">Duration</div>
-              <div className="text-sm font-bold font-mono text-primary">{store.durationMinutes}m</div>
+            <div className="px-2.5 sm:px-3">
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Duration</dt>
+              <dd className="text-sm font-semibold">{store.durationMinutes}m</dd>
             </div>
-          </div>
+          </dl>
         </div>
-      </div>
+      </header>
 
-      <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+      <div className="mx-auto grid max-w-[88rem] gap-2.5 px-3 py-3 sm:px-5 lg:grid-cols-[11.75rem_minmax(0,1fr)] lg:items-start lg:gap-4 xl:px-6">
+        <AssessmentSectionNavigation />
+
+        <div className="min-w-0 space-y-3">
 
         {/* Basic Info */}
-        <section className="bg-card border border-border rounded-2xl p-6 space-y-5 shadow-sm">
-          <h2 className="text-base font-bold flex items-center gap-2">
+        <section id="basic-information" className="scroll-mt-14 space-y-3.5 rounded-xl border border-border bg-card p-3.5 shadow-sm lg:scroll-mt-20 sm:p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
             <Settings className="w-4 h-4 text-primary" /> Basic Information
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2.5">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold">Title <span className="text-rose-500">*</span></label>
-              <input type="text" value={store.title} onChange={e => store.setTitle(e.target.value)} className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" placeholder="e.g. Frontend Engineering Test" />
+              <input type="text" value={store.title} onChange={e => store.setTitle(e.target.value)} className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" placeholder="e.g. Frontend Engineering Test" />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold">Exam Code <span className="text-rose-500">*</span></label>
-              <input type="text" value={store.code} onChange={e => store.setCode(e.target.value.toUpperCase())} className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm font-mono focus:ring-1 focus:ring-primary" />
+              <input type="text" value={store.code} onChange={e => store.setCode(e.target.value.toUpperCase())} className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm font-mono focus:ring-1 focus:ring-primary" />
             </div>
             <div className="space-y-1.5 md:col-span-2">
               <label className="text-xs font-semibold">Description</label>
-              <textarea rows={2} value={store.description} onChange={e => store.setDescription(e.target.value)} className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" placeholder="Brief context about this assessment..." />
+              <textarea rows={2} value={store.description} onChange={e => store.setDescription(e.target.value)} className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" placeholder="Brief context about this assessment..." />
             </div>
           </div>
         </section>
 
         {/* Configuration */}
-        <section className="bg-card border border-border rounded-2xl p-6 space-y-5 shadow-sm">
-          <h2 className="text-base font-bold flex items-center gap-2">
+        <section id="configuration" className="scroll-mt-14 space-y-3.5 rounded-xl border border-border bg-card p-3.5 shadow-sm lg:scroll-mt-20 sm:p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
             <Clock className="w-4 h-4 text-primary" /> Configuration & Proctoring
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pb-5 border-b border-border">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 pb-3.5 border-b border-border">
             <div className="space-y-1.5">
-              <label htmlFor="assessment-duration" className="text-xs font-semibold">Assessment duration <span className="text-muted-foreground font-normal">(per attempt)</span></label>
+              <div className="flex items-center gap-2">
+                <label htmlFor="assessment-duration" className="text-xs font-semibold">Assessment duration <span className="text-muted-foreground font-normal">(per attempt)</span></label>
+                <AssessmentSettingHelp name="Assessment duration" align="start">
+                  Saved as {formatScheduleDuration(Number(store.durationMinutes))} for each attempt.
+                </AssessmentSettingHelp>
+              </div>
               <div className="flex gap-2">
                 <input id="assessment-duration" type="number" min={durationUnit === "hours" ? 5 / 60 : 5} step={durationUnit === "hours" ? "any" : 1} value={durationInputValue} onChange={(event) => {
                   const value = Number(event.target.value);
                   store.setDurationMinutes(Number.isFinite(value) ? Math.round(value * (durationUnit === "hours" ? 60 : 1)) : 0);
-                }} className="min-w-0 flex-1 px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" />
+                }} className="min-w-0 flex-1 px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" />
                 <select aria-label="Duration unit" value={durationUnit} onChange={(event) => setDurationUnit(event.target.value as "minutes" | "hours")} className="w-28 px-3 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary">
                   <option value="minutes">Minutes</option>
                   <option value="hours">Hours</option>
                 </select>
               </div>
-              <p className="text-[11px] text-muted-foreground">Saved as {formatScheduleDuration(Number(store.durationMinutes))} for each attempt.</p>
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold">Passing Marks</label>
-              <input type="number" value={store.passingMarks} onChange={e => store.setPassingMarks(e.target.value ? Number(e.target.value) : '')} placeholder={`Auto: ${Math.ceil(totalMarks * 0.4)}`} className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" />
+              <input type="number" value={store.passingMarks} onChange={e => store.setPassingMarks(e.target.value ? Number(e.target.value) : '')} placeholder={`Auto: ${Math.ceil(totalMarks * 0.4)}`} className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold">Attempts</label>
-              <select value={store.allowedAttempts} onChange={e => store.setAllowedAttempts(Number(e.target.value))} className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary">
+              <select value={store.allowedAttempts} onChange={e => store.setAllowedAttempts(Number(e.target.value))} className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary">
                 <option value={1}>1 Attempt</option>
                 <option value={2}>2 Attempts</option>
                 <option value={0}>Unlimited</option>
@@ -647,7 +705,7 @@ function AssessmentBuilder() {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold">Category</label>
-              <select value={store.category} onChange={e => store.setCategory(e.target.value)} className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary">
+              <select value={store.category} onChange={e => store.setCategory(e.target.value)} className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary">
                 <option value="exam">Exam</option>
                 <option value="quiz">Quiz</option>
                 <option value="recruitment">Recruitment</option>
@@ -656,150 +714,161 @@ function AssessmentBuilder() {
           </div>
 
           {/* Proctoring Policy Selection: Fully Proctored, Partial Proctored (Manual Submission), Non Proctored */}
-          <div className="space-y-3 pt-2">
+          <div className="space-y-2.5">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Proctoring Enforcement Mode
             </label>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Option 1: Fully Proctored */}
-              <button
-                type="button"
-                onClick={() =>
-                  store.setProctoring({
-                    mode: 'fully_proctored',
-                    autoSubmitOnViolation: true,
-                    useCamera: true,
-                    enforceFullscreen: true,
-                    detectTabSwitch: true,
-                    blockCopyPaste: true,
-                  })
-                }
-                className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
-                  (store.proctoring.mode || 'fully_proctored') === 'fully_proctored'
-                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm'
-                    : 'border-border bg-background hover:border-primary/40'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="p-2 rounded-xl bg-primary/10 text-primary">
-                      <Shield className="w-5 h-5" />
+              <div className="flex items-start rounded-xl border border-border bg-background">
+                <button
+                  type="button"
+                  aria-pressed={(store.proctoring.mode || 'fully_proctored') === 'fully_proctored'}
+                  onClick={() =>
+                    store.setProctoring({
+                      mode: 'fully_proctored',
+                      autoSubmitOnViolation: true,
+                      useCamera: true,
+                      enforceFullscreen: true,
+                      detectTabSwitch: true,
+                      blockCopyPaste: true,
+                    })
+                  }
+                  className={`flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg p-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-primary ${
+                    (store.proctoring.mode || 'fully_proctored') === 'fully_proctored'
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm'
+                      : 'border-border bg-background hover:border-primary/40'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="shrink-0 p-1.5 rounded-lg bg-primary/10 text-primary">
+                      <Shield className="size-4" />
                     </span>
+                    <h3 className="text-sm font-bold text-foreground">Fully Proctored</h3>
                     {(store.proctoring.mode || 'fully_proctored') === 'fully_proctored' && (
                       <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary text-primary-foreground">
                         Active
                       </span>
                     )}
                   </div>
-                  <h3 className="text-sm font-bold text-foreground">Fully Proctored</h3>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <div className="text-[11px] font-medium text-amber-500 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    Auto-submits on violation limit
+                  </div>
+                </button>
+                <div className="m-2 shrink-0">
+                  <AssessmentSettingHelp name="Fully Proctored">
                     Strict anti-cheat. Exceeding warning attempts (2–3 times) triggers automatic exam submission.
-                  </p>
+                  </AssessmentSettingHelp>
                 </div>
-                <div className="mt-3 text-[11px] font-medium text-amber-500 flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Auto-submits on violation limit
-                </div>
-              </button>
+              </div>
 
               {/* Option 2: Partial Proctored (Manual Submission) */}
-              <button
-                type="button"
-                onClick={() =>
-                  store.setProctoring({
-                    mode: 'partial_proctored',
-                    autoSubmitOnViolation: false,
-                    useCamera: true,
-                    enforceFullscreen: true,
-                    detectTabSwitch: true,
-                    blockCopyPaste: true,
-                    violationPenaltyMarks: store.proctoring.violationPenaltyMarks || 2,
-                  })
-                }
-                className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
-                  store.proctoring.mode === 'partial_proctored'
-                    ? 'border-indigo-500 bg-indigo-500/5 ring-2 ring-indigo-500/20 shadow-sm'
-                    : 'border-border bg-background hover:border-indigo-500/40'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
-                      <ShieldAlert className="w-5 h-5" />
+              <div className="flex items-start rounded-xl border border-border bg-background">
+                <button
+                  type="button"
+                  aria-pressed={store.proctoring.mode === 'partial_proctored'}
+                  onClick={() =>
+                    store.setProctoring({
+                      mode: 'partial_proctored',
+                      autoSubmitOnViolation: false,
+                      useCamera: true,
+                      enforceFullscreen: true,
+                      detectTabSwitch: true,
+                      blockCopyPaste: true,
+                      violationPenaltyMarks: store.proctoring.violationPenaltyMarks || 2,
+                    })
+                  }
+                  className={`flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg p-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-primary ${
+                    store.proctoring.mode === 'partial_proctored'
+                      ? 'border-indigo-500 bg-indigo-500/5 ring-2 ring-indigo-500/20 shadow-sm'
+                      : 'border-border bg-background hover:border-indigo-500/40'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="shrink-0 p-1.5 rounded-lg bg-indigo-500/10 text-indigo-500">
+                      <ShieldAlert className="size-4" />
                     </span>
+                    <h3 className="text-sm font-bold text-foreground">Partial Proctored</h3>
                     {store.proctoring.mode === 'partial_proctored' && (
                       <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white">
                         Active
                       </span>
                     )}
                   </div>
-                  <h3 className="text-sm font-bold text-foreground">Partial Proctored</h3>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    Manual submit · Negative marks on cheat
+                  </div>
+                </button>
+                <div className="m-2 shrink-0">
+                  <AssessmentSettingHelp name="Partial Proctored">
                     Manual submission guaranteed. Candidate completes test, but every tab switch or violation deducts negative marks live.
-                  </p>
+                  </AssessmentSettingHelp>
                 </div>
-                <div className="mt-3 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                  Manual submit · Negative marks on cheat
-                </div>
-              </button>
+              </div>
 
               {/* Option 3: Non Proctored */}
-              <button
-                type="button"
-                onClick={() =>
-                  store.setProctoring({
-                    mode: 'non_proctored',
-                    autoSubmitOnViolation: false,
-                    useCamera: false,
-                    enforceFullscreen: false,
-                    detectTabSwitch: false,
-                    blockCopyPaste: false,
-                    violationPenaltyMarks: 0,
-                  })
-                }
-                className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
-                  store.proctoring.mode === 'non_proctored'
-                    ? 'border-emerald-500 bg-emerald-500/5 ring-2 ring-emerald-500/20 shadow-sm'
-                    : 'border-border bg-background hover:border-emerald-500/40'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500">
-                      <ShieldOff className="w-5 h-5" />
+              <div className="flex items-start rounded-xl border border-border bg-background">
+                <button
+                  type="button"
+                  aria-pressed={store.proctoring.mode === 'non_proctored'}
+                  onClick={() =>
+                    store.setProctoring({
+                      mode: 'non_proctored',
+                      autoSubmitOnViolation: false,
+                      useCamera: false,
+                      enforceFullscreen: false,
+                      detectTabSwitch: false,
+                      blockCopyPaste: false,
+                      violationPenaltyMarks: 0,
+                    })
+                  }
+                  className={`flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg p-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-primary ${
+                    store.proctoring.mode === 'non_proctored'
+                      ? 'border-emerald-500 bg-emerald-500/5 ring-2 ring-emerald-500/20 shadow-sm'
+                      : 'border-border bg-background hover:border-emerald-500/40'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="shrink-0 p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
+                      <ShieldOff className="size-4" />
                     </span>
+                    <h3 className="text-sm font-bold text-foreground">Non Proctored</h3>
                     {store.proctoring.mode === 'non_proctored' && (
                       <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
                         Active
                       </span>
                     )}
                   </div>
-                  <h3 className="text-sm font-bold text-foreground">Non Proctored</h3>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <div className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    Free attempt · No restrictions
+                  </div>
+                </button>
+                <div className="m-2 shrink-0">
+                  <AssessmentSettingHelp name="Non Proctored">
                     Standard open assessment. No camera, tab-switch restrictions, or proctoring deductions.
-                  </p>
+                  </AssessmentSettingHelp>
                 </div>
-                <div className="mt-3 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                  Free attempt · No restrictions
-                </div>
-              </button>
+              </div>
             </div>
           </div>
 
           {/* If Partial Proctored: Editable Negative Marks Config */}
           {store.proctoring.mode === 'partial_proctored' && (
-            <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-3 animate-in fade-in duration-200">
+            <div className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-3 animate-in fade-in duration-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                    <ShieldAlert className="w-4 h-4 text-indigo-600" />
-                    Negative Marks per Violation (Tab switch / Cheating)
-                  </h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Deducted from candidate's final score for each recorded violation. Displayed live on candidate screen during test.
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 text-indigo-600" />
+                      Negative Marks per Violation (Tab switch / Cheating)
+                    </h4>
+                    <AssessmentSettingHelp name="Negative Marks per Violation" align="start">
+                      Deducted from candidate's final score for each recorded violation. Displayed live on candidate screen during test.
+                    </AssessmentSettingHelp>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-muted-foreground">Penalty:</span>
@@ -867,9 +936,16 @@ function AssessmentBuilder() {
           )}
           {store.proctoring.mode !== 'non_proctored' && store.proctoring.useCamera && (
             <div className="rounded-xl border border-border bg-background p-4 space-y-2">
-              <label htmlFor="assessment-camera-policy" className="block text-sm font-semibold text-foreground">
-                Camera selection
-              </label>
+              <div className="flex items-center gap-2">
+                <label htmlFor="assessment-camera-policy" className="block text-sm font-semibold text-foreground">
+                  Camera selection
+                </label>
+                <AssessmentSettingHelp name="Camera selection" align="start">
+                  {store.proctoring.cameraSelectionPolicy === 'system_default'
+                    ? "The browser's default camera is used; students won't see a camera picker."
+                    : 'Students can choose an available camera before starting the assessment.'}
+                </AssessmentSettingHelp>
+              </div>
               <select
                 id="assessment-camera-policy"
                 value={store.proctoring.cameraSelectionPolicy || 'student_select'}
@@ -879,20 +955,15 @@ function AssessmentBuilder() {
                 <option value="student_select">Allow student to choose a camera</option>
                 <option value="system_default">Use only the system default camera</option>
               </select>
-              <p className="text-xs text-muted-foreground">
-                {store.proctoring.cameraSelectionPolicy === 'system_default'
-                  ? "The browser's default camera is used; students won't see a camera picker."
-                  : 'Students can choose an available camera before starting the assessment.'}
-              </p>
             </div>
           )}
         </section>
 
         {/* Desktop Security & LockDown Browser */}
-        <section className="bg-card border border-border rounded-2xl p-6 space-y-5 shadow-sm">
+        <section id="desktop-security" className="scroll-mt-14 space-y-3.5 rounded-xl border border-border bg-card p-3.5 shadow-sm lg:scroll-mt-20 sm:p-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-bold flex items-center gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
                 <Shield className="w-4 h-4 text-primary" /> Desktop Security & LockDown Browser
               </h2>
               <p className="text-xs text-muted-foreground mt-1">
@@ -906,24 +977,26 @@ function AssessmentBuilder() {
             )}
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-2.5">
             {/* Require CodeSkill LockDown Toggle */}
-            <div className="p-4 rounded-xl border border-border bg-background flex items-center justify-between gap-4 shadow-xs">
+            <div className="p-3 rounded-xl border border-border bg-background flex items-center justify-between gap-4 shadow-xs">
               <div className="space-y-1">
-                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                  <Laptop className="w-4 h-4 text-primary" />
-                  Require CodeSkill LockDown App
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground uppercase tracking-wider">
-                    Desktop Kiosk
+                <AssessmentSettingHelp name="Require CodeSkill LockDown App" label={
+                  <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                    <Laptop className="w-4 h-4 text-primary" />
+                    Require CodeSkill LockDown App
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground uppercase tracking-wider">
+                      Desktop Kiosk
+                    </span>
                   </span>
-                </div>
-                <p className="text-xs text-muted-foreground">
+                }>
                   Students must launch this exam in the CodeSkill LockDown desktop app (Windows, macOS, Linux). Blocks screen sharing, OS shortcuts, second monitors, and unauthorized apps.
-                </p>
+                </AssessmentSettingHelp>
               </div>
               <label className="relative inline-flex items-center cursor-pointer shrink-0">
                 <input
                   type="checkbox"
+                  aria-label="Require CodeSkill LockDown App"
                   checked={store.requireLockdown}
                   onChange={(e) => store.setRequireLockdown(e.target.checked)}
                   className="sr-only peer"
@@ -934,7 +1007,7 @@ function AssessmentBuilder() {
 
             {/* One-Click Security Profiles Preset Selector */}
             {store.requireLockdown && (
-              <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+              <div className="p-3 rounded-xl border border-primary/20 bg-primary/5 space-y-3 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5" />
@@ -985,22 +1058,24 @@ function AssessmentBuilder() {
 
             {/* Allow Virtual Machines (University VDI Labs) Toggle - Conditionally Rendered */}
             {store.requireLockdown && (
-              <div className="p-4 rounded-xl border border-border bg-background/50 flex items-center justify-between gap-4 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+              <div className="p-3 rounded-xl border border-border bg-background/50 flex items-center justify-between gap-4 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                    <Monitor className="w-4 h-4 text-amber-500" />
-                    Allow Virtual Machines (University VDI Labs)
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider">
-                      Lab Override
+                  <AssessmentSettingHelp name="Allow Virtual Machines (University VDI Labs)" label={
+                    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                      <Monitor className="w-4 h-4 text-amber-500" />
+                      Allow Virtual Machines (University VDI Labs)
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider">
+                        Lab Override
+                      </span>
                     </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
+                  }>
                     Enable only if students are taking this exam on university Citrix, VMware, or cloud-hosted virtual lab computers.
-                  </p>
+                  </AssessmentSettingHelp>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer shrink-0">
                   <input
                     type="checkbox"
+                    aria-label="Allow Virtual Machines (University VDI Labs)"
                     checked={store.allowVirtualMachine}
                     onChange={(e) => store.setAllowVirtualMachine(e.target.checked)}
                     className="sr-only peer"
@@ -1014,22 +1089,24 @@ function AssessmentBuilder() {
             {store.requireLockdown && (
               <>
                 {/* Allow In-Dock Scientific Calculator */}
-                <div className="p-4 rounded-xl border border-border bg-background/50 flex items-center justify-between gap-4 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="p-3 rounded-xl border border-border bg-background/50 flex items-center justify-between gap-4 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                      <Calculator className="w-4 h-4 text-amber-500" />
-                      Allow In-Dock Scientific Calculator
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider">
-                        Allowed Tool
+                    <AssessmentSettingHelp name="Allow In-Dock Scientific Calculator" label={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                        <Calculator className="w-4 h-4 text-amber-500" />
+                        Allow In-Dock Scientific Calculator
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider">
+                          Allowed Tool
+                        </span>
                       </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
+                    }>
                       Permit candidates to open the in-app scientific calculator from the bottom utility dock without external windows.
-                    </p>
+                    </AssessmentSettingHelp>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
+                      aria-label="Allow In-Dock Scientific Calculator"
                       checked={store.allowCalculators}
                       onChange={(e) => store.setAllowCalculators(e.target.checked)}
                       className="sr-only peer"
@@ -1039,22 +1116,24 @@ function AssessmentBuilder() {
                 </div>
 
                 {/* Rough Scratchpad Toggle */}
-                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                      <FileText className="w-4 h-4 text-sky-500" />
-                      Allow In-Dock Rough Scratchpad
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 uppercase tracking-wider">
-                        Rough Pad
+                    <AssessmentSettingHelp name="Allow In-Dock Rough Scratchpad" label={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                        <FileText className="w-4 h-4 text-sky-500" />
+                        Allow In-Dock Rough Scratchpad
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 uppercase tracking-wider">
+                          Rough Pad
+                        </span>
                       </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
+                    }>
                       Permit candidates to draft notes and rough work on a sandboxed whiteboard directly from the utility dock.
-                    </p>
+                    </AssessmentSettingHelp>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
+                      aria-label="Allow In-Dock Rough Scratchpad"
                       checked={store.allowScratchpad}
                       onChange={(e) => store.setAllowScratchpad(e.target.checked)}
                       className="sr-only peer"
@@ -1064,22 +1143,24 @@ function AssessmentBuilder() {
                 </div>
 
                 {/* Reference Document Toggle */}
-                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                      <BookOpen className="w-4 h-4 text-emerald-500" />
-                      Allow Reference Document
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
-                        Reference PDF
+                    <AssessmentSettingHelp name="Allow Reference Document" label={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                        <BookOpen className="w-4 h-4 text-emerald-500" />
+                        Allow Reference Document
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                          Reference PDF
+                        </span>
                       </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
+                    }>
                       Enable an in-dock viewer for candidates to consult approved reference literature, formula sheets, or cheat sheets.
-                    </p>
+                    </AssessmentSettingHelp>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
+                      aria-label="Allow Reference Document"
                       checked={store.allowReferenceDoc}
                       onChange={(e) => store.setAllowReferenceDoc(e.target.checked)}
                       className="sr-only peer"
@@ -1090,17 +1171,18 @@ function AssessmentBuilder() {
 
                 {/* Approved Reference Material PDF URL (shown when allowReferenceDoc is true) */}
                 {store.allowReferenceDoc && (
-                  <div className="p-4 rounded-xl border border-border bg-background/50 space-y-2 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
-                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                      <BookOpen className="w-4 h-4 text-emerald-500" />
-                      Approved Reference PDF URL
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
-                        In-App Viewer
+                  <div className="p-3 rounded-xl border border-border bg-background/50 space-y-2 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                    <AssessmentSettingHelp name="Approved Reference PDF URL" label={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                        <BookOpen className="w-4 h-4 text-emerald-500" />
+                        Approved Reference PDF URL
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                          In-App Viewer
+                        </span>
                       </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
+                    }>
                       URL to an approved reference PDF document (e.g. formula sheet, code reference). Accessible in a sandboxed dock viewer.
-                    </p>
+                    </AssessmentSettingHelp>
                     <input
                       type="url"
                       value={store.referencePdfUrl}
@@ -1112,17 +1194,18 @@ function AssessmentBuilder() {
                 )}
 
                 {/* Proctor Emergency Quit Password */}
-                <div className="p-4 rounded-xl border border-border bg-background/50 space-y-2 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
-                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                    <KeyRound className="w-4 h-4 text-rose-500" />
-                    Proctor Quit Password
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 uppercase tracking-wider">
-                      Emergency Exit
+                <div className="p-3 rounded-xl border border-border bg-background/50 space-y-2 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                  <AssessmentSettingHelp name="Proctor Quit Password" label={
+                    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                      <KeyRound className="w-4 h-4 text-rose-500" />
+                      Proctor Quit Password
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 uppercase tracking-wider">
+                        Emergency Exit
+                      </span>
                     </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
+                  }>
                     Optional password required by invigilators/proctors to unlock and exit LockDown before student submission.
-                  </p>
+                  </AssessmentSettingHelp>
                   <input
                     type="password"
                     value={store.lockdownQuitPassword}
@@ -1133,22 +1216,24 @@ function AssessmentBuilder() {
                 </div>
 
                 {/* Pre-Exam Close Non-Essential Apps Gate */}
-                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                      <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                      Close Other Applications Before Exam
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
-                        Pre-Exam Gate
+                    <AssessmentSettingHelp name="Close Other Applications Before Exam" label={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                        <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                        Close Other Applications Before Exam
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                          Pre-Exam Gate
+                        </span>
                       </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
+                    }>
                       Scans and requires students to close third-party desktop applications before fullscreen lockdown engages.
-                    </p>
+                    </AssessmentSettingHelp>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
+                      aria-label="Close Other Applications Before Exam"
                       checked={store.requireCloseOtherApps}
                       onChange={(e) => store.setRequireCloseOtherApps(e.target.checked)}
                       className="sr-only peer"
@@ -1158,22 +1243,24 @@ function AssessmentBuilder() {
                 </div>
 
                 {/* Spell Check & AI Writing Tools */}
-                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                      <FileText className="w-4 h-4 text-indigo-500" />
-                      Allow Spellcheck & AI Writing Tools
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase tracking-wider">
-                        Input Hygiene
+                    <AssessmentSettingHelp name="Allow Spellcheck & AI Writing Tools" label={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                        <FileText className="w-4 h-4 text-indigo-500" />
+                        Allow Spellcheck & AI Writing Tools
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase tracking-wider">
+                          Input Hygiene
+                        </span>
                       </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
+                    }>
                       When disabled, OS dictionary lookups, spellcheck squiggles, and autocorrect are strictly suppressed.
-                    </p>
+                    </AssessmentSettingHelp>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
+                      aria-label="Allow Spellcheck & AI Writing Tools"
                       checked={store.allowSpellCheck}
                       onChange={(e) => store.setAllowSpellCheck(e.target.checked)}
                       className="sr-only peer"
@@ -1183,22 +1270,24 @@ function AssessmentBuilder() {
                 </div>
 
                 {/* Find on Page (Ctrl/Cmd+F) */}
-                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                      <Search className="w-4 h-4 text-amber-500" />
-                      Allow Find on Page (Ctrl / Cmd + F)
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider">
-                        Search
+                    <AssessmentSettingHelp name="Allow Find on Page (Ctrl / Cmd + F)" label={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                        <Search className="w-4 h-4 text-amber-500" />
+                        Allow Find on Page (Ctrl / Cmd + F)
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider">
+                          Search
+                        </span>
                       </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
+                    }>
                       Allow candidates to search text in long question statements or problem descriptions.
-                    </p>
+                    </AssessmentSettingHelp>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
+                      aria-label="Allow Find on Page (Ctrl / Cmd + F)"
                       checked={store.allowFindOnPage}
                       onChange={(e) => store.setAllowFindOnPage(e.target.checked)}
                       className="sr-only peer"
@@ -1208,17 +1297,18 @@ function AssessmentBuilder() {
                 </div>
 
                 {/* Allowed External URLs */}
-                <div className="p-4 rounded-xl border border-border bg-background/50 space-y-2 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
-                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                    <Globe className="w-4 h-4 text-blue-500" />
-                    Allowed External URL Patterns
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider">
-                      URL Allowlist
+                <div className="p-3 rounded-xl border border-border bg-background/50 space-y-2 shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                  <AssessmentSettingHelp name="Allowed External URL Patterns" label={
+                    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                      <Globe className="w-4 h-4 text-blue-500" />
+                      Allowed External URL Patterns
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider">
+                        URL Allowlist
+                      </span>
                     </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
+                  }>
                     Comma-separated domain patterns candidates can navigate to during the exam (e.g. docs.python.org, en.cppreference.com).
-                  </p>
+                  </AssessmentSettingHelp>
                   <input
                     type="text"
                     value={store.allowedUrlPatterns.join(', ')}
@@ -1235,22 +1325,24 @@ function AssessmentBuilder() {
                 </div>
 
                 {/* Periodic Screen Capture Snapshots */}
-                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                      <Camera className="w-4 h-4 text-purple-500" />
-                      Periodic Screen Capture Snapshots
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase tracking-wider">
-                        Proctor Audit
+                    <AssessmentSettingHelp name="Periodic Screen Capture Snapshots" label={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                        <Camera className="w-4 h-4 text-purple-500" />
+                        Periodic Screen Capture Snapshots
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase tracking-wider">
+                          Proctor Audit
+                        </span>
                       </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
+                    }>
                       Periodically logs lightweight webview viewport captures during testing for academic integrity review.
-                    </p>
+                    </AssessmentSettingHelp>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
+                      aria-label="Periodic Screen Capture Snapshots"
                       checked={store.enableScreenCaptureSnapshots}
                       onChange={(e) => store.setEnableScreenCaptureSnapshots(e.target.checked)}
                       className="sr-only peer"
@@ -1260,22 +1352,24 @@ function AssessmentBuilder() {
                 </div>
 
                 {/* Subtle Forensic Screen Watermark */}
-                <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
+                <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/50 gap-4 shadow-xs">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                      <Fingerprint className="w-4 h-4 text-emerald-500" />
-                      Enable Subtle Forensic Screen Watermark
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
-                        Anti-Leak
+                    <AssessmentSettingHelp name="Enable Subtle Forensic Screen Watermark" label={
+                      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                        <Fingerprint className="w-4 h-4 text-emerald-500" />
+                        Enable Subtle Forensic Screen Watermark
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+                          Anti-Leak
+                        </span>
                       </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
+                    }>
                       Renders a high-DPI, low-opacity forensic canvas pattern encoding candidate and session identifiers to deter and trace smartphone screen photography.
-                    </p>
+                    </AssessmentSettingHelp>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
                       type="checkbox"
+                      aria-label="Enable Subtle Forensic Screen Watermark"
                       checked={store.enableForensicWatermark}
                       onChange={(e) => store.setEnableForensicWatermark(e.target.checked)}
                       className="sr-only peer"
@@ -1289,21 +1383,40 @@ function AssessmentBuilder() {
         </section>
 
         {/* Audience and availability */}
-        <section className="bg-card border border-border rounded-2xl p-6 space-y-5 shadow-sm">
+        <section id="student-access" className="scroll-mt-14 space-y-3.5 rounded-xl border border-border bg-card p-3.5 shadow-sm lg:scroll-mt-20 sm:p-4">
           <div>
-            <h2 className="text-base font-bold flex items-center gap-2"><Settings className="w-4 h-4 text-primary" /> Student access & timing</h2>
+            <h2 className="flex items-center gap-2 text-sm font-semibold"><Settings className="w-4 h-4 text-primary" /> Student access & timing</h2>
             <p className="text-xs text-muted-foreground mt-1">Leave a filter empty to make the assessment available to everyone in that category.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background p-4 md:col-span-4">
+              <div className="min-w-0">
+                <p id="assessment-eligible-label" className="text-sm font-semibold">Eligible to all students</p>
+                <p id="assessment-eligible-description" className="mt-1 text-xs text-muted-foreground">
+                  {eligibleToAll ? "Open to all registered student accounts." : "Access is based on the filters and students selected below."}
+                </p>
+                {eligibleToAll && hasConfiguredAudience && (
+                  <p className="mt-1 text-xs text-muted-foreground">Turn off open access to use the current filters and assignments.</p>
+                )}
+              </div>
+              <button type="button" role="switch" aria-checked={eligibleToAll} aria-labelledby="assessment-eligible-label" aria-describedby="assessment-eligible-description" onClick={() => setEligibleToAll((current) => !current)} className={`inline-flex min-h-9 shrink-0 items-center gap-2 rounded-lg border px-2.5 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-primary ${eligibleToAll ? "border-primary/35 bg-primary/10 text-primary" : "border-border bg-muted text-foreground"}`}>
+                <span aria-hidden="true">{eligibleToAll ? "On" : "Off"}</span>
+                <span aria-hidden="true" className={`relative h-4 w-7 rounded-full ${eligibleToAll ? "bg-primary" : "bg-muted-foreground/60"}`}>
+                  <span className={`absolute top-0.5 size-3 rounded-full bg-white transition-[left] motion-reduce:transition-none ${eligibleToAll ? "left-3.5" : "left-0.5"}`} />
+                </span>
+              </button>
+            </div>
+
             <MultiSelectDropdown id="assessment-target-year" label="Year" placeholder="Choose student year(s)" options={years} selected={selectedYears} onChange={updateYears} />
             <MultiSelectDropdown id="assessment-target-semester" label="Semester" placeholder="Choose semester(s)" options={visibleSemesters} selected={targetSemesters} onChange={updateSemesters} />
             <MultiSelectDropdown id="assessment-target-section" label="Section" placeholder="Choose section(s)" options={sectionOptions} selected={targetSections} onChange={(section) => {
+              setEligibleToAll(false);
               setTargetSections((current) => toggleValue(current, section));
             }} />
             <div className="space-y-1.5">
               <label htmlFor="assessment-target-group" className="text-xs font-semibold">Group</label>
-              <select id="assessment-target-group" value={targetGroup} onChange={(event) => updateGroup(event.target.value as "a" | "b" | "both")} className="w-full min-h-11 px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed">
+              <select id="assessment-target-group" value={targetGroup} onChange={(event) => updateGroup(event.target.value as typeof targetGroup)} className="w-full min-h-11 px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed">
                 <option value="">All Groups</option>
                 <option value="a">Group A</option>
                 <option value="b">Group B</option>
@@ -1311,187 +1424,57 @@ function AssessmentBuilder() {
               </select>
             </div>
 
-            {/* Specific Students Search & Selection */}
-            <div className="md:col-span-4 p-4 rounded-xl border border-border bg-background space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label htmlFor="student-search-input" className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                    <Search className="w-3.5 h-3.5 text-primary" />
-                    Assign Specific Students (Irrespective of Semesters)
-                  </label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Search and select particular students to grant direct access regardless of their semester or section.
-                  </p>
-                </div>
-                {targetStudentIds.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTargetStudentIds([]);
-                      setSelectedStudentsList([]);
-                    }}
-                    className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400 transition-colors"
-                  >
-                    Clear assigned ({targetStudentIds.length})
-                  </button>
-                )}
-              </div>
+            <AssessmentStudentPicker
+              selectedIds={targetStudentIds}
+              selectedStudents={selectedStudentsList}
+              onAdd={addAssignedStudents}
+              onRemove={(id) => setTargetStudentIds((current) => current.filter((studentId) => studentId !== id))}
+              onClear={() => setTargetStudentIds([])}
+            />
 
-              <div className="relative">
-                <div className="relative flex items-center">
-                  <Search className="w-4 h-4 text-muted-foreground absolute left-3 pointer-events-none" />
-                  <input
-                    id="student-search-input"
-                    type="text"
-                    value={studentSearchInput}
-                    onChange={(e) => setStudentSearchInput(e.target.value)}
-                    placeholder="Search by student name, email, or UID..."
-                    className="w-full pl-9 pr-9 py-2 bg-muted/30 border border-border rounded-xl text-xs focus:ring-1 focus:ring-primary"
-                  />
-                  {isSearchingStudents && <Spinner className="w-3.5 h-3.5 animate-spin text-primary absolute right-3" />}
-                </div>
-
-                {studentSearchResults.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-1 z-30 max-h-48 overflow-y-auto bg-card border border-border rounded-xl shadow-xl p-1 space-y-1">
-                    {studentSearchResults.map((stu) => {
-                      const isSelected = targetStudentIds.includes(stu.id);
-                      return (
-                        <button
-                          type="button"
-                          key={stu.id}
-                          onClick={() => handleToggleStudent(stu)}
-                          className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                            isSelected
-                              ? "bg-primary/10 text-primary border border-primary/20"
-                              : "hover:bg-muted text-foreground"
-                          }`}
-                        >
-                          <div>
-                            <span className="font-semibold">{stu.name}</span>{" "}
-                            <span className="text-[11px] text-muted-foreground font-mono">
-                              ({stu.uid || stu.email})
-                            </span>
-                            <span className="block text-[10px] text-muted-foreground">
-                              {stu.semester ? `Sem ${stu.semester}` : ""} {stu.section ? `· Sec ${stu.section}` : ""}{" "}
-                              {stu.year ? `· Year ${stu.year}` : ""}
-                            </span>
-                          </div>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                            {isSelected ? "Selected ✓" : "+ Add"}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Selected Students Chips */}
-              {targetStudentIds.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {targetStudentIds.map((id) => {
-                    const stu = selectedStudentsList.find((s) => s.id === id);
-                    const label = stu ? `${stu.name} (${stu.uid || "ID"})` : `Student (${id.slice(0, 6)}...)`;
-                    return (
-                      <span
-                        key={id}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 text-xs font-medium text-foreground"
-                      >
-                        <UserCheck className="w-3 h-3 text-primary" />
-                        <span>{label}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveStudent(id)}
-                          className="hover:text-rose-500 transition-colors ml-0.5"
-                          title="Remove student"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Target Audience Live Preview Card */}
-            <div className="md:col-span-4 p-4 bg-muted/30 border border-border/80 rounded-xl space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                  <GraduationCap className="w-4 h-4 text-primary" />
+            <div aria-live="polite" className="space-y-2 rounded-xl border border-border bg-muted/25 p-4 md:col-span-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="flex items-center gap-2 text-xs font-semibold">
+                  <GraduationCap aria-hidden="true" className="size-4 text-primary" />
                   Target Audience Live Preview
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
-                    audiencePreview?.accessMode === "open_access"
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                      : audiencePreview?.accessMode === "specific_only"
-                      ? "bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20"
-                      : audiencePreview?.accessMode === "combined"
-                      ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20"
-                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                  }`}>
-                    {audiencePreview?.accessMode === "open_access" && "Open Access"}
-                    {audiencePreview?.accessMode === "specific_only" && "Specific Students Only"}
-                    {audiencePreview?.accessMode === "cohort_only" && "Cohort Restricted"}
-                    {audiencePreview?.accessMode === "combined" && "Combined Access"}
-                    {!audiencePreview && "Calculating..."}
-                  </span>
-                  {audiencePreview && (
-                    <span className="text-xs font-bold text-foreground font-mono">
-                      {audiencePreview.totalCount} {audiencePreview.totalCount === 1 ? "student" : "students"} eligible
+                </p>
+                {!needsAudience && (
+                  <p className="flex flex-wrap items-center gap-2 text-xs font-medium">
+                    {audienceAccessMode && (
+                      <span className="rounded-md border border-primary/25 bg-primary/10 px-2 py-1 font-semibold text-primary">
+                        {audienceLabels[audienceAccessMode]}
+                      </span>
+                    )}
+                    <span className="tabular-nums text-muted-foreground">
+                      {previewResult
+                        ? `${previewResult.totalCount} ${previewResult.totalCount === 1 ? "student" : "students"} eligible`
+                        : currentPreview ? "Unable to load eligibility count." : "Calculating..."}
                     </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
-                {targetSemesters.length || selectedYears.length || targetSections.length || targetGroup || targetStudentIds.length ? (
-                  <>
-                    {selectedYears.length ? <span className="bg-background px-2 py-0.5 rounded border border-border">Year {selectedYears.join(", ")}</span> : null}
-                    {targetSemesters.length ? <span className="bg-background px-2 py-0.5 rounded border border-border">Sem {targetSemesters.join(", ")}</span> : null}
-                    {targetSections.length ? <span className="bg-background px-2 py-0.5 rounded border border-border">Sec {targetSections.join(", ")}</span> : null}
-                    {targetGroup ? <span className="bg-background px-2 py-0.5 rounded border border-border">Group {targetGroup.toUpperCase()}</span> : null}
-                    {targetStudentIds.length ? <span className="bg-background px-2 py-0.5 rounded border border-border text-primary font-medium">{targetStudentIds.length} specific student(s)</span> : null}
-                  </>
-                ) : (
-                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                    Open to all registered student accounts.
-                  </span>
+                  </p>
                 )}
               </div>
 
-              {audiencePreview && audiencePreview.sampleStudents.length > 0 && (
-                <div className="pt-2 border-t border-border/50">
-                  <button
-                    type="button"
-                    onClick={() => setShowSampleDrawer((v) => !v)}
-                    className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-1"
-                  >
-                    {showSampleDrawer ? "Hide sample candidates ▲" : `Preview sample eligible candidates (${audiencePreview.sampleStudents.length}) ▼`}
-                  </button>
-                  {showSampleDrawer && (
-                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto p-2 bg-background rounded-lg border border-border text-[11px]">
-                      {audiencePreview.sampleStudents.map((s) => (
-                        <div key={s.id} className="truncate text-muted-foreground">
-                          <strong className="text-foreground">{s.name}</strong>{" "}
-                          <span className="font-mono">({s.uid || s.email})</span>
-                          {s.semester && ` · Sem ${s.semester}`}
-                          {s.section && ` · Sec ${s.section}`}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              {needsAudience && <p className="text-xs font-medium text-amber-700 dark:text-amber-300">{audienceRequirement}</p>}
+              {!eligibleToAll && hasConfiguredAudience && (
+                <ul className="flex flex-wrap gap-1.5 text-xs text-muted-foreground [&_li]:rounded-md [&_li]:border [&_li]:border-border [&_li]:bg-background [&_li]:px-2 [&_li]:py-1">
+                  {selectedYears.length > 0 && <li>Year {selectedYears.join(", ")}</li>}
+                  {targetSemesters.length > 0 && <li>Sem {targetSemesters.join(", ")}</li>}
+                  {targetSections.length > 0 && <li>Sec {targetSections.join(", ")}</li>}
+                  {targetGroup && <li>Group {targetGroup.toUpperCase()}</li>}
+                  {targetStudentIds.length > 0 && <li>{targetStudentIds.length} specific student(s)</li>}
+                  {additionalCohortFilters.targetBatches.length > 0 && <li>Batch {additionalCohortFilters.targetBatches.join(", ")}</li>}
+                  {additionalCohortFilters.targetDepartments.length > 0 && <li>Department {additionalCohortFilters.targetDepartments.join(", ")}</li>}
+                  {additionalCohortFilters.targetCourses.length > 0 && <li>Course {additionalCohortFilters.targetCourses.join(", ")}</li>}
+                </ul>
               )}
             </div>
             <div className="space-y-1.5 md:col-span-2">
               <label htmlFor="assessment-start-time" className="text-xs font-semibold">Available from <span className="text-muted-foreground font-normal">(optional)</span></label>
-              <input id="assessment-start-time" type="datetime-local" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" />
+              <input id="assessment-start-time" type="datetime-local" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" />
             </div>
             <div className="space-y-1.5 md:col-span-2">
               <label htmlFor="assessment-end-time" className="text-xs font-semibold">Available until <span className="text-muted-foreground font-normal">(optional)</span></label>
-              <input id="assessment-end-time" type="datetime-local" min={startTime || undefined} value={endTime} onChange={(event) => setEndTime(event.target.value)} className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" />
+              <input id="assessment-end-time" type="datetime-local" min={startTime || undefined} value={endTime} onChange={(event) => setEndTime(event.target.value)} className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary" />
             </div>
             <div className={`md:col-span-4 overflow-hidden rounded-2xl border ${scheduleStatus.className}`}>
               <div className="flex flex-col gap-3 border-b border-current/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1529,9 +1512,9 @@ function AssessmentBuilder() {
         </section>
 
         {/* Candidate Result Visibility Policy */}
-        <section className="bg-card border border-border rounded-2xl p-6 space-y-5 shadow-sm">
+        <section id="result-visibility" className="scroll-mt-14 space-y-3.5 rounded-xl border border-border bg-card p-3.5 shadow-sm lg:scroll-mt-20 sm:p-4">
           <div>
-            <h2 className="text-base font-bold flex items-center gap-2">
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
               <Eye className="w-4 h-4 text-primary" /> Candidate Result Visibility Policy
             </h2>
             <p className="text-xs text-muted-foreground mt-1">
@@ -1539,16 +1522,16 @@ function AssessmentBuilder() {
             </p>
           </div>
 
-          <div className="p-4 rounded-xl border border-border bg-background flex items-center justify-between">
+          <div className="p-3 rounded-xl border border-border bg-background flex items-center justify-between">
             <div className="space-y-0.5">
-              <span className="text-sm font-semibold text-foreground">Release results immediately upon submission</span>
-              <p className="text-xs text-muted-foreground">
+              <AssessmentSettingHelp name="Release results immediately upon submission" label={<span className="text-sm font-semibold text-foreground">Release results immediately upon submission</span>}>
                 When disabled, candidates see a submission acknowledgement; scores and review remain withheld until published.
-              </p>
+              </AssessmentSettingHelp>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input
                 type="checkbox"
+                aria-label="Release results immediately upon submission"
                 checked={store.showResultImmediately}
                 onChange={(e) => store.setShowResultImmediately(e.target.checked)}
                 className="sr-only peer"
@@ -1559,70 +1542,80 @@ function AssessmentBuilder() {
 
           {store.showResultImmediately ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={store.resultDisplaySettings.showScore}
-                  onChange={(e) => store.setResultDisplaySettings({ showScore: e.target.checked })}
-                  className="rounded text-primary focus:ring-primary w-4 h-4"
-                />
-                <div>
-                  <span className="text-sm font-semibold text-foreground">Show overall score & percentage</span>
-                  <p className="text-[11px] text-muted-foreground">Display aggregate marks and pass/fail status</p>
+              <div className="rounded-xl border border-border bg-background px-3 py-2 transition-colors hover:bg-muted/30">
+                <div className="flex items-start justify-between gap-2">
+                  <label className="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={store.resultDisplaySettings.showScore}
+                      onChange={(e) => store.setResultDisplaySettings({ showScore: e.target.checked })}
+                      className="rounded text-primary focus:ring-primary w-4 h-4"
+                    />
+                    <span className="text-sm font-semibold text-foreground">Show overall score & percentage</span>
+                  </label>
+                  <AssessmentSettingHelp name="Show overall score & percentage">Display aggregate marks and pass/fail status</AssessmentSettingHelp>
                 </div>
-              </label>
+              </div>
 
-              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={store.resultDisplaySettings.showQuestionReview}
-                  onChange={(e) => store.setResultDisplaySettings({ showQuestionReview: e.target.checked })}
-                  className="rounded text-primary focus:ring-primary w-4 h-4"
-                />
-                <div>
-                  <span className="text-sm font-semibold text-foreground">Show question-by-question review</span>
-                  <p className="text-[11px] text-muted-foreground">List questions and student&apos;s selected answers</p>
+              <div className="rounded-xl border border-border bg-background px-3 py-2 transition-colors hover:bg-muted/30">
+                <div className="flex items-start justify-between gap-2">
+                  <label className="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={store.resultDisplaySettings.showQuestionReview}
+                      onChange={(e) => store.setResultDisplaySettings({ showQuestionReview: e.target.checked })}
+                      className="rounded text-primary focus:ring-primary w-4 h-4"
+                    />
+                    <span className="text-sm font-semibold text-foreground">Show question-by-question review</span>
+                  </label>
+                  <AssessmentSettingHelp name="Show question-by-question review">List questions and student&apos;s selected answers</AssessmentSettingHelp>
                 </div>
-              </label>
+              </div>
 
-              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={store.resultDisplaySettings.showCorrectAnswers}
-                  onChange={(e) => store.setResultDisplaySettings({ showCorrectAnswers: e.target.checked })}
-                  className="rounded text-primary focus:ring-primary w-4 h-4"
-                />
-                <div>
-                  <span className="text-sm font-semibold text-foreground">Reveal correct options & explanations</span>
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Recommended OFF for multi-batch tests</p>
+              <div className="rounded-xl border border-border bg-background px-3 py-2 transition-colors hover:bg-muted/30">
+                <div className="flex items-start justify-between gap-2">
+                  <label className="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={store.resultDisplaySettings.showCorrectAnswers}
+                      onChange={(e) => store.setResultDisplaySettings({ showCorrectAnswers: e.target.checked })}
+                      className="rounded text-primary focus:ring-primary w-4 h-4"
+                    />
+                    <span className="text-sm font-semibold text-foreground">Reveal correct options & explanations</span>
+                  </label>
+                  <AssessmentSettingHelp name="Reveal correct options & explanations"><span className="font-medium text-amber-600 dark:text-amber-400">Recommended OFF for multi-batch tests</span></AssessmentSettingHelp>
                 </div>
-              </label>
+              </div>
 
-              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={store.resultDisplaySettings.showRankAndPercentile}
-                  onChange={(e) => store.setResultDisplaySettings({ showRankAndPercentile: e.target.checked })}
-                  className="rounded text-primary focus:ring-primary w-4 h-4"
-                />
-                <div>
-                  <span className="text-sm font-semibold text-foreground">Show class rank & percentile</span>
-                  <p className="text-[11px] text-muted-foreground">Display leaderboard position and top % tier</p>
+              <div className="rounded-xl border border-border bg-background px-3 py-2 transition-colors hover:bg-muted/30">
+                <div className="flex items-start justify-between gap-2">
+                  <label className="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={store.resultDisplaySettings.showRankAndPercentile}
+                      onChange={(e) => store.setResultDisplaySettings({ showRankAndPercentile: e.target.checked })}
+                      className="rounded text-primary focus:ring-primary w-4 h-4"
+                    />
+                    <span className="text-sm font-semibold text-foreground">Show class rank & percentile</span>
+                  </label>
+                  <AssessmentSettingHelp name="Show class rank & percentile">Display leaderboard position and top % tier</AssessmentSettingHelp>
                 </div>
-              </label>
+              </div>
 
-              <label className="flex items-center gap-3 p-3.5 rounded-xl border border-border bg-background cursor-pointer hover:bg-muted/30 transition-colors md:col-span-2">
-                <input
-                  type="checkbox"
-                  checked={store.resultDisplaySettings.showTopicBreakdown}
-                  onChange={(e) => store.setResultDisplaySettings({ showTopicBreakdown: e.target.checked })}
-                  className="rounded text-primary focus:ring-primary w-4 h-4"
-                />
-                <div>
-                  <span className="text-sm font-semibold text-foreground">Show topic-wise performance breakdown</span>
-                  <p className="text-[11px] text-muted-foreground">Display progress bars for accuracy per topic/domain</p>
+              <div className="rounded-xl border border-border bg-background px-3 py-2 transition-colors hover:bg-muted/30 md:col-span-2">
+                <div className="flex items-start justify-between gap-2">
+                  <label className="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={store.resultDisplaySettings.showTopicBreakdown}
+                      onChange={(e) => store.setResultDisplaySettings({ showTopicBreakdown: e.target.checked })}
+                      className="rounded text-primary focus:ring-primary w-4 h-4"
+                    />
+                    <span className="text-sm font-semibold text-foreground">Show topic-wise performance breakdown</span>
+                  </label>
+                  <AssessmentSettingHelp name="Show topic-wise performance breakdown">Display progress bars for accuracy per topic/domain</AssessmentSettingHelp>
                 </div>
-              </label>
+              </div>
             </div>
           ) : (
             <div className="space-y-1.5 pt-1">
@@ -1635,7 +1628,7 @@ function AssessmentBuilder() {
                 value={store.resultDisplaySettings.customSubmissionMessage || ""}
                 onChange={(e) => store.setResultDisplaySettings({ customSubmissionMessage: e.target.value })}
                 placeholder="Your assessment has been submitted. Results will be announced once all batches have concluded."
-                className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary resize-none"
+                className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:ring-1 focus:ring-primary resize-none"
               />
             </div>
           )}
@@ -1647,9 +1640,9 @@ function AssessmentBuilder() {
             Duplicate questions detected across sections. Each question can only be used once in the assessment.
           </div>
         )}
-        <section className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold flex items-center gap-2">
+        <section id="assessment-sections" className="scroll-mt-14 space-y-3.5 rounded-xl border border-border bg-card p-3.5 shadow-sm lg:scroll-mt-20 sm:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
               <ShieldAlert className="w-5 h-5 text-primary" /> Assessment Sections
             </h2>
             <button onClick={store.addSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-muted border border-border rounded-lg text-xs font-semibold hover:bg-muted/80 transition-colors">
@@ -1658,15 +1651,16 @@ function AssessmentBuilder() {
           </div>
 
           <div className="space-y-3">
-            <div className="p-4 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
+            <div className="p-3 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
               <div className="space-y-0.5">
-                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                  <Lock className="w-4 h-4 text-primary" />
-                  Lock Sections Sequentially
-                </div>
-                <p className="text-xs text-muted-foreground">
+                <AssessmentSettingHelp name="Lock Sections Sequentially" label={
+                  <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                    <Lock className="w-4 h-4 text-primary" />
+                    Lock Sections Sequentially
+                  </span>
+                }>
                   Candidates may navigate within the current section, but must submit it before the next section unlocks. Submitted sections are read-only.
-                </p>
+                </AssessmentSettingHelp>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -1680,15 +1674,16 @@ function AssessmentBuilder() {
               </label>
             </div>
 
-            <div className="p-4 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
+            <div className="p-3 rounded-xl border border-border bg-card flex items-center justify-between shadow-xs">
               <div className="space-y-0.5">
-                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                  <Lock className="w-4 h-4 text-primary" />
-                  Lock Questions Sequentially
-                </div>
-                <p className="text-xs text-muted-foreground">
+                <AssessmentSettingHelp name="Lock Questions Sequentially" label={
+                  <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-foreground">
+                    <Lock className="w-4 h-4 text-primary" />
+                    Lock Questions Sequentially
+                  </span>
+                }>
                   Show one question at a time. Candidates must save and advance in order; previous questions cannot be revisited. This takes precedence over section locking.
-                </p>
+                </AssessmentSettingHelp>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -1704,13 +1699,15 @@ function AssessmentBuilder() {
           </div>
 
           {store.lockQuestionsSequentially && (
-            <div className="rounded-xl border border-border bg-card p-4">
-              <label htmlFor="question-time-limit" className="block text-sm font-bold text-foreground">
-                Per-question time limit
-              </label>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Optional. When enabled, the student automatically moves to the next question when time expires. The overall assessment timer still submits the attempt at its deadline.
-              </p>
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="flex items-center gap-2">
+                <label htmlFor="question-time-limit" className="block text-sm font-bold text-foreground">
+                  Per-question time limit
+                </label>
+                <AssessmentSettingHelp name="Per-question time limit" align="start">
+                  Optional. When enabled, the student automatically moves to the next question when time expires. The overall assessment timer still submits the attempt at its deadline.
+                </AssessmentSettingHelp>
+              </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <input
                   id="question-time-limit"
@@ -1814,24 +1811,25 @@ function AssessmentBuilder() {
             )
           })}
         </section>
+        </div>
       </div>
 
       {/* Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur-xl border-t border-border px-6 py-3 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] z-40">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+      <footer className="sticky bottom-0 z-30 border-t border-border bg-card/95 shadow-[0_-8px_24px_-20px_rgba(0,0,0,0.5)] backdrop-blur-md">
+        <div className="mx-auto flex max-w-[88rem] flex-wrap items-center justify-between gap-2 px-4 py-1.5 sm:px-5 xl:px-6">
           <button onClick={() => router.push("/admin/assessments")} className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">
             Cancel
           </button>
-          <div className="flex gap-3">
-            <button onClick={() => handlePublish('draft')} disabled={isPublishing} className="px-5 py-2.5 rounded-xl border border-border hover:bg-muted text-sm font-semibold flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <button onClick={() => handlePublish('draft')} disabled={isPublishing} className="min-h-9 px-3.5 py-1.5 rounded-lg border border-border hover:bg-muted text-sm font-semibold flex items-center gap-2">
               <Save className="w-4 h-4" /> Save as Draft
             </button>
-            <button onClick={() => setShowConfirm(true)} disabled={isPublishing} className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-semibold flex items-center gap-2 shadow-md">
+            <button onClick={() => { if (validateAudience()) setShowConfirm(true); }} disabled={isPublishing} className="min-h-9 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-semibold flex items-center gap-2 shadow-md">
               <CheckCircle2 className="w-4 h-4" /> Publish Assessment
             </button>
           </div>
         </div>
-      </div>
+      </footer>
 
       {activePicker && (
         <QuestionPicker sectionId={activePicker} onClose={() => setActivePicker(null)} />

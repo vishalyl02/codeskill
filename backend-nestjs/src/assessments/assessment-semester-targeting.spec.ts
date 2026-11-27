@@ -27,6 +27,8 @@ function createMockService(overrides: {
     andWhere: jest.fn().mockReturnThis(),
     select: jest.fn().mockReturnThis(),
     take: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    addOrderBy: jest.fn().mockReturnThis(),
     getMany: jest.fn().mockResolvedValue(users),
   };
   const userRepo: any = {
@@ -871,13 +873,29 @@ describe('Semester-Wise Assessment System: Targeting & Access Control', () => {
       expect(options.totalStudents).toBe(2);
     });
 
-    it('searches students by name or uid', async () => {
-      const { service } = createMockService({ users: [student1, student2] });
-      const searchRes = await service.searchStudents({ search: 'alice' });
+    it('applies search and active status to both types of student accounts', async () => {
+      const { service, userRepo } = createMockService({ users: [student1] });
+      const searchRes = await service.searchStudents({ search: 'Alice', limit: 10 });
+      const query = userRepo.createQueryBuilder();
 
-      expect(searchRes.success).toBe(true);
-      expect(searchRes.students).toHaveLength(2); // Mocked query builder returns users list, filtered in memory
-      expect(searchRes.students[0].name).toBe('Alice Johnson');
+      expect(query.where).toHaveBeenCalledWith("(u.role = 'student' OR u.isAssessmentStudent = true)");
+      expect(query.andWhere).toHaveBeenCalledWith('u.isActive = true');
+      expect(query.andWhere).toHaveBeenCalledWith(expect.stringContaining('LOWER(u.email)'), { term: '%alice%', search: 'alice' });
+      expect(query.take).toHaveBeenCalledWith(10);
+      expect(searchRes.students.map((student) => student.id)).toEqual(['s1']);
+    });
+
+    it('resolves UID uploads once per exact match and reports missing or ambiguous UIDs', async () => {
+      const { service, userRepo } = createMockService({ users: [student1, student2, { ...student2, id: 's3', uid: '21bcs002' }] });
+      const result = await service.resolveStudentUids({ originalname: 'students.csv', buffer: Buffer.from('UID\n21bcs001\n21BCS001\n21BCS002\nUNKNOWN') } as Express.Multer.File);
+
+      expect(userRepo.createQueryBuilder().andWhere).toHaveBeenCalledWith('LOWER(TRIM(u.uid)) IN (:...uids)', {
+        uids: ['21bcs001', '21bcs002', 'unknown'],
+      });
+      expect(result.students).toEqual([expect.objectContaining({ id: 's1' })]);
+      expect(result.duplicateCount).toBe(1);
+      expect(result.missingUids).toEqual(['UNKNOWN']);
+      expect(result.ambiguousUids).toEqual(['21BCS002']);
     });
 
     it('previews target audience count and access mode accurately', async () => {

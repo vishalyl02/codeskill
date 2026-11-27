@@ -8,9 +8,15 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  HttpCode,
+  HttpStatus,
   Req,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { AssessmentsService } from './assessments.service';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import {
@@ -69,6 +75,18 @@ export class AssessmentsAdminController {
   })
   async searchStudents(@Query() query: any) {
     return this.assessmentsService.searchStudents(query);
+  }
+
+  @Post('resolve-student-uids')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Match assessment assignment UIDs from a CSV or Excel file' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    limits: { fileSize: 1024 * 1024, files: 1 },
+  }))
+  async resolveStudentUids(@UploadedFile() file: Express.Multer.File) {
+    return this.assessmentsService.resolveStudentUids(file);
   }
 
   @Post('preview-target-audience')
