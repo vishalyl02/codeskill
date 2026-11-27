@@ -748,6 +748,24 @@ export const adminQuestionBanksAPI = {
   delete: (id: string) => api.delete(`/admin/question-banks/${id}`),
 };
 
+export interface AssessmentTargetStudent {
+  id: string;
+  name: string;
+  email: string;
+  uid: string;
+}
+
+interface AssessmentStudentSearchResult {
+  students: AssessmentTargetStudent[];
+}
+
+export interface AssessmentUidMatches {
+  students: AssessmentTargetStudent[];
+  missingUids: string[];
+  ambiguousUids: string[];
+  duplicateCount: number;
+}
+
 export const adminAssessmentsAPI = {
   getAll: (params?: { status?: string; search?: string }) =>
     api.get("/admin/assessments", { params }),
@@ -759,7 +777,14 @@ export const adminAssessmentsAPI = {
     year?: string;
     batch?: string;
     limit?: number;
-  }) => api.get("/admin/assessments/students-search", { params }),
+  }, signal?: AbortSignal) => api.get<AssessmentStudentSearchResult | { data: AssessmentStudentSearchResult }>("/admin/assessments/students-search", { params, signal }),
+  resolveStudentUids: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<AssessmentUidMatches>("/admin/assessments/resolve-student-uids", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
   previewTargetAudience: (data: {
     targetSemesters?: string[];
     targetSections?: string[];
@@ -768,7 +793,7 @@ export const adminAssessmentsAPI = {
     targetStudentIds?: string[];
     targetDepartments?: string[];
     targetCourses?: string[];
-  }) => api.post("/admin/assessments/preview-target-audience", data),
+  }, signal?: AbortSignal) => api.post("/admin/assessments/preview-target-audience", data, { signal }),
   getById: (id: string) => api.get(`/admin/assessments/${id}`),
   create: (data: any) => api.post("/admin/assessments", data),
   update: (id: string, data: any) => api.put(`/admin/assessments/${id}`, data),
