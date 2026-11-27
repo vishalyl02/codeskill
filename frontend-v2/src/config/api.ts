@@ -243,6 +243,7 @@ api.interceptors.response.use(
       !originalRequest._retry
     ) {
       const pathname = window.location.pathname;
+      const signInPath = pathname.startsWith("/admin/") ? "/admin/login" : "/login";
       const isAuthPage =
         pathname === "/login" ||
         pathname === "/register" ||
@@ -300,7 +301,7 @@ api.interceptors.response.use(
               pathname === "/problems" ||
               pathname.startsWith("/problems/");
             if (!isPublicPage) {
-              window.location.href = "/login";
+              window.location.href = signInPath;
             }
             return Promise.reject(refreshErr);
           })
@@ -318,7 +319,7 @@ api.interceptors.response.use(
           pathname === "/problems" ||
           pathname.startsWith("/problems/");
         if (!isPublicPage) {
-          window.location.href = "/login";
+          window.location.href = signInPath;
         }
       }
     }

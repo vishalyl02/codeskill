@@ -1,17 +1,25 @@
 import "@testing-library/jest-dom";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import AdminAssessmentsPage from "@/app/admin/assessments/page";
 import AdminAssessmentPreviewPage from "@/app/admin/assessments/[id]/preview/page";
-import { adminAssessmentsAPI } from "@/config/api";
+import { adminAssessmentsAPI, studentAssessmentsAPI } from "@/config/api";
+
+const mockRouter = { push: jest.fn(), replace: jest.fn() };
 
 jest.mock("next/navigation", () => ({
   useParams: () => ({ id: "exam-123" }),
+  useRouter: () => mockRouter,
+}));
+
+jest.mock("@/context/AuthContext", () => ({
+  useAuth: () => ({ user: { id: "admin", isAdmin: true }, loading: false }),
 }));
 
 jest.mock("@/config/api", () => ({
   __esModule: true,
   default: {},
   adminAssessmentsAPI: { getAll: jest.fn(), getById: jest.fn() },
+  studentAssessmentsAPI: { getOverview: jest.fn() },
 }));
 
 jest.mock("@/lib/lockdown-bridge", () => ({
@@ -22,6 +30,11 @@ const assessment = {
   _id: "exam-123",
   title: "Code Test",
   durationMinutes: 30,
+  code: "TEST",
+  status: "published",
+  allowedAttempts: 1,
+  passingMarks: 10,
+  proctoring: { useCamera: false, useMicrophone: false },
   totalMarks: 20,
   instructions: ["Read the questions carefully."],
 };
@@ -53,9 +66,9 @@ it("opens the admin card preview in the current tab", async () => {
   expect(screen.getByRole("button", { name: "Copy Candidate Link" })).toBeInTheDocument();
 });
 
-it("shows the shared setup card for a restricted assessment using the admin API", async () => {
+it.each(["MCQ", "CODING", "MIXED"])("shows the student LockDown setup for %s using the admin API", async (type) => {
   jest.mocked(adminAssessmentsAPI.getById).mockResolvedValue({
-    data: { assessment: { ...assessment, securityPolicy: { secureExamMode: "STANDARD" } } },
+    data: { assessment: { ...assessment, type, securityPolicy: { secureExamMode: "STANDARD" } } },
   });
 
   render(<AdminAssessmentPreviewPage />);
@@ -74,14 +87,51 @@ it("shows the shared setup card for a restricted assessment using the admin API"
   expect(screen.getByText("Return to this page and select Launch in CodeSkill LockDown.")).toBeInTheDocument();
 });
 
-it("shows the read-only briefing for an assessment without LockDown", async () => {
-  jest.mocked(adminAssessmentsAPI.getById).mockResolvedValue({ data: { assessment } });
+it.each(["MCQ", "CODING", "MIXED"])("shows the full student briefing for %s without LockDown", async (type) => {
+  jest.mocked(adminAssessmentsAPI.getById).mockResolvedValue({
+    data: { assessment: { ...assessment, type, questions: [{ id: "q1" }, { id: "q2" }] } },
+  });
 
   render(<AdminAssessmentPreviewPage />);
 
   expect(await screen.findByRole("heading", { name: "Code Test" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Examination Rules & Integrity Notice" })).toBeInTheDocument();
   expect(screen.getByText("Read the questions carefully.")).toBeInTheDocument();
-  expect(screen.queryByText("CodeSkill LockDown required")).not.toBeInTheDocument();
+  expect(screen.getByText("2 Questions")).toBeInTheDocument();
+  expect(screen.getByText("10 pts")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /sign in/i })).not.toBeInTheDocument();
+  expect(studentAssessmentsAPI.getOverview).not.toHaveBeenCalled();
+
+  const begin = screen.getByRole("button", { name: "Begin Assessment" });
+  expect(begin).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox"));
+  expect(begin).toBeEnabled();
+  fireEvent.click(begin);
+  expect(screen.getByText(/Preview complete/)).toBeInTheDocument();
+  expect(mockRouter.push).not.toHaveBeenCalled();
+});
+
+it("uses the student device-check section and available state for a proctored briefing", async () => {
+  jest.mocked(adminAssessmentsAPI.getById).mockResolvedValue({
+    data: { assessment: { ...assessment, proctoring: { useCamera: true, useMicrophone: true } } },
+  });
+
+  render(<AdminAssessmentPreviewPage />);
+
+  expect(await screen.findByRole("heading", { name: "Camera & microphone check" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Enable camera & microphone" })).toBeInTheDocument();
+  expect(screen.getByText("Available Now")).toBeInTheDocument();
+});
+
+it("shows a draft as closed within the student briefing", async () => {
+  jest.mocked(adminAssessmentsAPI.getById).mockResolvedValue({
+    data: { assessment: { ...assessment, status: "draft" } },
+  });
+
+  render(<AdminAssessmentPreviewPage />);
+
+  expect(await screen.findByRole("heading", { name: "Code Test" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Assessment Closed" })).toBeDisabled();
 });
 
 it("shows the admin API's access refusal without falling back to the student page", async () => {
@@ -91,4 +141,14 @@ it("shows the admin API's access refusal without falling back to the student pag
 
   expect(await screen.findByRole("alert")).toHaveTextContent("Your admin account does not have access");
   expect(screen.getByRole("link", { name: "Back to Assessments" })).toHaveAttribute("href", "/admin/assessments");
+});
+
+it("handles an expired admin session without rendering student sign-in", async () => {
+  jest.mocked(adminAssessmentsAPI.getById).mockRejectedValue({ response: { status: 401 } });
+
+  render(<AdminAssessmentPreviewPage />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Your admin session has expired");
+  expect(screen.queryByRole("link", { name: /sign in/i })).not.toBeInTheDocument();
+  expect(studentAssessmentsAPI.getOverview).not.toHaveBeenCalled();
 });
